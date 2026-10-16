@@ -1,0 +1,35 @@
+README.md
+  s_0103e65d54e481::t_5c45495643ed78 1-95
+"docs/Docket Implementation Plan.md"
+  s_0103e65d54e481::t_7e94d25f9941b5 3-4,9-12,148-149
+"docs/Docket Product Requirements.md"
+  s_0103e65d54e481::t_ea9caebeb45a93 3-4,263,338
+"docs/Docket Technical Design.md"
+  s_ff8ccfa1ec770e::t_c9edfdd2ae9038 3-4,59,64,70-86,115,120,128,137-139,141-143,146-147,152,180-182,243,246-247,285,301,323-324,327,329,336,342-344,350,354,364,372,378,448,470,474,717,724,729,755-756,778,813,817,872,876,878,899-911,921,960,974,990,998,1002,1060-1077
+"docs/Docket Test Plan.md"
+  s_ff8ccfa1ec770e::t_37519fed2c62ba 3-4,32-34,162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ddf2c09a58852f3626a766dc0e2d784c9d7da6f8",
+  "prompts": {},
+  "sessions": {
+    "s_0103e65d54e481": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a01d7ffeX7sZuP0t3Ey6qL",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_ff8ccfa1ec770e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebaa31680ffeVfU2W3CqaopnO6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
