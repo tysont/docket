@@ -109,7 +109,7 @@ def test_guards_can_accept_and_label_templates(persona, cli):
     agenda.parent.mkdir()
     agenda.write_text("# Platform Sync\n\n## Next\n- Review the error budget\n")
     dest = ws / "destinations.yaml"
-    dest.write_text(dest.read_text() + "    capacity: 1\n")
+    dest.write_text(dest.read_text().replace("    path: Syncs\n", "    path: Syncs\n    capacity: 1\n", 1))
     ask(ws)  # a destinations edit stales merge (it reads task stores); merge again
     code, env = cli("ask", "show", q["id"], "--workspace", str(ws))
     assert code == 0, env

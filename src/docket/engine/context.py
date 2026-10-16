@@ -75,9 +75,19 @@ class RunContext:
             if blocked_by is not None:
                 out.append(StageEval(name, impl.kind, "blocked", reason=f"waiting on {blocked_by}"))
                 continue
+            idx = list(STAGE_IMPLS).index(name)
             ev = impl.evaluate(self, up)
+            if hdr.applied_plan and idx < APPLY_INDEX:
+                # TD §5.4: past the apply boundary an upstream stage that no longer matches is read as pinned.
+                from docket.apply.boundary import pinned_eval
+                pinned = None if ev.state == "current" and ev.digest == hdr.pinned.get(name) else \
+                    pinned_eval(self, impl)
+                if pinned is not None:
+                    pinned.extra["fresh_state"] = ev.state
+                    out.append(pinned)
+                    up = pinned
+                    continue
             if ev.state != "current":
-                idx = list(STAGE_IMPLS).index(name)
                 if hdr.applied_plan and idx < APPLY_INDEX:
                     ev.extra["underlying"] = ev.state
                     ev.state, ev.reason = "blocked", "post_apply_change"

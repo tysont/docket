@@ -10,7 +10,10 @@ calendar, messages, journal), plan order within a destination. For each:
 
 A crash at any point resumes from receipts: an applied but unverified
 operation is applied again, which the adapter's idempotence turns into
-``already_present``, and then verified. An integrity refusal (``dest.*``) is
+``already_present`` (kept as ``applied`` when this plan's receipt said so), and
+then verified. Plan operations from scheduling are normalized first
+(``to_operation``): scheduling-only fields are dropped from the adapter call,
+``release`` becomes ``delete`` and ``keep`` writes nothing. An integrity refusal (``dest.*``) is
 recorded with its code and details as outcome ``refused``; an external failure
 as ``failed``. Later operations that do not depend on a refused or failed one
 continue; dependants are reported ``blocked``. Approval and freshness (TD
@@ -25,9 +28,26 @@ from docket.cli.errors import DocketError
 from docket.destinations import ORDER, for_run
 from docket.destinations.base import Operation, Receipt
 
-# Test hooks for crash injection: called with the operation after the write and after the receipt commit.
+# Test hooks for crash injection: called with the operation after the write, after the receipt commit
+# and after the verify commit.
 AFTER_WRITE: Callable[[Operation], None] | None = None
 AFTER_RECEIPT: Callable[[Operation], None] | None = None
+AFTER_VERIFY: Callable[[Operation], None] | None = None
+
+# Planning operations (TD §12.6) carry scheduling fields beside the adapter's; their verbs map onto the
+# calendar verbs (``release`` deletes, ``keep`` has no effect and is receipted as already present).
+PLAN_VERBS = {"release": "delete", "keep": None}
+
+
+def to_operation(raw: dict[str, Any]) -> Operation | None:
+    """The adapter operation for a plan operation, or None for one with no effect (``keep``)."""
+    verb = raw.get("verb")
+    if verb in PLAN_VERBS and PLAN_VERBS[verb] is None:
+        return None
+    body = {k: v for k, v in raw.items() if k in Operation.model_fields}
+    if verb in PLAN_VERBS:
+        body["verb"] = PLAN_VERBS[verb]
+    return Operation.model_validate(body)
 
 
 def ordered(rc: Any, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -49,8 +69,15 @@ def execute(rc: Any, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
         for raw in ordered(rc, ops):
-            op = Operation.model_validate(raw)
+            op = to_operation(raw)
             prior = receipts.existing(db, raw)
+            if op is None:  # a plan ``keep``: nothing to write, recorded so the journal shows it
+                if prior is None or prior["verify_status"] != "verified":
+                    receipts.record(run, raw, "already_present", raw.get("external_id"), True)
+                status[raw["op_id"]] = "already_present"
+                rows.append({"op_id": raw["op_id"], "destination": raw["destination"], "outcome": "already_present",
+                             "verify_status": "verified"})
+                continue
             if prior is not None and prior["verify_status"] == "verified":
                 status[op.op_id] = prior["outcome"]
                 rows.append({"op_id": op.op_id, "destination": op.destination, "outcome": prior["outcome"],
@@ -91,6 +118,8 @@ def execute(rc: Any, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
             vr = dest.verify(op, rec)
             receipts.record(run, raw, outcome, rec.external_id, vr.ok,
                             error=None if vr.ok else {"verify": vr.model_dump()})
+            if AFTER_VERIFY is not None:
+                AFTER_VERIFY(op)
             status[op.op_id] = outcome
             row = {"op_id": op.op_id, "destination": op.destination, "outcome": outcome,
                    "verify_status": "verified" if vr.ok else "unverified"}

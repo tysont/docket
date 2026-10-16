@@ -72,6 +72,8 @@ def advance(ctx: Any, stage: str) -> Result:
                          hint=" ".join(rc.argv("next")), details={"stages": list(rc.workflow.stages)})
     impl = STAGE_IMPLS[stage]
     ev = rc.eval(stage)
+    if ev.state == "current" and stage == "close" and rc.run.header.status == "open" and not ctx.dry_run:
+        _seal(ctx, rc)  # the close artifact was written but the run not sealed (a crash between the two)
     if ev.state == "current":
         step = _compute(ctx, rc)
         return Result({"stage": stage, "status": "current", "changed": False, "digest": ev.digest,
@@ -83,6 +85,19 @@ def advance(ctx: Any, stage: str) -> Result:
         raise _not_ready(rc, ctx, blocker, stage)
     if ev.reason in ("paused", "post_apply_change"):
         raise _not_ready(rc, ctx, ev, stage)
+    from docket.apply.boundary import unacknowledged
+    drift = unacknowledged(rc)
+    if drift:
+        cont = rc.argv("run", "continue")
+        raise StateError("stage.post_apply_change",
+                         "Upstream changed after apply wrote receipts: " +
+                         "; ".join(f"{d['stage']}: {d['why']}" for d in drift) +
+                         ". Inspect it, then finish on the approved plan with the continue command.",
+                         hint=" ".join(cont), next_command=cont, details={"drift": drift})
+    if ctx.dry_run and stage == "close":
+        from docket.close.run import preview_close
+        return Result({"dry_run": True, "stage": stage, "state": ev.state, "digest": ev.digest,
+                       "would": impl.expect, "preview": preview_close(rc)}, f"would run {stage}: {impl.expect}")
     if ctx.dry_run:
         return Result({"dry_run": True, "stage": stage, "state": ev.state, "digest": ev.digest,
                        "would": impl.expect}, f"would run {stage}: {impl.expect}")
@@ -92,9 +107,7 @@ def advance(ctx: Any, stage: str) -> Result:
     data = impl.execute(rc, ev, up)
     impl.finish(rc, ev, data)
     if stage == "close":
-        with rc.run.store.db:
-            rc.run.set_status("sealed")
-            rc.run.store.db.execute("DELETE FROM leases WHERE run_id=?", (rc.run.id,))
+        _seal(ctx, rc)
     rc.invalidate()
     issued = _auto_issue(rc)
     step = _compute(ctx, rc)
@@ -103,13 +116,22 @@ def advance(ctx: Any, stage: str) -> Result:
                   f"{stage} done\n{step_summary(step)}", next=_step_next(step))
 
 
+def _seal(ctx: Any, rc: Any) -> None:
+    with rc.run.store.db:
+        rc.run.set_status("sealed")
+        rc.run.store.db.execute("DELETE FROM leases WHERE run_id=?", (rc.run.id,))
+    rc.invalidate()
+
+
 _STAGE_EFFECT = {
     "collect": ["reads configured sources", "writes blobs, gen-<n> record indexes and the collect artifact",
                 "writes cursor proposals (applied at close)"],
     "merge": ["writes the merge artifact"],
     "plan": ["writes plan/<digest>/plan.json and diff.md and the plan artifact"],
     "apply": ["writes to destinations (sandbox twins in a --sandbox run)", "writes receipts"],
-    "close": ["advances cursors (not in a --sandbox run)", "writes dispositions and journal.md", "seals the run"],
+    "close": ["advances cursors (not in a --sandbox run)", "writes dispositions and ledgers",
+              "writes journal.md and the journal destination when configured", "runs after_close hooks",
+              "seals the run"],
 }
 
 

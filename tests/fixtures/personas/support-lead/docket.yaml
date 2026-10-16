@@ -134,6 +134,22 @@ destinations:
       imperative: { deny: [fyi, maybe], default_verb: "Look into" }
       max_length: 90
 
+journal:
+  title: "Shift log {run.date}"
+  sections:
+    - heading: Queues read
+      template: "{#sources}- {id}: {outcome}, {records} record(s)\n{/sources}"
+    - heading: Taken
+      template: "{#operations}- {line} [{outcome}]\n{/operations}"
+    - heading: Decisions
+      template: "{#dispositions}- {topic}: {decision}{?destination} to {destination}{/destination}\n{/dispositions}"
+    - heading: Not asked
+      template: "{#not_asked}- {title}\n{/not_asked}"
+      skip_empty: true
+    - heading: Unexpected shapes
+      template: "{#unexpected}- {area} / {detail}: {reading}\n{/unexpected}"
+      skip_empty: true
+
 signals:
   scoring: { floor: 40 }
   # Queue work: tickets and pages are assessed by their fields; only low-priority tickets

@@ -28,7 +28,7 @@ from docket.cli.envelope import Result
 from docket.cli.errors import DocketError, InputError, IntegrityError, StateError
 from docket.cli.registry import Arg, command
 
-_KEYS = ("option", "action", "overrides", "digest", "merged_into")
+_KEYS = ("option", "action", "overrides", "digest", "destinations", "merged_into")
 
 
 def _questions(rc: Any) -> list[tuple[Any, dict[str, Any], dict[str, Any] | None]]:
@@ -86,6 +86,9 @@ def cmd_ask_show(ctx: Any, ns: Any) -> Result:
 def _find(rc: Any, ctx: Any, qid: str) -> tuple[Any, dict[str, Any], dict[str, Any] | None]:
     match = next(((ev, q, a) for ev, q, a in _questions(rc) if q["id"] == qid), None)
     if match is None:
+        if qid == "approve" and "approve" in rc.workflow.stages and not rc.run.header.applied_plan:
+            from docket.apply.approve import check_unreachable
+            check_unreachable(rc, dry_run=ctx.dry_run)  # a plan stale because a destination changed (TD §13.2)
         blocker = rc.first_pending()
         if blocker is not None and blocker.name not in ("decide", "approve") and \
                 any(s in rc.workflow.stages for s in ("decide", "approve")):
@@ -215,18 +218,10 @@ def _normalize(rc: Any, ctx: Any, s: Session, qid: str, option_text: str, raw: d
     if q.get("subject"):
         answer["subject"] = q["subject"]
     if q["kind"] == "approve":
-        if not digest_arg:
-            raise InputError("input.missing_digest", "Approving a plan requires --digest with the plan digest.",
-                             hint=" ".join(rc.argv("ask", "answer", "approve", opt["id"], "--digest", q["digest"])))
-        if digest_arg != q["digest"]:
-            raise IntegrityError("approve.digest_mismatch",
-                                 "The digest does not match the current plan; the plan changed since it was shown.",
-                                 hint=" ".join(rc.argv("next")),
-                                 details={"expected": q["digest"], "received": digest_arg,
-                                          "diff_path": q.get("diff_path")},
-                                 next_command=rc.argv("next"))
-        answer = {"option": opt["id"], "action": opt.get("action"), "overrides": ov, "input": str(option_text),
-                  "digest": digest_arg}
+        from docket.apply.approve import bind
+        answer = bind(rc, q, opt["id"], digest_arg,
+                      {"option": opt["id"], "action": opt.get("action"), "overrides": ov, "input": str(option_text)},
+                      dry_run=ctx.dry_run)  # TD §13.1, §13.2
     echo = {k: v for k, v in answer.items() if k != "subject"}
     if "est" in ov:
         echo["est_normalized"] = format_duration(ov["est"])
@@ -324,6 +319,10 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
         return Result({"dry_run": True, **data}, "\n".join("would record " + _row_text(r) for r in rows))
     ctx.acquire(rc)
     rc.run.write_answers(s.answers)
+    appr = s.answers.get("approve")
+    if any(r["q"]["kind"] == "approve" for r in rows) and isinstance(appr, dict) and appr.get("option") == "yes":
+        from docket.apply.approve import record
+        record(rc, appr["digest"], appr)
     rc.invalidate()
     rc.materialize()
     step = _compute(ctx, rc)

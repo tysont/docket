@@ -142,6 +142,11 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "input.bad_merge": ("input", False, "--merge-with names no other finding question, or one that already absorbs "
                         "others."),
     "input.unknown_forum": ("input", False, "--forum names no forum of the profile; details.forums lists them."),
+    # --- M8 apply and close ---
+    "apply.stale_inputs": ("integrity", True, "A destination the plan touches changed since the plan was built; "
+                           "details.destinations names each change. Rebuild the plan and approve again."),
+    "hook.failed": ("external", True, "A hook under the fail policy exited non-zero, timed out or could not start; "
+                    "details carry its exit status and log path."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

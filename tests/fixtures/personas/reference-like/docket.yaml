@@ -1,7 +1,7 @@
 # Reference-like persona: a people manager with chat, mail and a Markdown backlog.
 # All names, handles and data are invented.
 version: 1
-includes: [profile.yaml, sources.yaml, signals.yaml, destinations.yaml, planning.yaml]
+includes: [profile.yaml, sources.yaml, signals.yaml, destinations.yaml, planning.yaml, journal.yaml]
 presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic, options/standard]
 
 workflows:

@@ -65,7 +65,8 @@ def merge_extra(rc: "RunContext") -> dict[str, Any]:
 
 def dispositions(store: Any) -> list[dict[str, Any]]:
     rows = [dict(r) for r in store.db.execute(
-        "SELECT topic_id, decision, run_id, item, until, note FROM dispositions ORDER BY topic_id")]
+        "SELECT topic_id, decision, run_id, item, until, note, destination, op_id, outcome FROM dispositions "
+        "ORDER BY topic_id")]
     instants: dict[str, str | None] = {}
     for r in rows:
         rid = r.get("run_id")

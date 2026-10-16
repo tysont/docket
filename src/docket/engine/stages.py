@@ -24,13 +24,13 @@ replaces the delegated stubs with real agent tasks (``docket.tasks``).
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel
 
 from docket.cli.errors import ExternalError
+from docket.close.journal import JOURNAL_TEMPLATE  # noqa: F401  (the built-in journal layout, M8)
 from docket.config import contexts
 from docket.config.defaults import DEFAULT_SECTION, DEFAULT_TASK_LINE
 from docket.config.digest import digest, pretty_json
@@ -212,8 +212,14 @@ class CollectStage(BaseStage):
         return super().step(run)
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
+        from docket.close.hooks import run_event
+        from docket.sources.generations import current_generation
         from docket.sources.stage import execute_collect
-        return execute_collect(run)
+        data = execute_collect(run)
+        hooks = run_event(run, "after_collect", scope=f"gen-{current_generation(run)}")  # TD §13.6
+        if hooks:
+            data["hooks"] = [h.brief() for h in hooks]
+        return data
 
 
 # --- delegated stages --------------------------------------------------------
@@ -372,9 +378,9 @@ def ask_step(run: "RunContext", stage: str, questions: list[dict[str, Any]], why
             argv = run.argv("ask", "answer", q["id"], o["id"], *((extra_args or {}).get(o["id"], [])))
             opts.append(AskOption(id=o["id"], label=o["label"], position=i, action=o.get("action"),
                                   answer=Command.of(argv)))
-        details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "block_key",
-                                                        "task_id", "evidence", "refused", "notes", "previous",
-                                                        "requires", "defaults") and v not in (None, [], {})}
+        details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "counts",
+                                                        "block_key", "task_id", "evidence", "refused", "notes",
+                                                        "previous", "requires", "defaults") and v not in (None, [], {})}
         out.append(AskQuestion(id=q["id"], kind=q["kind"], prompt=q["prompt"], options=opts, details=details))
     pattern = " ".join(run.argv("ask", "answer", "<question-id>", "<option>"))
     return AskStep(stage=stage, questions=out, answer=pattern, why=why)
@@ -404,6 +410,10 @@ class PlanStage(BaseStage):
     def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
         from docket.plan.build import input_digests, planning_active
         extra = input_digests(run) if up is not None and up.output is not None and planning_active(run) else None
+        from docket.apply.freshness import rebuild_token
+        token = rebuild_token(run)  # M8: an approval refused for stale destinations stales the plan (TD §13.2)
+        if token is not None:
+            extra = {"planning": extra, "rebuild": token}
         return self.computational_eval(run, up, extra=extra)
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
@@ -418,9 +428,12 @@ class PlanStage(BaseStage):
         }
         if planning_active(run):  # M7: schedule open tasks and add calendar operations (TD §12)
             return self.execute_planning(run, plan, up)
+        from docket.apply import freshness
+        snaps = freshness.attach(run, plan)  # M8: inputs.destinations (TD §13.2)
         pd = digest(plan)
         pdir = run.run.paths.plan(pd)
         write_atomic(pdir / "plan.json", pretty_json(plan))
+        freshness.save(pdir, snaps)
         diff = [f"# Plan {pd[:12]}", ""] + [_op_line(o) for o in ops]
         if not ops:
             diff.append("- No operations.")
@@ -433,9 +446,12 @@ class PlanStage(BaseStage):
         from zoneinfo import ZoneInfo
         from docket.plan.build import extend_plan, render_diff
         built = extend_plan(run, plan, up.output, up.output_digest)
+        from docket.apply import freshness
+        snaps = freshness.attach(run, plan)  # M8: inputs.destinations (TD §13.2)
         pd = digest(plan)
         pdir = run.run.paths.plan(pd)
         write_atomic(pdir / "plan.json", pretty_json(plan))
+        freshness.save(pdir, snaps)
         write_atomic(pdir / "diff.md", render_diff(plan, pd, ZoneInfo(run.run.header.clock.timezone)))
         return {"plan_digest": pd, "operations": plan["operations"], "outcomes": plan["outcomes"],
                 "diff": pdir.relative_to(run.run.dir).as_posix() + "/diff.md",
@@ -472,9 +488,15 @@ class ApproveStage(BaseStage):
         pd = up.output["plan_digest"]
         n = len(up.output["operations"])
         diff = str(run.run.dir / up.output["diff"])
+        counts: dict[str, int] = {}
+        for op in up.output["operations"]:
+            counts[op["destination"]] = counts.get(op["destination"], 0) + 1
+        per = ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
         return {
             "id": "approve", "kind": "approve", "digest": pd, "diff_path": diff, "operations": n,
-            "prompt": f"Approve the plan ({n} operation(s), digest {pd[:12]})? Show the operator {diff} first.",
+            "counts": dict(sorted(counts.items())),
+            "prompt": f"Approve the plan ({n} operation(s){': ' + per if per else ''}; digest {pd[:12]})? "
+                      f"Show the operator {diff} first.",
             "options": [{"id": "yes", "label": "Approve", "action": "approve"},
                         {"id": "no", "label": "Reject", "action": "reject"}],
         }
@@ -534,11 +556,9 @@ class ApplyStage(BaseStage):
         return super().step(run)
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
-        from docket.apply import executor
+        from docket.apply import boundary, executor
         hdr = run.run.header
-        if hdr.applied_plan != up.output["plan_digest"]:
-            hdr.applied_plan = up.output["plan_digest"]
-            run.run.save_header()
+        boundary.pin(run, up.output["plan_digest"])  # TD §5.4: from here the run never goes backward
         rows = executor.execute(run, up.output["operations"])
         data = {"plan_digest": up.output["plan_digest"], "sandbox": hdr.sandbox, "receipts": rows}
         failed = [r for r in rows if r["outcome"] == "failed"]
@@ -549,97 +569,25 @@ class ApplyStage(BaseStage):
                                 f"{len(failed)} operation(s) failed; first: {first.get('message', 'unknown error')}",
                                 hint=" ".join(run.argv("apply")), retryable=True, next_command=run.argv("apply"),
                                 details={"failed": failed, "receipts": len(rows)})
+        from docket.close.hooks import run_event
+        hooks = run_event(run, "after_apply")  # TD §13.6; a fail-policy failure leaves apply to retry
+        if hooks:
+            data["hooks"] = [h.brief() for h in hooks]
         return data
 
 
-# --- close -----------------------------------------------------------------
-
-JOURNAL_TEMPLATE = """# Docket journal: {run.id}
-
-Workflow {run.workflow} for {run.date}{?run.sandbox} (sandbox run){/run.sandbox}.
-
-## Sources
-{#sources}- {id}: {outcome} ({records} records)
-{/sources}
-## Findings asked
-{#findings}- {question_id}: {title}
-{/findings}
-## Answers
-{#answers}- {question_id}: {option}
-{/answers}
-## Operations
-{#operations}- {destination}: {line} [{outcome}]
-{/operations}
-## Not asked
-{#not_asked}- {title}
-{/not_asked}
-## Unexpected shapes
-{#unexpected}- {area} / {detail}: {reading} (extend: {extend})
-{/unexpected}"""
-
+# --- close ---------------------------------------------------------------
 
 class CloseStage(BaseStage):
+    """Cursors, dispositions, ledgers, the journal and hooks, each step receipted (``docket.close.run``)."""
     name = "close"
     config_sections = ("journal", "hooks", "sources")
     command = ("close",)
-    expect = "cursors advanced, journal.md written and the run sealed"
+    expect = "cursors advanced, dispositions and ledgers written, journal.md written, hooks run and the run sealed"
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
-        r = run.run
-        db = r.store.db
-        from docket.sources.cursors import apply_proposals
-        moved: dict[str, list[Any]] = {"advanced": [], "held": [], "regressions": []}
-        with db:
-            if not r.header.sandbox:
-                moved = apply_proposals(db, r.id)
-            dec = run.eval_or_none("decide")
-            if dec is not None and dec.output:
-                for qid, ans in sorted(dec.output["answers"].items()):
-                    if ans.get("action") in ("dismiss", "watch", "done"):
-                        item = qid[2:]
-                        db.execute("INSERT OR REPLACE INTO dispositions (topic_id, decision, run_id, item, until, note) "
-                                   "VALUES (?,?,?,?,?,?)", (item, ans["action"], r.id, item, None,
-                                                           (ans.get("overrides") or {}).get("note")))
-        journal = self.render_journal(run)
-        write_atomic(r.paths.journal, journal)
-        return {"cursors_advanced": moved["advanced"], "cursors_held": moved["held"],
-                "cursor_regressions": moved["regressions"], "journal": "journal.md",
-                "sealed": True, "sandbox": r.header.sandbox}
-
-    def render_journal(self, run: "RunContext") -> str:
-        r = run.run
-        col = run.eval_or_none("collect")
-        dec = run.eval_or_none("decide")
-        app = run.eval_or_none("apply")
-        sources = [{"id": k, **v} for k, v in sorted(((col.output or {}).get("sources") or {}).items())] if col else []
-        findings, answers, not_asked = [], [], []
-        if dec is not None and dec.output:
-            titles = {f["question_id"]: f["item"].get("title", "") for f in dec.output["findings"]}
-            findings = [{"question_id": q, "title": t} for q, t in titles.items()]
-            answers = [{"question_id": q, "option": a["option"], "title": titles.get(q, "")}
-                       for q, a in sorted(dec.output["answers"].items())]
-            not_asked = dec.output.get("not_asked", [])
-        ops = []
-        if app is not None and app.output:
-            outcomes = {x["op_id"]: x["outcome"] for x in app.output["receipts"]}
-            appr = run.eval_or_none("approve")
-            for o in (appr.output or {}).get("operations", []) if appr else []:
-                ops.append({**o, "outcome": outcomes.get(o["op_id"], "pending")})
-        unexpected_rows = []
-        if r.paths.unexpected.is_file():
-            seen = set()
-            for ln in r.paths.unexpected.read_text(encoding="utf-8").splitlines():
-                row = json.loads(ln)
-                key = (row["area"], row["detail"])
-                if key not in seen:
-                    seen.add(key)
-                    unexpected_rows.append(row)
-        ctx = {
-            "run": {"id": r.id, "date": r.header.clock.date, "workflow": r.header.workflow, "sandbox": r.header.sandbox},
-            "sources": sources, "findings": findings, "answers": answers, "operations": ops,
-            "not_asked": not_asked, "unexpected": unexpected_rows,
-        }
-        return templates.render(JOURNAL_TEMPLATE, ctx) + "\n"
+        from docket.close.run import execute_close
+        return execute_close(run)
 
 
 STAGE_IMPLS: dict[str, BaseStage] = {
