@@ -1,0 +1,15 @@
+# A calendar behind a local bridge program speaking the exec protocol
+# (JSON lines on stdin and stdout). The workspace sets the program and the
+# calendar id. Blocks carry an ownership marker in their notes; titles on this
+# shared calendar are redacted.
+destinations:
+  calendar:
+    adapter: calendar_exec
+    visibility: shared
+    marker: "[docket:{key}]"
+    title_template: "{title}"
+    notes_template: "{note}"
+    timeout_s: 20
+    redact:
+      people: true
+      figures: ['\$\d[\d,.]*[kKmMbB]?']

@@ -1,0 +1,14 @@
+# Meeting agendas in Markdown: one file per forum under a directory, with a
+# capacity-limited section for the next meeting. Other sections, including
+# dated history, are kept as they are. The workspace sets the directory path,
+# or lists an agenda path per forum (profile.forums[].agenda).
+destinations:
+  agendas:
+    adapter: markdown_agenda
+    visibility: shared
+    pattern: "*.md"
+    section: "## Next"
+    capacity: 6
+    line_template: "- {title}"
+    redact:
+      people: false

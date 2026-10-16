@@ -41,7 +41,7 @@ DESTINATION_ADAPTERS: dict[str, frozenset[str]] = {
     "calendar_mcp": frozenset({"calendar.place"}),
     "message_mcp": frozenset({"message.draft"}),
 }
-IMPLEMENTED_ADAPTERS = frozenset({"markdown_tasks"})
+IMPLEMENTED_ADAPTERS = frozenset(DESTINATION_ADAPTERS)
 
 ACTIONS = ("task.add", "agenda.add", "calendar.place", "message.draft", "now", "done", "watch", "dismiss")
 ACTION_NEEDS_DESTINATION = {"task.add", "agenda.add", "calendar.place", "message.draft"}
@@ -167,6 +167,40 @@ class Decisions(Strict):
     verify: dict[str, Any] = {}
 
 
+class GrammarConfig(Strict):
+    """The task-line grammar (TD §11.3); unset keys take ``docket.text.grammar.Grammar`` defaults."""
+    open: str | None = None
+    done: list[str] | None = None
+    fields: Literal["bracket", "inline", "delimited"] | None = None
+    separator: str | None = None
+    assign: str | None = None
+
+
+class ImperativeRule(Strict):
+    deny: list[str] = []
+    default_verb: str | None = None
+
+
+class QualityConfig(Strict):
+    """Task quality rules (TD §11.5). ``defaults`` fills a missing required field; ``due`` accepts ``+Nd``."""
+    imperative: ImperativeRule | None = None
+    max_length: int | None = None
+    require: list[str] = []
+    defaults: dict[str, str] = {}
+    evidence: Literal["required", "optional"] = "optional"
+
+
+class RedactConfig(Strict):
+    """Redaction for a shared destination (TD §11.4)."""
+    people: bool = False
+    figures: list[str] = []
+    classes: dict[str, str] = {}
+    class_field: str | None = None
+    entity: str | None = None
+    person: str | None = None
+    figure: str | None = None
+
+
 class Destination(Strict):
     adapter: str
     description: str | None = None
@@ -174,9 +208,23 @@ class Destination(Strict):
     path: str | None = None
     section: str | None = None
     line_template: str | None = None
-    quality: dict[str, Any] | None = None
+    quality: QualityConfig | None = None
     marker: str | None = None
     policy: dict[str, Any] | None = None
+    # --- M6 destinations ---
+    grammar: GrammarConfig | None = None
+    sections: dict[str, str] = {}
+    carry_field: str | None = None
+    capacity: int | None = None
+    pattern: str | None = None
+    calendar: str | None = None
+    title_template: str | None = None
+    notes_template: str | None = None
+    program: list[str] | None = None
+    env: list[str] = []
+    timeout_s: float | None = None
+    tools: dict[str, str] = {}
+    redact: RedactConfig | None = None
 
 
 # --- top level -------------------------------------------------------------

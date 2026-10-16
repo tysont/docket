@@ -1,0 +1,11 @@
+# A calendar kept in an ICS file: read for availability, written for testing
+# and for systems that import ICS. The workspace sets the file path.
+destinations:
+  calendar:
+    adapter: calendar_file
+    visibility: shared
+    marker: "[docket:{key}]"
+    title_template: "{title}"
+    notes_template: "{note}"
+    redact:
+      people: true

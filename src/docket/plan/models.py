@@ -1,21 +1,11 @@
-"""Plan artifact models (TD §12.6). M1 plans carry task-line operations only."""
+"""Plan artifact models (TD §12.6)."""
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel
 
-
-class Operation(BaseModel):
-    """A fully concrete change. ``op_id`` is a digest of destination, verb, anchor and payload."""
-    op_id: str
-    destination: str
-    verb: str
-    path: str
-    anchor: str
-    line: str
-    question_id: str | None = None
-    item_id: str | None = None
+from docket.destinations.base import Operation  # the concrete operation model (TD §11.1)
 
 
 class Plan(BaseModel):

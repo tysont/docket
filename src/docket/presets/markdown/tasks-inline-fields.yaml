@@ -1,7 +1,20 @@
-# A Markdown task list whose lines carry inline fields (key:: value).
+# A Markdown task list whose lines carry bracketed inline fields ([key:: value]).
+# The workspace sets the file path. Tiers are headings; quality rules are a
+# denylist plus a safe default, never an allowlist.
 destinations:
   backlog:
     adapter: markdown_tasks
     visibility: private
     section: "## Inbox"
+    sections:
+      inbox: "## Inbox"
+      someday: "## Someday"
+    grammar:
+      open: "- [ ] "
+      done: ["- [x] ", "- [X] "]
+      fields: bracket
+    carry_field: carry
     line_template: "- [ ] {title} [source:: {source}]{?due} [due:: {due}]{/due}{?est} [est:: {est|duration}]{/est}"
+    quality:
+      imperative: { deny: [fyi, note, maybe, consider], default_verb: "Follow up on" }
+      max_length: 200

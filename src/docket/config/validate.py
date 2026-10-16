@@ -231,6 +231,53 @@ def _check_regex(loaded: Loaded, rx: Any, path: Path_, out: list[Issue]) -> None
         out.append(_issue(loaded, "config.bad_regex", f"{dotted(path)}: {e}", path, 3))
 
 
+def _check_destination(loaded: Loaded, dname: str, dest: dict, out: list[Issue]) -> None:
+    """Destination templates, marker, grammar, redaction patterns and adapter requirements (TD §11)."""
+    from docket.destinations import sites
+    base = ("destinations", dname)
+    adapter = dest.get("adapter") if isinstance(dest.get("adapter"), str) else ""
+    line_site = sites.line_site(adapter) or contexts.TASK_LINE
+    _check_template(loaded, dest.get("line_template"), line_site, base + ("line_template",), out)
+    text_site = sites.text_site(adapter)
+    for key in ("title_template", "notes_template"):
+        if text_site is not None:
+            _check_template(loaded, dest.get(key), text_site, base + (key,), out)
+    if adapter == "journal":
+        _check_template(loaded, dest.get("section"), sites.JOURNAL_HEADING, base + ("section",), out)
+    marker = dest.get("marker")
+    if isinstance(marker, str):
+        _check_template(loaded, marker, sites.MARKER, base + ("marker",), out)
+        if "{key}" not in marker:
+            out.append(_issue(loaded, "config.bad_template", f"{dotted(base + ('marker',))}: a marker must contain {{key}}",
+                              base + ("marker",), 3))
+    gram = dest.get("grammar")
+    if isinstance(gram, dict):
+        for k in ("open", "separator", "assign"):
+            if k in gram and isinstance(gram[k], str) and not gram[k]:
+                out.append(_issue(loaded, "config.bad_type", f"{dotted(base + ('grammar', k))} must not be empty",
+                                  base + ("grammar", k), 3))
+        if gram.get("fields") == "delimited" and gram.get("separator") is None:
+            out.append(_issue(loaded, "config.missing_key", f"{dotted(base + ('grammar',))}: delimited fields need a separator",
+                              base + ("grammar",), 3))
+    red = dest.get("redact")
+    if isinstance(red, dict):
+        for i, rx in enumerate(red.get("figures") or []):
+            _check_regex(loaded, rx, base + ("redact", "figures", i), out)
+        for cname, tpl in _items(red.get("classes")):
+            _check_template(loaded, tpl, sites.CLASS_TITLE, base + ("redact", "classes", cname), out)
+    cap = dest.get("capacity")
+    if isinstance(cap, int) and not isinstance(cap, bool) and cap < 1:
+        out.append(_issue(loaded, "config.bad_type", f"{dotted(base + ('capacity',))} must be at least 1",
+                          base + ("capacity",), 3))
+    if adapter == "calendar_exec" and not dest.get("program"):
+        out.append(_issue(loaded, "config.missing_key", f"destination {dname!r} of adapter calendar_exec needs a program",
+                          base, 3))
+    need = {"calendar_mcp": ("list",), "message_mcp": ("list", "draft")}.get(adapter, ())
+    for tool in need:
+        if tool not in (dest.get("tools") or {}):
+            out.append(_issue(loaded, "config.missing_key", f"destination {dname!r} needs tools.{tool}", base, 3))
+
+
 def pass_semantics(loaded: Loaded) -> list[Issue]:
     d = loaded.data
     out: list[Issue] = []
@@ -249,7 +296,7 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
 
     for dname, dest in _items(_get(d, "destinations")):
         if isinstance(dest, dict):
-            _check_template(loaded, dest.get("line_template"), contexts.TASK_LINE, ("destinations", dname, "line_template"), out)
+            _check_destination(loaded, dname, dest, out)
     for tname, tpl in _items(_get(d, "decisions", "templates")):
         site = contexts.DECISION_TEMPLATE_SITES.get(tname)
         if site is None:
@@ -321,7 +368,12 @@ def pass_capabilities(loaded: Loaded) -> list[Issue]:
                               ("destinations", dname, "policy", "send"), 4))
 
     def accepts(action: str) -> list[str]:
-        return [n for n, x in dests.items() if action in DESTINATION_ADAPTERS.get(_get(x, "adapter") or "", frozenset())]
+        def ok(x: Any) -> bool:
+            ad = _get(x, "adapter") or ""
+            if ad == "calendar_mcp" and "create" not in (_get(x, "tools") or {}):
+                return False  # an MCP calendar writes only where the preset declares the tool
+            return action in DESTINATION_ADAPTERS.get(ad, frozenset())
+        return [n for n, x in dests.items() if ok(x)]
 
     for wname, wf in _items(_get(d, "workflows")):
         stages = _get(wf, "stages") or []
