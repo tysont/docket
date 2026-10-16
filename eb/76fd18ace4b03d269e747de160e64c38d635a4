@@ -1,0 +1,93 @@
+src/docket/apply/executor.py
+  s_f5cd7978833346::t_a07bb87aebd7e3 1-103
+src/docket/apply/receipts.py
+  s_f5cd7978833346::t_522b3087b44822 11-12,15,30-33,45-46
+src/docket/cli/catalog.py
+  s_f5cd7978833346::t_20364c05bd3f7b 98-109
+src/docket/cli/commands/__init__.py
+  s_f5cd7978833346::t_83cc561611fc13 2
+src/docket/cli/commands/plugin_cmds.py
+  s_f5cd7978833346::t_abfaaaa6296bcb 1-92
+src/docket/config/models.py
+  s_f5cd7978833346::t_f8f3be1c370a4a 44,170-203,211,214-227
+src/docket/config/validate.py
+  s_f5cd7978833346::t_67e2ac26802ff1 234-280,299,371-376
+src/docket/destinations/__init__.py
+  s_f5cd7978833346::t_f1230ec4aaa79d 1-76
+src/docket/destinations/base.py
+  s_f5cd7978833346::t_89310ef4ec8b7d 1-223
+src/docket/destinations/calendar.py
+  s_f5cd7978833346::t_f28a6cf79241c2 1-439
+src/docket/destinations/calendar_exec.py
+  s_f5cd7978833346::t_8eace08b5d18da 1-109
+src/docket/destinations/calendar_file.py
+  s_f5cd7978833346::t_de0156174bc3b5 1-263
+src/docket/destinations/conformance.py
+  s_f5cd7978833346::t_91f0b007ef99c6 1-504
+src/docket/destinations/exec_client.py
+  s_f5cd7978833346::t_ebdd94ca1fb709 1-161
+src/docket/destinations/markdown.py
+  s_f5cd7978833346::t_1c156e37f585e4 1-371
+src/docket/destinations/markdown_io.py
+  s_f5cd7978833346::t_7688f582e209af 1-170
+src/docket/destinations/markdown_tasks.py
+  s_f5cd7978833346::t_a797e8c109f901 1,4,6
+src/docket/destinations/mcp.py
+  s_f5cd7978833346::t_b7adba6ef07c05 1-213
+src/docket/destinations/planning.py
+  s_f5cd7978833346::t_265c5b14618e35 1-58
+src/docket/destinations/quality.py
+  s_f5cd7978833346::t_f21b858da2e630 1-124
+src/docket/destinations/sites.py
+  s_f5cd7978833346::t_edec76c166bfd7 1-31
+src/docket/engine/stages.py
+  s_f5cd7978833346::t_80a06684c752fb 445-452,538-542,544-552,555,560-570
+src/docket/plan/models.py
+  s_f5cd7978833346::t_56055e0244495e 1,8
+src/docket/presets/calendar/exec-bridge.yaml
+  s_f5cd7978833346::t_3ad91682b1dd1d 1-15
+src/docket/presets/calendar/ics-file.yaml
+  s_f5cd7978833346::t_896e53459e72bf 1-11
+src/docket/presets/markdown/agendas.yaml
+  s_f5cd7978833346::t_f13593aa9c9731 1-14
+src/docket/presets/markdown/tasks-inline-fields.yaml
+  s_f5cd7978833346::t_e6ebd41c12d4aa 1-3,9-16,18-20
+src/docket/text/grammar.py
+  s_f5cd7978833346::t_94abcb1226132d 1-210
+src/docket/text/redact.py
+  s_f5cd7978833346::t_079ac7f7ab5760 1-154
+tests/conformance/test_destinations.py
+  s_f5cd7978833346::t_26374cf4be94c0 1-73
+tests/fixtures/bin/calbridge_stub.py
+  s_f5cd7978833346::t_cc3880e2395bb9 1-131
+tests/fixtures/personas/support-lead/docket.yaml
+  s_f5cd7978833346::t_ed18ebf4d4d375 130-134
+tests/scenario/test_apply_destinations.py
+  s_f5cd7978833346::t_a1f030b7eded99 1-201
+tests/unit/destinations/test_calendar.py
+  s_f5cd7978833346::t_f50b5d240c9306 1-199
+tests/unit/destinations/test_destination_config.py
+  s_f5cd7978833346::t_5efd85a885c301 1-87
+tests/unit/destinations/test_markdown.py
+  s_f5cd7978833346::t_3f12f1bc8fcf25 1-246
+tests/unit/text/test_grammar.py
+  s_f5cd7978833346::t_a8409e97e217f0 1-96
+tests/unit/text/test_redact.py
+  s_f5cd7978833346::t_cca43aeafaaad4 1-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "eb76fd18ace4b03d269e747de160e64c38d635a4",
+  "prompts": {},
+  "sessions": {
+    "s_f5cd7978833346": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0c1e75dffeukL1LRDyL5HMZM",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
