@@ -1,0 +1,125 @@
+src/docket/apply/executor.py
+  s_3fc1316cc877ea::t_05ffd1e8623080 1-103
+src/docket/apply/receipts.py
+  s_3fc1316cc877ea::t_39c723c61e7b6b 11-12,15,30-33,45-46
+src/docket/cli/catalog.py
+  s_0103e65d54e481::t_3cdc679f24da6f 80-91
+src/docket/cli/commands/__init__.py
+  s_9aad4c1f2294d8::t_199cf28b806e7a 1
+src/docket/cli/commands/plugin_cmds.py
+  s_9aad4c1f2294d8::t_c50b6aef98ba35 1-92
+src/docket/config/models.py
+  s_3fc1316cc877ea::t_3194303aedae88 41,182-215,223,226-239
+src/docket/config/validate.py
+  s_9aad4c1f2294d8::t_bb747cf1436f32 235-281,300,391-396
+src/docket/destinations/__init__.py
+  s_3fc1316cc877ea::t_9e1e206d82640b 1-76
+src/docket/destinations/base.py
+  s_0103e65d54e481::t_afda23f0209ad2 1-223
+src/docket/destinations/calendar.py
+  s_9aad4c1f2294d8::t_acd8f4b43c8550 1-439
+src/docket/destinations/calendar_exec.py
+  s_9aad4c1f2294d8::t_b2b46e5476371f 1-109
+src/docket/destinations/calendar_file.py
+  s_9aad4c1f2294d8::t_c08598696466e5 1-263
+src/docket/destinations/conformance.py
+  s_9aad4c1f2294d8::t_6a426e43e8996e 1-504
+src/docket/destinations/exec_client.py
+  s_9aad4c1f2294d8::t_cfe7941937e023 1-161
+src/docket/destinations/markdown.py
+  s_9aad4c1f2294d8::t_89f0f4022d8148 1-371
+src/docket/destinations/markdown_io.py
+  s_9aad4c1f2294d8::t_84f5fb09d44ab0 1-170
+src/docket/destinations/markdown_tasks.py
+  s_67388d0a2bc261::t_f29c3e68c7207f 1,4,6
+src/docket/destinations/mcp.py
+  s_0103e65d54e481::t_0c1c4fa09d080e 1-213
+src/docket/destinations/planning.py
+  s_3fc1316cc877ea::t_0abdcdcf0bd08b 1-58
+src/docket/destinations/quality.py
+  s_0103e65d54e481::t_4a9e05fb3dd341 1-124
+src/docket/destinations/sites.py
+  s_67388d0a2bc261::t_e60b8872ba906e 1-31
+src/docket/engine/stages.py
+  s_9aad4c1f2294d8::t_a677531b4dd0dd 474-481,567-571,573-581,584,589-599
+src/docket/plan/models.py
+  s_9aad4c1f2294d8::t_d2fb942d34f9b7 1,8
+src/docket/presets/calendar/exec-bridge.yaml
+  s_9aad4c1f2294d8::t_4a3376cf0e93ab 1-15
+src/docket/presets/calendar/ics-file.yaml
+  s_9aad4c1f2294d8::t_aa3dd8b7c4cb19 1-11
+src/docket/presets/markdown/agendas.yaml
+  s_9aad4c1f2294d8::t_9e7081727a2d5e 1-14
+src/docket/presets/markdown/tasks-inline-fields.yaml
+  s_9aad4c1f2294d8::t_50edfdcf2b0e96 1-3,9-16,18-20
+src/docket/text/grammar.py
+  s_0103e65d54e481::t_0b8b05316d45c3 1-210
+src/docket/text/redact.py
+  s_9aad4c1f2294d8::t_cada22d750174e 1-154
+tests/conformance/test_destinations.py
+  s_9aad4c1f2294d8::t_b761f8de11de0a 1-73
+tests/fixtures/bin/calbridge_stub.py
+  s_720f8551a6eedb::t_c7995718b606f4 1-131
+tests/fixtures/personas/support-lead/docket.yaml
+  s_9aad4c1f2294d8::t_295756f26cb2d1 94-98
+tests/scenario/test_apply_destinations.py
+  s_9aad4c1f2294d8::t_b8ca777da2397e 1-201
+tests/unit/destinations/test_calendar.py
+  s_9aad4c1f2294d8::t_7f7229b5cf03dc 1-199
+tests/unit/destinations/test_destination_config.py
+  s_9aad4c1f2294d8::t_fbd0f9ade40b0d 1-87
+tests/unit/destinations/test_markdown.py
+  s_9aad4c1f2294d8::t_eb1ffd3ace4dde 1-246
+tests/unit/text/test_grammar.py
+  s_0103e65d54e481::t_2ec1b8e0511ded 1-96
+tests/unit/text/test_redact.py
+  s_9aad4c1f2294d8::t_b56c26dc2892a9 1-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "847d0e54952b7299122183b60fe5349d4ab97383",
+  "prompts": {},
+  "sessions": {
+    "s_0103e65d54e481": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a01d7ffeX7sZuP0t3Ey6qL",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_3fc1316cc877ea": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebdcb8bcbffe08rbMK6EuLdpfB",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_67388d0a2bc261": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebd1cd6caffekivitfiTY9Vnm1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_720f8551a6eedb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebd1d80b3ffe3yXhq3vrmeSFJ2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_9aad4c1f2294d8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebd1d286bffe8C9LzjhcCRvwHv",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
