@@ -1,5 +1,5 @@
 """Commands that advance stages (TD §5.3): ``collect``, ``merge``, ``plan build``, ``apply``,
-``close``, plus ``task issue|list|show|submit`` and ``ask list|show|answer``.
+``close``, plus ``task issue|list|show|submit``. The ``ask`` commands are in ``ask_cmds``.
 
 Each command checks that its stage is next (or stale), does the work, and returns
 the following step in ``data.step``. A command for a stage that is already
@@ -13,7 +13,7 @@ from typing import Any
 
 from docket.cli.commands.run_cmds import _guard_mutable, _step_next, step_summary
 from docket.cli.envelope import Result
-from docket.cli.errors import InputError, IntegrityError, StateError
+from docket.cli.errors import InputError, StateError
 from docket.cli.registry import Arg, command
 from docket.config.digest import canonical_json
 
@@ -272,131 +272,4 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
 
 
 # --- questions ---------------------------------------------------------------
-
-
-def _questions(rc: Any) -> list[tuple[Any, dict[str, Any], dict[str, Any] | None]]:
-    """(stage eval, question, current answer) for every question reachable now."""
-    out = []
-    for ev in rc.evaluate():
-        if ev.name == "decide" and "questions" in ev.extra:
-            for q in ev.extra["questions"]:
-                out.append((ev, q, ev.extra["answers"].get(q["id"])))
-        if ev.name == "approve" and "question" in ev.extra:
-            out.append((ev, ev.extra["question"], ev.extra["answer"]))
-    return out
-
-
-@command("ask list", "List the questions reachable now and their answers.", run=True,
-         examples=["docket ask list --json"])
-def cmd_ask_list(ctx: Any, ns: Any) -> Result:
-    rc = ctx.run_context()
-    rows = [{"id": q["id"], "kind": q["kind"], "stage": ev.name, "prompt": q["prompt"],
-             "options": [{"position": i, "id": o["id"], "label": o["label"]} for i, o in enumerate(q["options"], 1)],
-             "answer": a} for ev, q, a in _questions(rc)]
-    return Result({"questions": rows},
-                  "\n".join(f"{r['id']}: {r['prompt']} {'[answered]' if r['answer'] else ''}" for r in rows) or "no questions")
-
-
-@command("ask show", "Show one question with its options and answer.", run=True, args=[Arg("question_id", "Question id.")],
-         examples=["docket ask show q_0123456789abcdef --json"])
-def cmd_ask_show(ctx: Any, ns: Any) -> Result:
-    rc = ctx.run_context()
-    for ev, q, a in _questions(rc):
-        if q["id"] == ns.question_id:
-            opts = "\n".join(f"  {i}. {o['id']}: {o['label']}" for i, o in enumerate(q["options"], 1))
-            return Result({"question": q, "answer": a, "stage": ev.name}, f"{q['id']}: {q['prompt']}\n{opts}")
-    raise InputError("input.unknown_question", f"No question {ns.question_id!r}.", hint="docket ask list")
-
-
-@command("ask answer", "Record an answer. Options resolve by id, label, leading words or position.",
-         run=True, mutating=True,
-         args=[Arg("question_id", "Question id (q_..., or approve)."),
-               Arg("option", "Option id, label, leading words of the label, or 1-based position."),
-               Arg("--due", "Due date: today, tomorrow, a weekday name (next occurrence after the run date), YYYY-MM-DD."),
-               Arg("--est", "Estimate: 45, 45m, 1h, 1.5h, 1h30m."),
-               Arg("--when", "Window: a day, a day with times (thu 13:00-17:00), 'this week', or the title of "
-                             "a calendar event to schedule over."),
-               Arg("--title", "Task title override."),
-               Arg("--note", "Free-text note kept with the answer."),
-               Arg("--digest", "Plan digest; required to approve.")],
-         effects=["writes answers.json"],
-         examples=["docket ask answer q_9a1c task --due monday --est 60 --json",
-                   "docket ask answer approve yes --digest <plan-digest> --json"])
-def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
-    from docket.decide.options import resolve_option
-    from docket.engine.clock import run_date
-    from docket.plan.windows import normalize_when
-    from docket.text.dates import normalize_date
-    from docket.text.durations import format_duration, parse_duration
-    rc = ctx.run_context()
-    match = next(((ev, q, a) for ev, q, a in _questions(rc) if q["id"] == ns.question_id), None)
-    if match is None:
-        blocker = rc.first_pending()
-        if blocker is not None and blocker.name not in ("decide", "approve") and \
-                any(s in rc.workflow.stages for s in ("decide", "approve")):
-            raise _not_ready(rc, ctx, blocker, "ask answer")
-        known = [q["id"] for _, q, _ in _questions(rc)]
-        raise InputError("input.unknown_question", f"No question {ns.question_id!r}.", hint="docket ask list",
-                         details={"known": known[:50]})
-    ev, q, current = match
-    if ev.reason == "paused":
-        raise _not_ready(rc, ctx, ev, "ask answer")
-    opt = resolve_option(ns.option, q["options"], question_id=q["id"])
-    ref = run_date(rc.run.header.clock)
-    overrides: dict[str, Any] = {}
-    if ns.due:
-        overrides["due"] = normalize_date(ns.due, ref)
-    if ns.est:
-        overrides["est"] = parse_duration(ns.est)
-    if ns.when:
-        overrides["when"] = normalize_when(ns.when, ref)
-    if ns.title:
-        overrides["title"] = ns.title
-    if ns.note:
-        overrides["note"] = ns.note
-    answer: dict[str, Any] = {"option": opt["id"], "action": opt.get("action"), "overrides": overrides,
-                              "input": ns.option}
-    if q["kind"] == "approve":
-        if not ns.digest:
-            raise InputError("input.missing_digest", "Approving a plan requires --digest with the plan digest.",
-                             hint=" ".join(rc.argv("ask", "answer", "approve", opt["id"], "--digest", q["digest"])))
-        if ns.digest != q["digest"]:
-            raise IntegrityError("approve.digest_mismatch",
-                                 "The digest does not match the current plan; the plan changed since it was shown.",
-                                 hint=" ".join(rc.argv("next")),
-                                 details={"expected": q["digest"], "received": ns.digest, "diff_path": q.get("diff_path")},
-                                 next_command=rc.argv("next"))
-        answer["digest"] = ns.digest
-    echo = dict(answer)
-    if "est" in overrides:
-        echo["est_normalized"] = format_duration(overrides["est"])
-    preview = None
-    if q["kind"] == "finding":
-        from docket.engine.stages import STAGE_IMPLS
-        item = next((it for it in (rc.upstream("decide").output or {}).get("items", []) if it["id"] == q["item_id"]), None)
-        if item is not None:
-            preview = STAGE_IMPLS["plan"].build_op(rc, q["id"], item, opt, overrides) if "plan" in rc.workflow.stages else None
-    stored = {k: current.get(k) for k in ("option", "action", "overrides", "digest")} if current else None
-    if stored is not None and stored == {k: answer.get(k) for k in ("option", "action", "overrides", "digest")}:
-        step = _compute(ctx, rc)
-        return Result({"question_id": q["id"], "answer": echo, "preview": preview, "changed": False,
-                       "step": step.model_dump()},
-                      f"{q['id']}: unchanged ({opt['id']})\n{step_summary(step)}", next=_step_next(step))
-    _guard_mutable(rc)
-    if rc.run.header.applied_plan:
-        raise StateError("stage.post_apply_change", "Answers cannot change after apply wrote receipts.",
-                         hint="docket run status")
-    if ctx.dry_run:
-        return Result({"dry_run": True, "question_id": q["id"], "answer": echo, "preview": preview},
-                      f"would record {q['id']} = {opt['id']}")
-    ctx.acquire(rc)
-    answers = rc.run.answers()
-    answers[q["id"]] = answer
-    rc.run.write_answers(answers)
-    rc.invalidate()
-    rc.materialize()
-    step = _compute(ctx, rc)
-    return Result({"question_id": q["id"], "answer": echo, "preview": preview, "changed": True,
-                   "step": step.model_dump()},
-                  f"{q['id']} = {opt['id']}" + (f" -> {preview['line']}" if preview else "") +
-                  f"\n{step_summary(step)}", next=_step_next(step))
+# ``ask list|show|answer|undo|resolve`` live in ``docket.cli.commands.ask_cmds`` (M5).

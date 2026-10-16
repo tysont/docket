@@ -2,7 +2,7 @@
 # All names, handles and data are invented.
 version: 1
 includes: [profile.yaml, sources.yaml, signals.yaml, destinations.yaml, planning.yaml]
-presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic]
+presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic, options/standard]
 
 workflows:
   daily:
@@ -33,8 +33,8 @@ workflows:
     description: Plan the next days onto the calendar and show the plan; nothing is applied.
     stages: [collect, assess, merge, decide, plan, close]
     sources: [chat, mail]
-    questions: { kinds: [finding], budget: 3 }
-    options: basic
+    questions: { kinds: [reconcile, finding, verify], budget: 3 }
+    options: standard
 
 decisions:
   templates:

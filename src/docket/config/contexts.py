@@ -10,9 +10,19 @@ from docket.text.templates import FieldSet
 
 _ITEM = ["item_id", "source", "unit", "title", "text", "from", "at", "url", "score", "fields.*"]
 
-TASK_LINE = FieldSet(_ITEM + ["question_id", "due", "est", "when", "note", "area", "run.id", "run.date"])
-OPTION_LABEL = FieldSet(_ITEM + ["due", "est", "when", "forum.name", "forum.id"])
-FINDING_PROMPT = FieldSet(_ITEM + ["forum.name", "forum.id"])
+# M5 decisions: item fields every decision template may also read (TD §10.2).
+_DECIDE = ["area", "topic", "ask", "owner", "kind", "deadline"]
+TASK_LINE = FieldSet(_ITEM + ["question_id", "due", "est", "when", "note", "area", "run.id", "run.date",
+                              "action", "links[]", "forum.name", "forum.id"])
+OPTION_LABEL = FieldSet(_ITEM + _DECIDE + ["due", "est", "when", "forum.name", "forum.id"])
+FINDING_PROMPT = FieldSet(_ITEM + _DECIDE + ["forum.name", "forum.id"])
+_BLOCK = ["block.key", "block.title", "block.start", "block.end", "block.day", "block.minutes",
+          "task.id", "task.title", "task.line", "task.est", "carry", "carried", "carry_limit"]
+RECONCILE = FieldSet(_BLOCK)
+_VERIFY = ["task.id", "task.title", "task.line", "ref", "state", "last_actor", "last_activity", "ref_title",
+           "reason"]
+VERIFY = FieldSet(_VERIFY)
+MERGE_TITLE = FieldSet(["title", "titles[]", "count"])
 JOURNAL = FieldSet([
     "run.id", "run.date", "run.workflow", "run.sandbox",
     "sources[]", "sources[].id", "sources[].outcome", "sources[].records",
@@ -35,4 +45,7 @@ SITES: dict[str, FieldSet] = {
 # decisions.templates.<name> -> context
 DECISION_TEMPLATE_SITES: dict[str, FieldSet] = {
     "finding_prompt": FINDING_PROMPT,
+    "reconcile_prompt": RECONCILE,
+    "verify_prompt": VERIFY,
+    "merge_title": MERGE_TITLE,
 }

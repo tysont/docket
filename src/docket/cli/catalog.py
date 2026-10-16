@@ -136,6 +136,12 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
                                    "(a row code in details.rows)."),
     "task.cross_field": ("input", False, "A result row breaks a cross-field rule of its kind, such as a kept item "
                          "without an owner (a row code in details.rows)."),
+    # --- M5 decisions ---
+    "input.missing_override": ("input", False, "The chosen option needs an override the answer did not give "
+                               "(partly needs --est); the hint is the command with it."),
+    "input.bad_merge": ("input", False, "--merge-with names no other finding question, or one that already absorbs "
+                        "others."),
+    "input.unknown_forum": ("input", False, "--forum names no forum of the profile; details.forums lists them."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

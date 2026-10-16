@@ -179,11 +179,82 @@ class OptionConfig(Strict):
     destination: str | None = None
 
 
+# --- M5 decisions (TD §10) ---
+QUESTION_KINDS = ("reconcile", "finding", "verify")
+
+
+def _decision_duration(v: Any) -> Any:
+    if v is None:
+        return v
+    from docket.text.durations import parse_duration
+    try:
+        parse_duration(v)
+    except Exception:
+        raise ValueError(f"not a duration: {v!r} (use 45, 45m, 1h, 1.5h or 1h30m)") from None
+    return v
+
+
+RECONCILE_OPTIONS = ("done", "partly", "not_done", "rescope", "to_agenda", "drop")
+VERIFY_OPTIONS = ("close", "keep", "update")
+
+
+class ReconcileConfig(Strict):
+    """Reconcile questions (TD §10.4): owned blocks that ended inside ``lookback`` before the run
+    instant. Option kinds are fixed; labels are templates. At ``carry_limit`` carries, ``not_done``
+    gives way to ``rescope``."""
+    carry_limit: int = Field(3, ge=1)
+    lookback: str | int = "3d"
+    labels: dict[str, str] = {}
+
+    @field_validator("lookback")
+    @classmethod
+    def _duration(cls, v: Any) -> Any:
+        return _decision_duration(v)
+
+    @field_validator("labels")
+    @classmethod
+    def _known(cls, v: dict[str, str]) -> dict[str, str]:
+        bad = sorted(set(v) - set(RECONCILE_OPTIONS))
+        if bad:
+            raise ValueError(f"unknown reconcile option(s) {bad}; options are {list(RECONCILE_OPTIONS)}")
+        return v
+
+
+class VerifyConfig(Strict):
+    """Task verification (TD §10.5): open tasks whose references resolve closed, or whose last
+    actor is the operator after the task's date field."""
+    max_per_run: int = Field(10, ge=0)
+    date_field: str = "created"
+    closed_states: list[str] = ["closed", "resolved", "done", "merged", "cancelled", "canceled"]
+    labels: dict[str, str] = {}
+
+    @field_validator("labels")
+    @classmethod
+    def _known(cls, v: dict[str, str]) -> dict[str, str]:
+        bad = sorted(set(v) - set(VERIFY_OPTIONS))
+        if bad:
+            raise ValueError(f"unknown verify option(s) {bad}; options are {list(VERIFY_OPTIONS)}")
+        return v
+
+
+class DecisionDefaults(Strict):
+    """Derived option defaults (TD §10.2). Unset values fall back to the planning policy."""
+    lead_days: int | None = Field(None, ge=0)
+    est: str | int | None = None
+
+    @field_validator("est")
+    @classmethod
+    def _duration(cls, v: Any) -> Any:
+        return _decision_duration(v)
+
+
 class Decisions(Strict):
     option_sets: dict[str, dict[str, list[OptionConfig]]] = {}
     templates: dict[str, str] = {}
-    reconcile: dict[str, Any] = {}
-    verify: dict[str, Any] = {}
+    reconcile: ReconcileConfig = ReconcileConfig()
+    verify: VerifyConfig = VerifyConfig()
+    defaults: DecisionDefaults = DecisionDefaults()
+    order: list[Literal["reconcile", "finding", "verify"]] = ["reconcile", "finding", "verify"]
 
 
 class GrammarConfig(Strict):

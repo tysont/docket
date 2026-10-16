@@ -32,12 +32,11 @@ from pydantic import BaseModel
 
 from docket.cli.errors import ExternalError
 from docket.config import contexts
-from docket.config.defaults import DEFAULT_OPTION_SET, DEFAULT_SECTION, DEFAULT_TASK_LINE
+from docket.config.defaults import DEFAULT_SECTION, DEFAULT_TASK_LINE
 from docket.config.digest import digest, pretty_json
 from docket.engine.steps import (
     AskOption, AskQuestion, AskStep, Command, DispatchStep, RunStep, WaitStep,
 )
-from docket.shapes.unexpected import unexpected
 from docket.store.paths import read_json, write_atomic
 from docket.text import templates
 
@@ -311,68 +310,57 @@ class MergeStage(BaseStage):
 # --- decide ----------------------------------------------------------------
 
 
-def item_context(it: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "item_id": it.get("id"), "source": it.get("source"), "unit": it.get("unit"), "title": it.get("title"),
-        "text": it.get("text"), "from": it.get("from"), "at": it.get("at"), "url": it.get("url"),
-        "score": it.get("score"), "fields": it.get("fields") or {}, "forum": {},
-    }
-
-
 class DecideStage(BaseStage):
+    """M5: questions, options and answers live in ``docket.decide`` (TD §10).
+
+    The stage digest folds in the digest of the questions themselves, so what the planning
+    policy, the calendar, the task store and destination capacity do to questions stales
+    the stage without declaring those sections (a scheduling-only edit leaves it current).
+    """
     name = "decide"
     kind = "interactive"
     config_sections = ("decisions", "profile", "signals", "workflow.questions", "workflow.options")
 
-    def options(self, run: "RunContext") -> list[dict[str, Any]]:
-        sets = run.ws.config.decisions.option_sets
-        name = run.workflow.options or DEFAULT_OPTION_SET
-        chosen = sets.get(name, {}).get("finding")
-        if chosen is None:
-            unexpected("decide.options", f"option set {name} has no finding options",
-                       reading="use the default option set", extend=f"decisions.option_sets.{name}.finding")
-            chosen = sets[DEFAULT_OPTION_SET]["finding"]
-        return [o.model_dump() for o in chosen]
-
     def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
+        from docket.decide.answers import bind
+        from docket.decide.questions import build
         assert up is not None and up.output is not None
-        floor = int(((run.ws.config.signals.get("scoring") or {}).get("floor")) or 0)
-        kept = [it for it in up.output["items"] if it.get("keep") and int(it.get("score") or 0) >= floor]
-        kept.sort(key=lambda it: (-int(it.get("score") or 0), it["id"]))
-        budget = run.workflow.questions.budget
-        asked, not_asked = (kept[:budget], kept[budget:]) if budget is not None else (kept, [])
-        prompt_tpl = templates.parse(run.ws.config.decisions.templates.get("finding_prompt", "{title}"))
-        opts = self.options(run)
-        label_tpls = {o["id"]: templates.parse(o["label"]) for o in opts}
-        questions = []
-        for it in asked:
-            ctx = item_context(it)
-            questions.append({
-                "id": "q_" + it["id"], "kind": "finding", "item_id": it["id"],
-                "prompt": templates.render(prompt_tpl, ctx),
-                "options": [{"id": o["id"], "label": templates.render(label_tpls[o["id"]], ctx),
-                             "action": o["action"], "destination": o.get("destination")} for o in opts],
-            })
-        answers = run.run.answers()
-        relevant = {q["id"]: answers[q["id"]] for q in questions if q["id"] in answers}
+        qs = build(run, list(up.output["items"]))
+        bound, previous = bind(qs.questions, run.run.answers())
+        for q in qs.questions:
+            if q["id"] in previous:
+                q["previous"] = previous[q["id"]]
+        shown = [{k: v for k, v in q.items() if k != "previous"} for q in qs.questions]
         inputs = self.up_input(up)
-        dg, cfg = self.stage_digest(run, inputs, answers=digest(relevant))
-        extra = {"questions": questions, "answers": relevant}
-        if len(relevant) == len(questions):
+        dg, cfg = self.stage_digest(run, inputs, answers=digest(bound),
+                                    extra={"questions": digest(shown), "pending_refs": qs.pending_refs})
+        extra = {"questions": qs.questions, "answers": bound, "previous": previous, "set": qs}
+        if qs.pending_refs:
+            return StageEval(self.name, self.kind, "waiting", dg, "resolve", None, None, cfg, inputs, extra)
+        if len(bound) == len(qs.questions):
             out = {
-                "questions": questions, "answers": relevant,
-                "findings": [{"question_id": "q_" + it["id"], "item": it} for it in asked],
-                "not_asked": [{"item_id": it["id"], "title": it.get("title", "")} for it in not_asked],
+                "questions": shown, "answers": bound, "findings": qs.findings, "reconcile": qs.reconcile,
+                "verify": qs.verify, "not_asked": qs.not_asked,
+                "merged": {k: v["merged_into"] for k, v in sorted(bound.items()) if v.get("merged_into")},
             }
             return StageEval(self.name, self.kind, "current", dg, None, out, digest(out), cfg, inputs, extra)
         return StageEval(self.name, self.kind, "waiting", dg, "answers", None, None, cfg, inputs, extra)
 
     def step(self, run: "RunContext") -> Any:
         ev = run.eval(self.name)
+        if ev.reason == "resolve":
+            refs = ev.extra["set"].pending_refs
+            return RunStep(stage=self.name, command=Command.of(run.argv("ask", "resolve")),
+                           why=f"{len(refs)} task reference(s) must be resolved through their sources before the "
+                               f"questions are asked, so the burst needs no source reads",
+                           expect="decide/resolutions.json with one resolution per reference", timeout_s=120)
         pending = [q for q in ev.extra["questions"] if q["id"] not in ev.extra["answers"]]
-        return ask_step(run, self.name, pending,
-                        why=f"{len(pending)} question(s) need the operator's answer; ask them, then record each "
-                            f"answer with its option's command")
+        reasked = sum(1 for q in pending if q.get("previous"))
+        why = (f"{len(pending)} question(s) need the operator's answer; ask them, then record each answer with its "
+               f"option's command")
+        if reasked:
+            why += f" ({reasked} re-asked because their item changed; each shows its previous answer)"
+        return ask_step(run, self.name, pending, why=why)
 
 
 def ask_step(run: "RunContext", stage: str, questions: list[dict[str, Any]], why: str,
@@ -384,7 +372,9 @@ def ask_step(run: "RunContext", stage: str, questions: list[dict[str, Any]], why
             argv = run.argv("ask", "answer", q["id"], o["id"], *((extra_args or {}).get(o["id"], [])))
             opts.append(AskOption(id=o["id"], label=o["label"], position=i, action=o.get("action"),
                                   answer=Command.of(argv)))
-        details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations")}
+        details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "block_key",
+                                                        "task_id", "evidence", "refused", "notes", "previous",
+                                                        "requires", "defaults") and v not in (None, [], {})}
         out.append(AskQuestion(id=q["id"], kind=q["kind"], prompt=q["prompt"], options=opts, details=details))
     pattern = " ".join(run.argv("ask", "answer", "<question-id>", "<option>"))
     return AskStep(stage=stage, questions=out, answer=pattern, why=why)
@@ -400,23 +390,15 @@ class PlanStage(BaseStage):
     command = ("plan", "build")
     expect = "a plan with its digest under plan/<digest>/ and a diff to show the operator"
 
-    def target_destination(self, run: "RunContext", option: dict[str, Any]) -> str | None:
-        if option.get("destination"):
-            return option["destination"]
-        for name in sorted(run.ws.config.destinations):
-            if run.ws.config.destinations[name].adapter == "markdown_tasks":
-                return name
-        return None
-
     def build_op(self, run: "RunContext", qid: str, item: dict[str, Any], option: dict[str, Any],
                  overrides: dict[str, Any]) -> dict[str, Any] | None:
-        """The operation an answer produces, or None when its action writes nothing.
+        """The first operation a finding answer produces, or None when its action writes nothing.
 
         The destination's own ``preview`` renders it (grammar, quality rules,
-        redaction, ownership); see ``docket.destinations.planning``.
+        redaction, ownership); see ``docket.decide.operations``.
         """
-        from docket.destinations.planning import answer_operations
-        ops = answer_operations(run, qid, item, option, overrides)
+        from docket.decide.operations import finding_ops
+        ops = finding_ops(run, qid, item, option, overrides)
         return ops[0] if ops else None
 
     def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
@@ -425,33 +407,27 @@ class PlanStage(BaseStage):
         return self.computational_eval(run, up, extra=extra)
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
+        from docket.decide.operations import plan_operations
         from docket.plan.build import planning_active
-        out = up.output
-        qs = {q["id"]: q for q in out["questions"]}
-        items = {f["question_id"]: f["item"] for f in out["findings"]}
-        ops = []
-        for qid in sorted(out["answers"]):
-            ans = out["answers"][qid]
-            opt = next((o for o in qs[qid]["options"] if o["id"] == ans["option"]), {})
-            op = self.build_op(run, qid, items[qid], opt, ans.get("overrides") or {})
-            if op is not None:
-                ops.append(op)
-        ops.sort(key=lambda o: (o["destination"], o["op_id"]))
+        mapped = plan_operations(run, up.output)  # M5: every answer kind (TD §10.3)
+        ops = sorted(mapped["operations"], key=lambda o: (o["destination"], o["op_id"]))
         plan = {
             "inputs": {"decide": up.output_digest, "config_digest": ev.config_digest},
-            "operations": ops, "schedule": [], "unschedulable": [], "notes": [],
+            "operations": ops, "schedule": [], "unschedulable": [], "notes": list(mapped["notes"]),
+            "outcomes": mapped["outcomes"],
         }
         if planning_active(run):  # M7: schedule open tasks and add calendar operations (TD §12)
             return self.execute_planning(run, plan, up)
         pd = digest(plan)
         pdir = run.run.paths.plan(pd)
         write_atomic(pdir / "plan.json", pretty_json(plan))
-        diff = [f"# Plan {pd[:12]}", ""] + [f"- {o['destination']} ({o['path']} under {o['anchor']}): add `{o['line']}`"
-                                           for o in ops]
+        diff = [f"# Plan {pd[:12]}", ""] + [_op_line(o) for o in ops]
         if not ops:
             diff.append("- No operations.")
+        diff += _outcome_lines(plan)
         write_atomic(pdir / "diff.md", "\n".join(diff) + "\n")
-        return {"plan_digest": pd, "operations": ops, "diff": pdir.relative_to(run.run.dir).as_posix() + "/diff.md"}
+        return {"plan_digest": pd, "operations": ops, "outcomes": plan["outcomes"],
+                "diff": pdir.relative_to(run.run.dir).as_posix() + "/diff.md"}
 
     def execute_planning(self, run: "RunContext", plan: dict[str, Any], up: StageEval) -> dict[str, Any]:
         from zoneinfo import ZoneInfo
@@ -461,10 +437,27 @@ class PlanStage(BaseStage):
         pdir = run.run.paths.plan(pd)
         write_atomic(pdir / "plan.json", pretty_json(plan))
         write_atomic(pdir / "diff.md", render_diff(plan, pd, ZoneInfo(run.run.header.clock.timezone)))
-        return {"plan_digest": pd, "operations": plan["operations"],
+        return {"plan_digest": pd, "operations": plan["operations"], "outcomes": plan["outcomes"],
                 "diff": pdir.relative_to(run.run.dir).as_posix() + "/diff.md",
                 "planning": {"blocks": len(plan["schedule"]), "unschedulable": len(plan["unschedulable"]),
                              "calendar_operations": len(built.ops)}}
+
+
+def _op_line(o: dict[str, Any]) -> str:
+    if o.get("verb") == "replace":
+        return f"- {o['destination']} ({o['path']} under {o['anchor']}): change `{o.get('old_line', '')}` to `{o['line']}`"
+    if o.get("verb") == "draft":
+        return f"- {o['destination']}: draft `{o.get('subject', '')}` to {', '.join(o.get('to') or [])}"
+    return f"- {o['destination']} ({o.get('path')} under {o.get('anchor')}): add `{o.get('line')}`"
+
+
+def _outcome_lines(plan: dict[str, Any]) -> list[str]:
+    rows = plan.get("outcomes") or []
+    if not rows:
+        return []
+    return ["", "## Decisions without operations"] + [
+        f"- {r['question']}: {r['decision']}" + (f" until {r['until']}" if r.get("until") else "")
+        + (f" ({r['note']})" if r.get("note") else "") for r in rows]
 
 
 # --- approve ---------------------------------------------------------------

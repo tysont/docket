@@ -172,29 +172,29 @@ def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs,
 
 
 def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instances: list[tuple[Any, str]]) -> list[Task]:
-    from docket.engine.stages import STAGE_IMPLS
+    from docket.decide.operations import plan_operations, scheduling_inputs
     out: dict[str, Task] = {}
+    adjust = plan_operations(rc, decide)["adjust"] if decide.get("reconcile") or decide.get("verify") else {}
     for st in inp.store_tasks:
-        out[st.id] = _task_from_fields(st.id, st.title, st.fields, inp, tier=st.tier, source="store",
-                                       instances=instances)
-    qs = {q["id"]: q for q in decide["questions"]}
-    items = {f["question_id"]: f["item"] for f in decide["findings"]}
-    plan_stage = STAGE_IMPLS["plan"]
-    for qid in sorted(decide["answers"]):
-        ans = decide["answers"][qid]
-        if ans.get("action") not in ("task.add", "calendar.place"):
+        adj = adjust.get(st.id) or {}
+        if adj.get("closed"):  # M5: closed by a reconcile or verify answer; its blocks are released
             continue
-        opt = next((o for o in qs[qid]["options"] if o["id"] == ans["option"]), {})
-        ov = dict(ans.get("overrides") or {})
-        item = items[qid]
-        title = ov.get("title") or item.get("title") or ""
+        fields = dict(st.fields)
+        if adj.get("est"):
+            fields["est"] = str(adj["est"])
+        out[st.id] = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store",
+                                       instances=instances)
+    for row in scheduling_inputs(rc, decide):  # M5: finding answers, merges applied (docket.decide.operations)
+        qid, ov, op = row["question_id"], row["overrides"], row["op"]
+        title = row["title"]
         tid = "t_" + digest(["answer", qid])[:16]
         fields: dict[str, str] = {}
-        op = plan_stage.build_op(rc, qid, item, opt, ov) if ans.get("action") == "task.add" else None
         if op is not None:
             parsed = parse_line(op["line"], op["destination"], rc.ws.config.planning.tasks.fields)
             if parsed is not None:
                 tid, title, fields = parsed
+            if ov.get("title"):  # the block carries the title override; the line carries the task text
+                title = ov["title"]
         if "due" in ov:
             fields["due"] = str(ov["due"])
         elif "due" not in fields and not ov.get("when"):  # a window governs when; no default due to be late against
@@ -316,7 +316,7 @@ def extend_plan(rc: "RunContext", plan: dict[str, Any], decide: dict[str, Any], 
     plan["operations"] = list(plan["operations"]) + built.ops
     plan["schedule"] = built.result.schedule
     plan["unschedulable"] = built.result.unschedulable
-    plan["notes"] = built.notes
+    plan["notes"] = list(plan.get("notes") or []) + built.notes
     write_ledger(rc, built.mirrors.ledger_updates, built.inputs.ledger)
     return built
 
@@ -344,7 +344,13 @@ def diff_groups(plan: dict[str, Any], tz: ZoneInfo) -> list[dict[str, Any]]:
     for op in plan["operations"]:
         if "start" not in op:
             where = f"{op.get('path', '')} under {op.get('anchor', '')}".strip()
-            groups.setdefault(("", op["destination"]), []).append(f"add `{op['line']}` ({where})")
+            if op.get("verb") == "replace":  # M5: reconcile and verify change existing lines
+                text = f"change `{op.get('old_line', '')}` to `{op.get('line')}` ({where})"
+            elif op.get("verb") == "draft":
+                text = f"draft `{op.get('subject', '')}` to {', '.join(op.get('to') or [])}"
+            else:
+                text = f"add `{op.get('line')}` ({where})"
+            groups.setdefault(("", op["destination"]), []).append(text)
             continue
         day = _local(op["start"], tz).date().isoformat()
         what = _VERB_WORD.get(op["verb"], op["verb"])
@@ -383,6 +389,11 @@ def render_diff(plan: dict[str, Any], pd: str, tz: ZoneInfo) -> str:
         lines.append("## Not scheduled")
         for u in plan["unschedulable"]:
             lines.append(f"- {u['title']}: {u['reason']} ({u['detail']})")
+        lines.append("")
+    if plan.get("outcomes"):  # M5: answers that write nothing (dispositions are recorded at close)
+        lines.append("## Decisions without operations")
+        for r in plan["outcomes"]:
+            lines.append(f"- {r['question']}: {r['decision']}" + (f" until {r['until']}" if r.get("until") else ""))
         lines.append("")
     if plan.get("notes"):
         lines.append("## Notes")

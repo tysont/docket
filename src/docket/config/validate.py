@@ -324,6 +324,10 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
                 if isinstance(when, str) and when.split(":", 1)[0] not in WHEN_GUARDS:
                     out.append(_issue(loaded, "config.unknown_kind", f"unknown guard {when!r}", base + ("when",), 3,
                                       suggestion=closest(when, list(WHEN_GUARDS))))
+    # --- M5 decisions: reconcile and verify label templates ---
+    for sect, site in (("reconcile", contexts.RECONCILE), ("verify", contexts.VERIFY)):
+        for oid, tpl in _items(_get(d, "decisions", sect, "labels")):
+            _check_template(loaded, tpl, site, ("decisions", sect, "labels", oid), out)
 
     for wname, wf in _items(_get(d, "workflows")):
         if not isinstance(wf, dict):

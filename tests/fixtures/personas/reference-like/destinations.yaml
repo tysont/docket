@@ -1,6 +1,8 @@
 destinations:
   backlog:
     path: Backlog.md
+    # The preset's line plus the links an answer carries (--link, or the items a merge folds in).
+    line_template: "- [ ] {title} [source:: {source}]{?due} [due:: {due}]{/due}{?est} [est:: {est|duration}]{/est}{?links} [links:: {links|join:, }]{/links}"
   agendas:
     adapter: markdown_agenda
     path: Syncs

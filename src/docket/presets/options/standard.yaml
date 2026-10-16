@@ -1,0 +1,15 @@
+# The full finding option set (TD §10.2): every action Docket can carry out.
+# Options whose guard fails are hidden; options a destination cannot accept are
+# removed and the question says why. Labels are neutral templates to override.
+decisions:
+  option_sets:
+    standard:
+      finding:
+        - { id: task, action: task.add, label: "Add a task (due {due|date:%a})" }
+        - { id: agenda, action: agenda.add, label: "Raise it at {forum.name}", when: has_forum }
+        - { id: block, action: calendar.place, label: "Block {est|duration} {when|default:this week}", when: has_calendar }
+        - { id: draft, action: message.draft, label: "Draft a reply", when: has_reply_channel }
+        - { id: now, action: now, label: "Handle it now" }
+        - { id: done, action: done, label: "Already handled" }
+        - { id: watch, action: watch, label: "Watch for new activity" }
+        - { id: dismiss, action: dismiss, label: "Dismiss" }
