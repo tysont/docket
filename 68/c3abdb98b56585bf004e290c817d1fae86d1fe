@@ -1,0 +1,123 @@
+Makefile
+  s_85cb686f131e0f::t_6bd4807b629e48 1,7,9,11,13,18-21
+pyproject.toml
+  s_85cb686f131e0f::t_efc19c32167ca2 22
+src/docket/cli/__init__.py
+  s_85cb686f131e0f::t_12803392d4a99f 123-126
+src/docket/cli/catalog.py
+  s_85cb686f131e0f::t_4e382aa08d8fec 150-155
+src/docket/cli/commands/__init__.py
+  s_85cb686f131e0f::t_b807e4a35e44eb 8-9
+src/docket/cli/commands/doctor_cmds.py
+  s_85cb686f131e0f::t_d9b792caaf9866 1-35
+src/docket/cli/commands/import_cmds.py
+  s_85cb686f131e0f::t_52e8af85dc92cb 1-61
+src/docket/cli/commands/run_cmds.py
+  s_85cb686f131e0f::t_665b4bed356e6e 190-218
+src/docket/cli/commands/shape_cmds.py
+  s_85cb686f131e0f::t_b885c73645440a 1-9,19-34,37,53-70,76-77,81-82,84-85,90-93
+src/docket/cli/commands/stage_cmds.py
+  s_85cb686f131e0f::t_b992a233cd0db8 16,238-261,284
+src/docket/config/__init__.py
+  s_85cb686f131e0f::t_d1acc01063cb71 56-74,76-79,83-85
+src/docket/config/models.py
+  s_85cb686f131e0f::t_645d70af99d9a1 4-6,16,165,396-404,406-413,460-473,492
+src/docket/config/validate.py
+  s_85cb686f131e0f::t_149bc70faa45c4 28-51,325
+src/docket/destinations/calendar.py
+  s_85cb686f131e0f::t_41d04dd6e1091e 24,172-173,175-176,198-228,279,352
+src/docket/destinations/calendar_file.py
+  s_85cb686f131e0f::t_9d126cc7320d21 17,205-206
+src/docket/destinations/conformance.py
+  s_85cb686f131e0f::t_4390e211e9458f 31,213-214,425,501
+src/docket/destinations/mcp.py
+  s_85cb686f131e0f::t_3472c127077a3c 54,122,143,183
+src/docket/engine/doctor.py
+  s_0103e65d54e481::t_7906f5a2dd8ce1 1-409
+src/docket/engine/next.py
+  s_85cb686f131e0f::t_c4eb70c3dc2003 79-85,87
+src/docket/engine/rehearse.py
+  s_85cb686f131e0f::t_1c04dd79575020 1-420
+src/docket/engine/steps.py
+  s_85cb686f131e0f::t_e3dd0c46584ffe 84
+src/docket/engine/synthetic.py
+  s_0103e65d54e481::t_3ba82d87b04f6f 1-95
+src/docket/plan/build.py
+  s_85cb686f131e0f::t_59e88b80cd00f2 76,84-87,90-113
+src/docket/plan/providers.py
+  s_85cb686f131e0f::t_9a55e98eaaa8d8 4-5,21-25,32,61-64,66-67,74,76-81,94,102,104,108,147-148,153-210
+src/docket/plan/types.py
+  s_85cb686f131e0f::t_4f2b6e052d4f00 38,42
+src/docket/signals/models.py
+  s_85cb686f131e0f::t_48260ef23b20e1 205,220,298,300
+src/docket/sources/collect.py
+  s_85cb686f131e0f::t_1d2b82bb36a8ed 105-110,168,170,174-180,210-212
+src/docket/sources/cursors.py
+  s_85cb686f131e0f::t_2ed394976a9b6a 170-245
+src/docket/sources/recorded.py
+  s_0103e65d54e481::t_3d1caa68d5d615 1-99
+src/docket/tasks/kinds.py
+  s_85cb686f131e0f::t_413e1e07c2c238 376
+tests/contract/test_integrity_refusals.py
+  s_85cb686f131e0f::t_3f358940989eb1 1-304
+tests/contract/test_portability.py
+  s_85cb686f131e0f::t_9c8e29b6f3f829 1-44
+tests/contract/test_raise_discipline.py
+  s_85cb686f131e0f::t_eef83a98e54c77 1-176
+tests/contract/test_shape_tolerance.py
+  s_85cb686f131e0f::t_d31668c945fd50 1-197
+tests/contract/test_traceability.py
+  s_85cb686f131e0f::t_759f62ffd62152 1-98
+tests/fixtures/bin/calbridge_stub.py
+  s_85cb686f131e0f::t_fb04adde3ae321 9-10,38,126
+tests/fixtures/shapes/variants.py
+  s_85cb686f131e0f::t_01939c9778a415 1-210
+tests/perf/test_process_count.py
+  s_85cb686f131e0f::t_df717a4130e19a 1-113
+tests/scenario/test_agent_loop.py
+  s_85cb686f131e0f::t_c9e79e3206dcc7 138-155
+tests/scenario/test_calendar_ownership.py
+  s_85cb686f131e0f::t_7f315f687f3bc1 1-90
+tests/scenario/test_rehearse.py
+  s_85cb686f131e0f::t_d4c321eceb82f3 1-154
+tests/traceability.yaml
+  s_85cb686f131e0f::t_f24d2db00754c1 1-362
+tests/unit/destinations/test_calendar.py
+  s_85cb686f131e0f::t_5a492ba4eb281a 9,42
+tests/unit/engine/test_doctor.py
+  s_85cb686f131e0f::t_5d8f9f6fc9d607 1-131
+tests/unit/plan/test_plan_config.py
+  s_85cb686f131e0f::t_d28a971a79dac7 70-74,104-106
+tests/unit/shapes/test_unexpected.py
+  s_85cb686f131e0f::t_52cb0f08362ada 65-87
+tests/unit/sources/test_auth_resolve_units.py
+  s_85cb686f131e0f::t_c3bf96e4130866 24
+tests/unit/sources/test_import_cursors.py
+  s_85cb686f131e0f::t_6f3cf45e2fa0b5 1-53
+uv.lock
+  s_85cb686f131e0f::t_ad9d24ebe23f02 231,247-256,693-705
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "68c3abdb98b56585bf004e290c817d1fae86d1fe",
+  "prompts": {},
+  "sessions": {
+    "s_0103e65d54e481": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a01d7ffeX7sZuP0t3Ey6qL",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_85cb686f131e0f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebb024b3fffeb3x4Ae1FAUL0s2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
