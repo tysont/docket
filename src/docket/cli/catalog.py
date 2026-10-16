@@ -123,6 +123,19 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "item.not_merged": ("state", True, "The run has no merge artifact yet; run the merge stage first."),
     "item.bad_filter": ("input", False, "An item list filter is not key=value over a known key."),
     "run.no_records": ("state", False, "No run of this workspace has collected records to test against."),
+    # --- M4 tasks ---
+    "task.rows_refused": ("integrity", False, "One or more task result rows failed an integrity or cross-field "
+                          "check; details.rows names each row's path, received value, rule and fix."),
+    "task.identity_mismatch": ("integrity", False, "A result row's copied identity field (such as source) differs "
+                               "from its pack item (a row code in details.rows)."),
+    "task.unknown_ref": ("integrity", False, "A result row's item reference names no other item of the pack "
+                         "(a row code in details.rows)."),
+    "task.evidence_not_verbatim": ("integrity", False, "An evidence quote does not appear verbatim in the item's "
+                                   "raw record (a row code in details.rows)."),
+    "task.evidence_unknown_line": ("integrity", False, "An evidence quote names a line id the item does not have "
+                                   "(a row code in details.rows)."),
+    "task.cross_field": ("input", False, "A result row breaks a cross-field rule of its kind, such as a kept item "
+                         "without an owner (a row code in details.rows)."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

@@ -6,7 +6,7 @@ import pytest
 
 from docket.cli.errors import DocketError
 from docket.store.blobs import BlobStore
-from docket.store.db import SCHEMA_VERSION, open_db
+from docket.store.db import MIGRATIONS, SCHEMA_VERSION, open_db
 from docket.store.paths import state_root, workspace_slug
 
 pytestmark = pytest.mark.smoke
@@ -22,7 +22,8 @@ def test_migration_creates_tables_and_is_idempotent(tmp_path):
     assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     db.close()
     db = open_db(tmp_path / "docket.db")
-    assert db.execute("SELECT COUNT(*) FROM schema_meta WHERE key LIKE 'migration.%'").fetchone()[0] == SCHEMA_VERSION
+    # migration numbers are reserved per milestone, so the sequence may have gaps
+    assert db.execute("SELECT COUNT(*) FROM schema_meta WHERE key LIKE 'migration.%'").fetchone()[0] == len(MIGRATIONS)
     db.close()
 
 

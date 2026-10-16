@@ -62,6 +62,13 @@ ALTER TABLE cursor_proposals ADD COLUMN complete INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE units ADD COLUMN members INTEGER;
 ALTER TABLE units ADD COLUMN rule TEXT;
 """),
+    # M4 agent tasks: accepted task results indexed by task input digest (TD §9.4, §9.6).
+    (6, """
+CREATE TABLE task_results (
+  input_digest TEXT PRIMARY KEY, kind TEXT NOT NULL, task_id TEXT NOT NULL, run_id TEXT,
+  result TEXT NOT NULL, accepted_at TEXT NOT NULL
+);
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

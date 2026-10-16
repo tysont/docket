@@ -43,3 +43,23 @@ decisions:
 tasks:
   assess: { max_items: 10 }
   review: { max_items: 12 }
+  kinds:
+    tone:
+      description: The tone of chat messages, for planning replies.
+      select: { sources: [chat] }
+      instructions: >-
+        For each chat message sent to {me.name}, judge the writer's tone and whether the
+        writer is waiting for an answer from {me.name}.
+      fields:
+        tone:
+          type: enum
+          description: The writer's tone.
+          required: true
+          values: { calm: Neutral or friendly., concerned: Worried about an outcome., urgent: Wants action now. }
+          safe: calm
+          deny: [mixed]
+        needs_reply: { type: bool, description: "true when the writer is waiting for an answer.", required: true }
+        reply_by: { type: date, description: "When the answer is due, only when the message says." }
+        quote: { type: evidence, description: The words that show the tone. }
+      rules:
+        - { when: { needs_reply: true }, require: [quote], reason: an answer needs the words it answers }

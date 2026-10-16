@@ -86,10 +86,11 @@ def test_assess_issues_tasks_only_for_items_that_need_them(persona, cli, pinned_
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done", res.final
     tasks = state_root(ws, os.environ) / "runs" / run_id / "tasks"
-    packed = [it for p in sorted(tasks.glob("*/pack.json")) for it in json.loads(p.read_text())["items"]]
+    packs = [json.loads(p.read_text()) for p in sorted(tasks.glob("*/pack.json"))]
+    packed = [it for pk in packs if pk["kind"] == "assess" for it in pk["items"]]
     assert packed and not any(it["source"] == "escalations" for it in packed)   # rules-only: no task
-    assert not any("Lunch order" in it["text"] for it in packed)                # dismissed: no task
-    assert sum(1 for it in packed if "Acme Corp asked again" in it["text"]) == 2  # must-surface: always assessed
+    assert not any("Lunch order" in ln["text"] for it in packed for ln in it["lines"])                # dismissed: no task
+    assert sum(1 for it in packed if any("Acme Corp asked again" in ln["text"] for ln in it["lines"])) == 2  # must-surface: always assessed
 
     p1 = why(cli, ws, "ESC-310")
     assert p1["status"] == "kept" and "escalation-p1" in p1["rules"]

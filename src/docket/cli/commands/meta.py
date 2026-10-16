@@ -24,14 +24,17 @@ def schemas() -> dict[str, Any]:
     from docket.items.records import Record
     from docket.plan.models import Operation, Plan
     from docket.store.runs import RunHeader
-    from docket.tasks.submit import AssessResult, ReviewResult
+    from docket.tasks.kinds import registry, schemas as task_schemas
 
+    core = registry()  # task kinds with core vocabulary; ``schema`` adds the workspace's own
     return {
+        **task_schemas(),
+        "assess-result": core["assess"].result_model, "review-result": core["review"].result_model,
         "envelope": Envelope, "error": ErrorBody, "unexpected": UnexpectedRow,
         "step": TypeAdapter(Step), "next-data": StepEnvelopeData, "stage-status": StageStatus,
         "config": cm.DocketConfig, "profile": cm.Profile, "workflow": cm.Workflow, "source": cm.Source,
         "destination": cm.Destination, "decisions": cm.Decisions, "option": cm.OptionConfig,
-        "run-header": RunHeader, "record": Record, "assess-result": AssessResult, "review-result": ReviewResult,
+        "run-header": RunHeader, "record": Record,
         "answer": Answer, "plan": Plan, "operation": Operation,
     }
 
@@ -63,10 +66,14 @@ def cmd_schema_list(ctx: Any, ns: Any) -> Result:
 
 
 @command("schema", "Print the JSON Schema of an input or output.", workspace=False,
-         args=[Arg("name", "Schema name from docket schema list.")],
-         examples=["docket schema assess-result --json", "docket schema step --json"])
+         args=[Arg("name", "Schema name from docket schema list; <kind>-input and <kind>-output for task kinds."),
+               Arg("--workspace", "Workspace whose task kinds and vocabulary to use (default: walk up from the "
+                                  "working directory, then DOCKET_WORKSPACE; core defaults when none).",
+                   metavar="DIR")],
+         examples=["docket schema assess-output --json", "docket schema step --json"])
 def cmd_schema(ctx: Any, ns: Any) -> Result:
-    table = schemas()
+    from docket.cli.commands.task_cmds import workspace_task_schemas
+    table = {**schemas(), **workspace_task_schemas(ctx)}
     if ns.name not in table:
         from docket.config.loader import closest
         raise InputError("input.unknown_schema", f"No schema {ns.name!r}.", hint="docket schema list",

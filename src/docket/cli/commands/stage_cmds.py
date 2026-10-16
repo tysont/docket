@@ -15,7 +15,7 @@ from docket.cli.commands.run_cmds import _guard_mutable, _step_next, step_summar
 from docket.cli.envelope import Result
 from docket.cli.errors import InputError, IntegrityError, StateError
 from docket.cli.registry import Arg, command
-from docket.config.digest import canonical_json, pretty_json
+from docket.config.digest import canonical_json
 
 
 def _compute(ctx: Any, rc: Any) -> Any:
@@ -179,7 +179,7 @@ def cmd_task_issue(ctx: Any, ns: Any) -> Result:
     pending = []
     if ev is not None and isinstance(STAGE_IMPLS[ev.name], DelegatedStage) and ev.state == "waiting" \
             and ev.reason != "paused":
-        pending = [p["task_id"] for p in ev.extra["packs"] if p["task_id"] not in ev.extra["issued"]]
+        pending = [p["task_id"] for p in ev.extra["plan"].pending_issue()]
     if not pending:
         step = _compute(ctx, rc)
         return Result({"issued": [], "changed": False, "step": step.model_dump()},
@@ -218,8 +218,9 @@ def cmd_task_show(ctx: Any, ns: Any) -> Result:
          effects=["validates the result", "writes tasks/<task-id>/result.json when accepted"],
          examples=["docket task submit t_0123456789ab result.json --json"])
 def cmd_task_submit(ctx: Any, ns: Any) -> Result:
-    from docket.tasks.packs import pack_ids
-    from docket.tasks.submit import validate_result
+    from docket.engine.steps import Command
+    from docket.tasks import index
+    from docket.tasks.runner import submit_argv, validate_submission
     rc = ctx.run_context()
     found = None
     for ev in _delegated(rc):
@@ -232,6 +233,8 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
         raise InputError("input.unknown_task", f"No current task {ns.task_id!r}.",
                          hint="docket next", details={"known": known[:50], "blocked_stages": [b.name for b in blocked]})
     ev, pack = found
+    plan = ev.extra["plan"]
+    rerun = Command.of(submit_argv(rc, ns.task_id)).shell
     if ns.result == "-":
         raw = (ctx.stdin.read() if ctx.stdin is not None else "")
     else:
@@ -241,17 +244,15 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
         try:
             raw = rp.read_text(encoding="utf-8")
         except OSError as e:
-            raise InputError("input.bad_argument", f"Cannot read {rp}: {e.strerror}") from None
+            raise InputError("input.bad_argument", f"Cannot read {rp}: {e.strerror}", hint=rerun) from None
     try:
         payload = json.loads(raw)
     except ValueError as e:
         raise InputError("input.bad_json", f"The result is not JSON: {e}",
-                         hint=f"docket schema {'assess-result' if pack['kind'] == 'assess' else 'review-result'}") from None
-    result = validate_result(pack["kind"], payload, pack_ids(pack))
-    body = result.model_dump(mode="json")
-    tdir = rc.run.paths.task(ns.task_id)
-    rpath = tdir / "result.json"
-    if rpath.is_file() and canonical_json(json.loads(rpath.read_text(encoding="utf-8"))) == canonical_json(body):
+                         hint=f"docket schema {plan.kinds[pack['kind']].output_schema}") from None
+    body = validate_submission(rc, plan, pack, payload).body
+    current = plan.results.get(ns.task_id)
+    if current is not None and canonical_json(current) == canonical_json(body):
         step = _compute(ctx, rc)
         return Result({"task_id": ns.task_id, "accepted": True, "changed": False, "step": step.model_dump()},
                       f"{ns.task_id} already accepted with this result\n{step_summary(step)}", next=_step_next(step))
@@ -260,8 +261,7 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
         return Result({"dry_run": True, "task_id": ns.task_id, "valid": True, "rows": len(body["items"])},
                       f"{ns.task_id}: result is valid (not written)")
     ctx.acquire(rc)
-    from docket.store.paths import write_atomic
-    write_atomic(rpath, pretty_json(body))
+    index.record(rc, pack, body)
     rc.invalidate()
     rc.materialize()
     issued = _auto_issue(rc)

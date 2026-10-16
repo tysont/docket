@@ -1,11 +1,12 @@
 """Configuration models (TD §3.2).
 
 Every top-level section is a Pydantic model with ``extra="forbid"``. Sections
-whose full content belongs to later milestones (signals, tasks, journal, hooks,
+whose full content belongs to later milestones (signals, journal, hooks,
 shapes) are typed as open maps for now; the top-level structure, ``profile``,
-``workflows``, ``sources``, ``transports``, ``decisions``, ``destinations`` and
-``planning`` are strict. ``sources``, ``transports`` and ``signals.units`` are
-modelled in ``docket.config.source_models``.
+``workflows``, ``sources``, ``transports``, ``decisions``, ``destinations``,
+``planning`` and ``tasks`` are strict. ``sources``, ``transports`` and
+``signals.units`` are modelled in ``docket.config.source_models``; ``tasks`` in
+``docket.config.task_models``.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from docket.config.source_models import Source, TransportConfig  # noqa: F401  (sections owned there)
+from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
 
 STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close")
 StageName = Literal["collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close"]
@@ -382,7 +384,7 @@ class DocketConfig(Strict):
     sources: dict[str, Source] = {}
     transports: dict[str, TransportConfig] = {}
     signals: dict[str, Any] = {}
-    tasks: dict[str, Any] = {}
+    tasks: TasksConfig = TasksConfig()
     decisions: Decisions = Decisions()
     destinations: dict[str, Destination] = {}
     planning: Planning = Planning()

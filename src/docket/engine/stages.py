@@ -19,7 +19,8 @@ artifacts by the next mutating command.
 M1 implements every stage as a stub with the real interface; M2 replaces the
 collect stub with real collection (``docket.sources``). The delegated stages issue one task per batch, decide asks
 one question per kept item, plan lists task-line operations, apply appends
-lines to a Markdown task store and close advances cursors and seals.
+lines to a Markdown task store and close advances cursors and seals. M4
+replaces the delegated stubs with real agent tasks (``docket.tasks``).
 """
 from __future__ import annotations
 
@@ -34,12 +35,10 @@ from docket.config import contexts
 from docket.config.defaults import DEFAULT_OPTION_SET, DEFAULT_SECTION, DEFAULT_TASK_LINE
 from docket.config.digest import digest, pretty_json
 from docket.engine.steps import (
-    AskOption, AskQuestion, AskStep, Command, DispatchStep, DispatchTask, RunStep, WaitStep,
+    AskOption, AskQuestion, AskStep, Command, DispatchStep, RunStep, WaitStep,
 )
 from docket.shapes.unexpected import unexpected
 from docket.store.paths import read_json, write_atomic
-from docket.tasks.packs import build_packs, render_prompt
-from docket.tasks.submit import RESULT_SCHEMAS
 from docket.text import templates
 
 if TYPE_CHECKING:
@@ -222,72 +221,44 @@ class CollectStage(BaseStage):
 
 
 class DelegatedStage(BaseStage):
+    """Task issuing, dispatch and submission live in ``docket.tasks.runner`` (TD §9)."""
     kind = "delegated"
     task_kind = ""
 
     def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
         raise NotImplementedError
 
-    def combine(self, up: StageEval, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    def combine(self, up: StageEval, plan: Any) -> dict[str, Any]:
         raise NotImplementedError
 
     def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
+        from docket.tasks.runner import plan_stage
         assert up is not None and up.output is not None
         inputs = self.up_input(up)
         dg, cfg = self.stage_digest(run, inputs)
-        max_items = int(((run.ws.config.tasks.get(self.task_kind) or {}).get("max_items")) or 10)
-        packs = build_packs(self.task_kind, self.candidates(run, up), max_items)
-        results: dict[str, dict[str, Any]] = {}
-        issued: set[str] = set()
-        for p in packs:
-            tdir = run.run.paths.task(p["task_id"])
-            if (tdir / "pack.json").is_file():
-                issued.add(p["task_id"])
-            if (tdir / "result.json").is_file():
-                results[p["task_id"]] = read_json(tdir / "result.json")
-        extra = {"packs": packs, "issued": issued, "accepted": set(results)}
-        if len(results) == len(packs):
-            out = self.combine(up, results)
+        plan = plan_stage(run, self.name, self.candidates(run, up))
+        extra = {"packs": plan.packs, "issued": plan.issued, "accepted": set(plan.results), "plan": plan}
+        if plan.complete:
+            out = self.combine(up, plan)
             return StageEval(self.name, self.kind, "current", dg, None, out, digest(out), cfg, inputs, extra)
         return StageEval(self.name, self.kind, "waiting", dg, "tasks", None, None, cfg, inputs, extra)
 
     def step(self, run: "RunContext") -> Any:
+        from docket.tasks.runner import dispatch_tasks, dispatch_why
         ev = run.eval(self.name)
-        packs = ev.extra["packs"]
-        if any(p["task_id"] not in ev.extra["issued"] for p in packs):
+        plan = ev.extra["plan"]
+        if plan.pending_issue():
             return RunStep(stage=self.name, command=Command.of(run.argv("task", "issue")),
-                           why=f"{self.name} needs {len(packs)} task pack(s) written before dispatch",
+                           why=f"{self.name} needs {len(plan.pending_issue())} task pack(s) written before dispatch",
                            expect="pack.json and prompt.md per task", timeout_s=60)
-        tasks = []
-        for p in packs:
-            if p["task_id"] in ev.extra["accepted"]:
-                continue
-            tdir = run.run.paths.task(p["task_id"])
-            result_path = str(tdir / "submission.json")
-            tasks.append(DispatchTask(
-                task_id=p["task_id"], kind=self.task_kind, pack_path=str(tdir / "pack.json"),
-                prompt_path=str(tdir / "prompt.md"), result_path=result_path,
-                result_schema=RESULT_SCHEMAS[self.task_kind],
-                submit=Command.of(run.argv("task", "submit", p["task_id"], result_path)),
-            ))
-        conc = int(run.ws.config.tasks.get("concurrency") or 6)
-        return DispatchStep(stage=self.name, tasks=tasks, concurrency=conc,
-                            why=f"{len(tasks)} independent {self.task_kind} task(s) need results; run them as "
-                                f"subagents or inline, write each result to result_path and run its submit command")
+        tasks = dispatch_tasks(run, plan)
+        kinds = sorted({t.kind for t in tasks})
+        return DispatchStep(stage=self.name, tasks=tasks, concurrency=run.ws.config.tasks.concurrency,
+                            why=dispatch_why(len(tasks), self.name, kinds))
 
     def issue(self, run: "RunContext") -> list[str]:
-        ev = run.eval(self.name)
-        written = []
-        for p in ev.extra["packs"]:
-            tdir = run.run.paths.task(p["task_id"])
-            if (tdir / "pack.json").is_file():
-                continue
-            write_atomic(tdir / "pack.json", pretty_json(p))
-            hint = (f"Write the JSON result to tasks/{p['task_id']}/submission.json in the run directory, then run:\n"
-                    f"docket task submit --run {run.run.id} {p['task_id']} <that path>")
-            write_atomic(tdir / "prompt.md", render_prompt(p, hint))
-            written.append(p["task_id"])
-        return written
+        from docket.tasks.runner import issue
+        return issue(run, run.eval(self.name).extra["plan"])
 
 
 class AssessStage(DelegatedStage):
@@ -300,33 +271,22 @@ class AssessStage(DelegatedStage):
         from docket.signals.stage import assess_selection
         return assess_selection(run, list(up.output["items"])).candidates
 
-    def combine(self, up: StageEval, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
-        rows = {row["id"]: row for res in results.values() for row in res["items"]}
-        items = []
-        for it in up.output["items"]:
-            row = rows.get(it["id"], {})
-            items.append({**it, "keep": bool(row.get("keep")), "score": int(row.get("score") or 0)})
-        return {"items": items}
+    def combine(self, up: StageEval, plan: Any) -> dict[str, Any]:
+        from docket.tasks.runner import combine_assess
+        return combine_assess(up.output["items"], plan)
 
 
 class ReviewStage(DelegatedStage):
     name = "review"
     task_kind = "review"
-    config_sections = ("tasks", "workflow.review")
+    config_sections = ("profile", "tasks", "workflow.review")
 
     def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
         return [it for it in up.output["items"] if it.get("keep")]
 
-    def combine(self, up: StageEval, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
-        rows = {row["id"]: row for res in results.values() for row in res["items"]}
-        items = []
-        for it in up.output["items"]:
-            row = rows.get(it["id"])
-            if row is None:
-                items.append(it)
-                continue
-            items.append({**it, "verdict": row["verdict"], "keep": row["verdict"] != "drop"})
-        return {"items": items}
+    def combine(self, up: StageEval, plan: Any) -> dict[str, Any]:
+        from docket.tasks.runner import combine_review
+        return combine_review(up.output["items"], plan)
 
 
 # --- merge -----------------------------------------------------------------
