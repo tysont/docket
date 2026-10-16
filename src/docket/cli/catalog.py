@@ -114,6 +114,19 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "plan.not_built": ("state", True, "No current plan exists for the run; build it first."),
     "plan.no_calendar": ("config", False, "The command needs planning.calendar, which the workspace does not set."),
     "plan.invalid": ("integrity", False, "A built plan failed validation by its own constraint engine (a defect)."),
+    # --- M4 tasks ---
+    "task.rows_refused": ("integrity", False, "One or more task result rows failed an integrity or cross-field "
+                          "check; details.rows names each row's path, received value, rule and fix."),
+    "task.identity_mismatch": ("integrity", False, "A result row's copied identity field (such as source) differs "
+                               "from its pack item (a row code in details.rows)."),
+    "task.unknown_ref": ("integrity", False, "A result row's item reference names no other item of the pack "
+                         "(a row code in details.rows)."),
+    "task.evidence_not_verbatim": ("integrity", False, "An evidence quote does not appear verbatim in the item's "
+                                   "raw record (a row code in details.rows)."),
+    "task.evidence_unknown_line": ("integrity", False, "An evidence quote names a line id the item does not have "
+                                   "(a row code in details.rows)."),
+    "task.cross_field": ("input", False, "A result row breaks a cross-field rule of its kind, such as a kept item "
+                         "without an owner (a row code in details.rows)."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

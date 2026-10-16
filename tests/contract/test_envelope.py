@@ -64,8 +64,8 @@ def test_integrity_error(cli, persona, pinned_now):
     code, env = cli("next", "--workspace", str(ws))
     task = env["data"]["step"]["tasks"][0]
     pack = json.loads(Path(task["pack_path"]).read_text())
-    rows = [{"id": it["id"], "keep": True, "score": 50} for it in pack["items"]][1:]
-    rows.append({"id": "not-in-pack", "keep": False, "score": 1})
+    rows = [{"id": it["id"], "source": it["source"], "keep": False, "score": 50} for it in pack["items"]][1:]
+    rows.append({"id": "not-in-pack", "source": "tickets", "keep": False, "score": 1})
     code, env = cli("task", "submit", task["task_id"], "-", "--workspace", str(ws), stdin=json.dumps({"items": rows}))
     assert_error(code, env, "integrity.partition", "integrity")
     assert env["error"]["details"]["extra"] == ["not-in-pack"] and len(env["error"]["details"]["missing"]) == 1

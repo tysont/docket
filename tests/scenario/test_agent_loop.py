@@ -38,7 +38,7 @@ def test_reference_daily_pauses_reviews_and_writes_backlog(persona, cli, pinned_
     assert paused.final["kind"] == "wait" and paused.final["reason"] == "paused"
     assert paused.final["command"]["argv"][1:3] == ["run", "resume"]
     dispatched = {t["kind"] for s in paused.steps if s["kind"] == "dispatch" for t in s["tasks"]}
-    assert dispatched == {"assess", "review"}
+    assert dispatched == {"assess", "review", "tone"}  # tone: the persona's workspace-defined kind
     # answering while paused refuses with the resume command
     code, env = cli("ask", "list", "--workspace", str(ws))
     qid = env["data"]["questions"][0]["id"]

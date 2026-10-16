@@ -139,3 +139,24 @@ signals:
 
 tasks:
   assess: { max_items: 8 }
+  kinds:
+    sla_check:
+      description: The risk that an open ticket breaches its service level.
+      select: { sources: [tickets] }
+      max_items: 12
+      instructions: >-
+        For each ticket in the queues {me.name} leads, judge the risk that it breaches its
+        service level before the next shift.
+      fields:
+        breach_risk:
+          type: enum
+          description: How likely a breach is before the next shift.
+          required: true
+          values: { low: Well inside its service level., medium: Close to its limit., high: Will breach without action. }
+          safe: medium
+        time_left: { type: duration, description: "Time left before the breach, when the ticket shows it." }
+        impact: { type: int, description: "Customer impact from 0 (none) to 100 (severe)." }
+        related: { type: item_ref, description: Another ticket in this pack about the same problem. }
+        note: { type: str, description: One line for the queue lead., max_length: 120 }
+      rules:
+        - { when: { breach_risk: high }, require: [note, time_left] }

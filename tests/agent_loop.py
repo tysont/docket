@@ -3,9 +3,12 @@
 It loops on ``docket next --json`` and uses only fields from the step:
 
 - ``run``: call the step's argv (without the leading ``docket``);
-- ``dispatch``: read each pack, write a synthetic valid result to the task's
-  ``result_path`` (assess: keep all, score 70; review: verdict ask) and call
-  the task's ``submit`` argv;
+- ``dispatch``: read each pack, write a synthetic result that satisfies the
+  real validators to the task's ``result_path`` (assess: keep all, score 70,
+  owner me, an ask, and the item's first line quoted verbatim as evidence;
+  review: verdict ask with an argument against; any other kind: the example
+  row of the task's prompt for every item, with identity copied and evidence
+  quoted from the item) and call the task's ``submit`` argv;
 - ``ask``: answer each question with its first option's argv (the approve
   question's ``yes`` argv carries the plan digest);
 - ``wait``: when the reason is ``paused`` and resuming is allowed, call the
@@ -35,12 +38,44 @@ class LoopResult:
     failures: list[dict[str, Any]] = field(default_factory=list)
 
 
-def synthetic_result(kind: str, pack: dict[str, Any]) -> dict[str, Any]:
+def _quote(item: dict[str, Any]) -> list[dict[str, str]]:
+    line = item["lines"][0]
+    return [{"line": line["line"], "quote": line["text"][:200]}]
+
+
+def prompt_example(prompt: str) -> dict[str, Any]:
+    """The example row embedded in a prompt's output specification."""
+    block = prompt.split("## Output specification", 1)[1].split("```json", 1)[1].split("```", 1)[0]
+    return json.loads(block)["items"][0]
+
+
+def _fill(template: Any, item: dict[str, Any]) -> Any:
+    if isinstance(template, dict):
+        return {k: (_quote(item) if k == "evidence" or (isinstance(v, list) and v and isinstance(v[0], dict)
+                                                        and "quote" in v[0]) else _fill(v, item))
+                for k, v in template.items()}
+    if isinstance(template, list):
+        return [_fill(v, item) for v in template]
+    return template
+
+
+def synthetic_result(kind: str, pack: dict[str, Any], prompt: str = "") -> dict[str, Any]:
     if kind == "assess":
-        return {"items": [{"id": it["id"], "keep": True, "score": 70} for it in pack["items"]]}
+        return {"items": [{"id": it["id"], "source": it["source"], "keep": True, "score": 70, "kind": "request",
+                           "owner": "me", "ask": f"Follow up on {it['title'][:80]}".strip(),
+                           "evidence": _quote(it)} for it in pack["items"]]}
     if kind == "review":
-        return {"items": [{"id": it["id"], "verdict": "ask", "reason": "synthetic"} for it in pack["items"]]}
-    raise ValueError(f"unknown task kind {kind}")
+        return {"items": [{"id": it["id"], "verdict": "ask", "reason": "synthetic",
+                           "against": "Someone else may already be handling it."} for it in pack["items"]]}
+    example = prompt_example(prompt)
+    rows = []
+    for it in pack["items"]:
+        row = _fill(example, it)
+        row["id"] = it["id"]
+        if "source" in row:
+            row["source"] = it["source"]
+        rows.append(row)
+    return {"items": rows}
 
 
 def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path | None = None,
@@ -85,7 +120,9 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
         elif kind == "dispatch":
             for t in step["tasks"]:
                 pack = json.loads(Path(t["pack_path"]).read_text(encoding="utf-8"))
-                Path(t["result_path"]).write_text(json.dumps(synthetic_result(t["kind"], pack)), encoding="utf-8")
+                prompt = Path(t["prompt_path"]).read_text(encoding="utf-8")
+                result = synthetic_result(t["kind"], pack, prompt)
+                Path(t["result_path"]).write_text(json.dumps(result), encoding="utf-8")
                 call(t["submit"]["argv"])
         elif kind == "ask":
             for q in step["questions"]:

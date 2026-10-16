@@ -29,11 +29,24 @@ def full_run(persona, cli, pinned_now, name, workflow, under, state, **kw):
     return ws, state_root(ws, {**os.environ, **env}) / "runs" / out["data"]["run"]
 
 
+def located(files: dict[str, bytes], *roots: Path) -> dict[str, bytes]:
+    """Files with the given directories replaced by placeholders: prompts name their exact, absolute submit
+    command (TD §9.3), the only place a run's own location appears in its files."""
+    out = {}
+    for k, v in files.items():
+        for i, r in enumerate(roots):
+            for form in sorted({str(r), str(r.resolve())}, key=len, reverse=True):
+                v = v.replace(form.encode(), f"<root{i}>".encode())
+        out[k] = v
+    return out
+
+
 @pytest.mark.parametrize("name,workflow", CASES)
 def test_two_runs_in_separate_state_roots_are_byte_identical(persona, cli, pinned_now, tmp_path, name, workflow):
     ws_a, run_a = full_run(persona, cli, pinned_now, name, workflow, "a", tmp_path / "state-a")
     ws_b, run_b = full_run(persona, cli, pinned_now, name, workflow, "b", tmp_path / "state-b")
-    ta, tb = tree(run_a), tree(run_b)
+    ta = located(tree(run_a), run_a.parent.parent, ws_a)
+    tb = located(tree(run_b), run_b.parent.parent, ws_b)
     assert ta.keys() == tb.keys()
     diff = [k for k in ta if ta[k] != tb[k]]
     assert diff == []
@@ -165,7 +178,8 @@ def test_lease_held_adopted_and_stolen(persona, cli, pinned_now):
     task = env["data"]["step"]["tasks"][0]  # dead owners do not block next either
     import json
     pack = json.loads(Path(task["pack_path"]).read_text())
-    result = {"items": [{"id": it["id"], "keep": True, "score": 60} for it in pack["items"]]}
+    result = {"items": [{"id": it["id"], "source": it["source"], "keep": False, "score": 60}
+                        for it in pack["items"]]}
     code, env = cli("task", "submit", task["task_id"], "-", "--workspace", str(ws), stdin=json.dumps(result))
     assert code == 0 and env["data"]["changed"] is True
     assert [w["code"] for w in env["warnings"]] == ["lease.adopted"]  # agent-c's pid is gone on this host
