@@ -1,0 +1,79 @@
+src/docket/cli/catalog.py
+  s_f5cd7978833346::t_9a53edc5422f11 110-116
+src/docket/cli/commands/__init__.py
+  s_f5cd7978833346::t_40c9bc26d05e38 3
+src/docket/cli/commands/plan_cmds.py
+  s_f5cd7978833346::t_e731fea18fb9d3 1-97
+src/docket/cli/commands/stage_cmds.py
+  s_f5cd7978833346::t_61633772a3ceab 317-318,328-329,352
+src/docket/config/models.py
+  s_f5cd7978833346::t_b81edddcf7848e 4-8,14,104-119,121-122,246-371,387
+src/docket/config/validate.py
+  s_f5cd7978833346::t_fe4e81aeb12d2c 198-202,301
+src/docket/engine/stages.py
+  s_f5cd7978833346::t_8feecf77db54a3 454-458,460,476-477,488-500
+src/docket/plan/build.py
+  s_f5cd7978833346::t_642625c66e3d9a 1-509
+src/docket/plan/calendar_classify.py
+  s_f5cd7978833346::t_51b0dd75a90492 1-337
+src/docket/plan/constraints.py
+  s_f5cd7978833346::t_e1cbdd7d6cc0f9 1-332
+src/docket/plan/mirrors.py
+  s_f5cd7978833346::t_331fa3f152c2ea 1-106
+src/docket/plan/providers.py
+  s_f5cd7978833346::t_57f73be7892ebe 1-139
+src/docket/plan/scheduler.py
+  s_f5cd7978833346::t_fcef9decf87268 1-419
+src/docket/plan/taskstore.py
+  s_f5cd7978833346::t_e91805bd35b5da 1-123
+src/docket/plan/types.py
+  s_f5cd7978833346::t_5fc710521029fe 1-304
+src/docket/plan/windows.py
+  s_f5cd7978833346::t_7eddfe25037804 1-135
+tests/fixtures/personas/reference-like/data/calendar.json
+  s_f5cd7978833346::t_2185f8725a7599 1-24
+tests/fixtures/personas/reference-like/docket.yaml
+  s_f5cd7978833346::t_d356676aedc170 4,28-33
+tests/fixtures/personas/reference-like/planning.yaml
+  s_f5cd7978833346::t_b346eeffb1b277 1-14
+tests/fixtures/personas/reference-like/profile.yaml
+  s_f5cd7978833346::t_7952703b1e318e 60-62,64-65
+tests/fixtures/personas/support-lead/data/calendar.json
+  s_f5cd7978833346::t_57c7963daef2d8 1-13
+tests/fixtures/personas/support-lead/docket.yaml
+  s_f5cd7978833346::t_56194e703472db 67
+tests/perf/test_plan_speed.py
+  s_f5cd7978833346::t_5109c262c47ccb 1-35
+tests/plan_helpers.py
+  s_f5cd7978833346::t_7843a8b09a880f 1-84
+tests/scenario/test_planning_scenario.py
+  s_f5cd7978833346::t_5e127bbe9c245c 1-170
+tests/unit/plan/test_plan_classify.py
+  s_f5cd7978833346::t_e791d1ed901bfa 1-123
+tests/unit/plan/test_plan_config.py
+  s_f5cd7978833346::t_9c05f0d6c57a5b 1-120
+tests/unit/plan/test_plan_constraints.py
+  s_f5cd7978833346::t_88f30732a38eb2 1-115
+tests/unit/plan/test_plan_mirrors.py
+  s_f5cd7978833346::t_ca59c094375e2c 1-80
+tests/unit/plan/test_plan_properties.py
+  s_f5cd7978833346::t_3b0bd53ba2391e 1-169
+tests/unit/plan/test_plan_scheduler.py
+  s_f5cd7978833346::t_50415670e6ac46 1-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "df9386abd8a9c68205619c62b78f400f50193b76",
+  "prompts": {},
+  "sessions": {
+    "s_f5cd7978833346": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0c1e75dffeukL1LRDyL5HMZM",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
