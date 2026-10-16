@@ -1,0 +1,179 @@
+pyproject.toml
+  s_720f8551a6eedb::t_7513cd8812c0cb 12
+src/docket/cli/catalog.py
+  s_3fc1316cc877ea::t_30e6a2fb6abe21 80-97
+src/docket/cli/commands/__init__.py
+  s_3fc1316cc877ea::t_c7f573d718e262 1
+src/docket/cli/commands/source_cmds.py
+  s_720f8551a6eedb::t_8cf8a1d42223ac 1-176
+src/docket/cli/commands/stage_cmds.py
+  s_720f8551a6eedb::t_f3c91a71b350dc 60-61,107,116-121,123-124
+src/docket/config/loader.py
+  s_720f8551a6eedb::t_4d88505db7128e 385-386
+src/docket/config/models.py
+  s_9aad4c1f2294d8::t_324b3a962be15f 5-8,16-17,23-24,29-30,32,192
+src/docket/config/source_checks.py
+  s_3fc1316cc877ea::t_03388bd6ea9f37 1-315
+src/docket/config/source_models.py
+  s_720f8551a6eedb::t_053f3f21ad4f02 1-218
+src/docket/config/validate.py
+  s_720f8551a6eedb::t_dd31431fc690f5 23,354-355
+src/docket/engine/stages.py
+  s_9aad4c1f2294d8::t_4bcb4839394d7b 19-20,192-214,217-218,617-618,621,632-633
+src/docket/items/records.py
+  s_720f8551a6eedb::t_d0772fc9637f6e 20-24
+src/docket/presets/exec/jsonl-source.yaml
+  s_3fc1316cc877ea::t_280eec3363a100 1-38
+src/docket/presets/files/jsonl.yaml
+  s_3fc1316cc877ea::t_4a244a788d0d95 1-16
+src/docket/presets/http/json-api.yaml
+  s_3fc1316cc877ea::t_5a6921b5167dda 1-22
+src/docket/presets/mcp/chat-codemode.yaml
+  s_3fc1316cc877ea::t_5f04130837e413 1-68
+src/docket/presets/mcp/mail.yaml
+  s_3fc1316cc877ea::t_9299a99838c336 1-29
+src/docket/shapes/unexpected.py
+  s_9aad4c1f2294d8::t_a3ac34e27ec642 90-97
+src/docket/sources/base.py
+  s_0103e65d54e481::t_83b8556e8ab180 1-113
+src/docket/sources/collect.py
+  s_720f8551a6eedb::t_b2ab1c5cb4f4d0 1-236
+src/docket/sources/contracts.py
+  s_720f8551a6eedb::t_7085144477f278 1-244
+src/docket/sources/cursors.py
+  s_720f8551a6eedb::t_93f6da0e3ad45d 1-169
+src/docket/sources/declarative.py
+  s_720f8551a6eedb::t_ee9564737a1241 1-412
+src/docket/sources/generations.py
+  s_3fc1316cc877ea::t_56eb39af0f1aed 1-189
+src/docket/sources/plan.py
+  s_3fc1316cc877ea::t_4b6be0e719d269 1-55
+src/docket/sources/resolve.py
+  s_3fc1316cc877ea::t_5eefc86dc36ca9 1-53
+src/docket/sources/stage.py
+  s_67388d0a2bc261::t_046173c28ad7a3 1-55
+src/docket/sources/units.py
+  s_3fc1316cc877ea::t_5c4d7d1b9f44b2 1-80
+src/docket/store/db.py
+  s_720f8551a6eedb::t_525c684bafeec4 55-63
+src/docket/transports/base.py
+  s_720f8551a6eedb::t_2aa18d3d5bbcfb 1-215
+src/docket/transports/codemode.py
+  s_3fc1316cc877ea::t_71718e6bdbda04 1-54
+src/docket/transports/exec_jsonl.py
+  s_720f8551a6eedb::t_7fe2d20341d1ab 1-194
+src/docket/transports/files.py
+  s_0103e65d54e481::t_995432d6e68277 1,3-10,14,17-19,40-87
+src/docket/transports/http_json.py
+  s_0103e65d54e481::t_0d686af203c2c5 1-75
+src/docket/transports/mcp_http.py
+  s_0103e65d54e481::t_fd4ab4f1c7fd8c 1-50
+src/docket/transports/mcp_stdio.py
+  s_720f8551a6eedb::t_e9f4b8cd78e358 1-148
+src/docket/transports/registry.py
+  s_3fc1316cc877ea::t_5b6b63adc52663 1-79
+src/docket/transports/replay.py
+  s_3fc1316cc877ea::t_ed93372a1eb323 1-164
+tests/conformance/test_transports.py
+  s_720f8551a6eedb::t_9da6b39aa7a052 1-349
+tests/conftest.py
+  s_720f8551a6eedb::t_2d05d685cad394 6,26,56
+tests/fixtures/bin/docket-stub-auth
+  s_720f8551a6eedb::t_298c04eace4a45 1-12
+tests/fixtures/bin/docket-stub-source
+  s_720f8551a6eedb::t_3913eb8c21dd4a 1-74
+tests/fixtures/make_recordings.py
+  s_720f8551a6eedb::t_e0a40ec9e0fc6f 1-224
+tests/fixtures/mcp_stub_server.py
+  s_720f8551a6eedb::t_d43ff63158ca7f 1-74
+tests/fixtures/personas/reference-like/data/archive.jsonl
+  s_720f8551a6eedb::t_ec634a41083df1 1-7
+tests/fixtures/personas/reference-like/docket.yaml
+  s_720f8551a6eedb::t_fe1e126416b76b 22-27,35-40
+tests/fixtures/personas/reference-like/recordings/archive-api.jsonl
+  s_720f8551a6eedb::t_be066bbf72804e 1-2
+tests/fixtures/personas/reference-like/recordings/chat-gateway.jsonl
+  s_720f8551a6eedb::t_858537c483dd46 1-14
+tests/fixtures/personas/reference-like/recordings/mail-server.jsonl
+  s_720f8551a6eedb::t_747144ce5d3380 1-2
+tests/fixtures/personas/reference-like/recordings/status-api.jsonl
+  s_720f8551a6eedb::t_4ac430eea2a895 1
+tests/fixtures/personas/reference-like/sources.yaml
+  s_720f8551a6eedb::t_1729f2c701b351 1-26,29-33,35-37,39-60
+tests/fixtures/personas/support-lead/data/history.jsonl
+  s_720f8551a6eedb::t_92b8fff6f9e32b 1-10
+tests/fixtures/personas/support-lead/data/pager.jsonl
+  s_720f8551a6eedb::t_1024200a778d61 1-5
+tests/fixtures/personas/support-lead/docket.yaml
+  s_720f8551a6eedb::t_bfcc50dc9396cb 12-16,72,82-113
+tests/fixtures/personas/support-lead/recordings/history-bridge.jsonl
+  s_720f8551a6eedb::t_4bd9a57841c715 1-2
+tests/fixtures/personas/support-lead/recordings/metrics-api.jsonl
+  s_720f8551a6eedb::t_60038acb89858b 1
+tests/fixtures/personas/support-lead/recordings/pager-bridge.jsonl
+  s_720f8551a6eedb::t_2aa245347462ba 1-2
+tests/scenario/test_collection.py
+  s_720f8551a6eedb::t_c53c1b2946c0ea 1-215
+tests/unit/shapes/test_unexpected.py
+  s_720f8551a6eedb::t_c531387e939c27 34-35,45-46,49-50,53,55
+tests/unit/sources/test_auth_resolve_units.py
+  s_720f8551a6eedb::t_c5428875622811 1-147
+tests/unit/sources/test_contracts.py
+  s_720f8551a6eedb::t_34edbbd6bce031 1-186
+tests/unit/sources/test_cursor_models.py
+  s_720f8551a6eedb::t_622addb8c3c62c 1-252
+tests/unit/sources/test_recordings_fresh.py
+  s_720f8551a6eedb::t_4ca4dbc8965e44 1-24
+tests/unit/sources/test_source_config.py
+  s_9aad4c1f2294d8::t_3a943e79d88f0a 1-132
+uv.lock
+  s_720f8551a6eedb::t_f8a19c6fbb1cad 4-7,31-39,49-142,152-214,221,236,270-282,298-323,418-494,513-521,652-665,682-831,850-884,914-926
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "672cb704c90181c95d9d27232a6b8f1f57159251",
+  "prompts": {},
+  "sessions": {
+    "s_0103e65d54e481": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a01d7ffeX7sZuP0t3Ey6qL",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_3fc1316cc877ea": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebdcb8bcbffe08rbMK6EuLdpfB",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_67388d0a2bc261": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebd1cd6caffekivitfiTY9Vnm1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_720f8551a6eedb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebd1d80b3ffe3yXhq3vrmeSFJ2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_9aad4c1f2294d8": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebd1d286bffe8C9LzjhcCRvwHv",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
