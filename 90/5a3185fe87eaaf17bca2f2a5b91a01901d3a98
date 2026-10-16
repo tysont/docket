@@ -1,0 +1,93 @@
+src/docket/apply/approve.py
+  s_f5cd7978833346::t_47e4da8e1e86a7 1-92
+src/docket/apply/boundary.py
+  s_f5cd7978833346::t_ac9bb510c650b4 1-80
+src/docket/apply/executor.py
+  s_f5cd7978833346::t_b63d033c0ff4ce 13-16,31-32,35-50,72,74-80,121-122
+src/docket/apply/freshness.py
+  s_f5cd7978833346::t_734aebdbf6365b 1-192
+src/docket/cli/catalog.py
+  s_f5cd7978833346::t_bb26d6e89578ab 145-149
+src/docket/cli/commands/__init__.py
+  s_f5cd7978833346::t_ecc8c06fe5918f 7
+src/docket/cli/commands/ask_cmds.py
+  s_f5cd7978833346::t_32b6503ed2330a 31,89-91,221-224,322-325
+src/docket/cli/commands/close_cmds.py
+  s_f5cd7978833346::t_49c850b659b753 1-33
+src/docket/cli/commands/stage_cmds.py
+  s_f5cd7978833346::t_2699e85fc16448 75-76,88-100,110,119-125,132-134
+src/docket/close/__init__.py
+  s_f5cd7978833346::t_67b7d395824032 1-6
+src/docket/close/checks.py
+  s_f5cd7978833346::t_6165249959761c 1-102
+src/docket/close/cursors.py
+  s_f5cd7978833346::t_5095d802d64c93 1-32
+src/docket/close/dispositions.py
+  s_f5cd7978833346::t_44d113194806d7 1-120
+src/docket/close/hooks.py
+  s_f5cd7978833346::t_8e5282e2a441d3 1-157
+src/docket/close/journal.py
+  s_f5cd7978833346::t_90c2952ea4aa76 1-199
+src/docket/close/ledgers.py
+  s_f5cd7978833346::t_3390e0fb1e988d 1-76
+src/docket/close/receipts.py
+  s_f5cd7978833346::t_fb69e810ef7583 1-46
+src/docket/close/run.py
+  s_f5cd7978833346::t_f6fa836f585c7f 1-140
+src/docket/config/close_models.py
+  s_f5cd7978833346::t_8ebef35eb1807c 1-75
+src/docket/config/contexts.py
+  s_f5cd7978833346::t_d6dba16a6d0d92 36-60,63-66,72
+src/docket/config/models.py
+  s_f5cd7978833346::t_e61c64209a62bb 4-6,20,464-465
+src/docket/config/validate.py
+  s_f5cd7978833346::t_bc1222ef3670c6 422-423
+src/docket/engine/context.py
+  s_f5cd7978833346::t_d0d4dff8302e8c 78,80-89
+src/docket/engine/next.py
+  s_f5cd7978833346::t_b9362bec2a3883 38-49,64-74
+src/docket/engine/stages.py
+  s_f5cd7978833346::t_55df22a147dbdd 33,215-216,218-222,381-383,413-416,431-432,436,449-450,454,491-494,497-499,559,561,572-575,579,582,586,589-590
+src/docket/engine/steps.py
+  s_f5cd7978833346::t_1f406f56c92ef0 83
+src/docket/signals/merge.py
+  s_f5cd7978833346::t_21d1eaca1cc5db 14-16,117-118,121-124
+src/docket/signals/stage.py
+  s_f5cd7978833346::t_dd38a6d16dce72 68-69
+src/docket/store/db.py
+  s_f5cd7978833346::t_2c1e1c3b569f16 71-82
+src/docket/store/runs.py
+  s_f5cd7978833346::t_53fa2b817ab6a3 39-40
+tests/fixtures/bin/hook_stub.py
+  s_f5cd7978833346::t_c2f477a0e0224c 1-44
+tests/fixtures/personas/reference-like/destinations.yaml
+  s_f5cd7978833346::t_6c6d6d0d0a3ab4 9-11
+tests/fixtures/personas/reference-like/docket.yaml
+  s_f5cd7978833346::t_179261d4109df0 4
+tests/fixtures/personas/reference-like/journal.yaml
+  s_f5cd7978833346::t_5281e1e309c948 1-41
+tests/fixtures/personas/support-lead/docket.yaml
+  s_f5cd7978833346::t_7628d16596dbde 137-152
+tests/scenario/test_close_scenarios.py
+  s_f5cd7978833346::t_8495c973f45e94 1-493
+tests/scenario/test_decisions_scenario.py
+  s_f5cd7978833346::t_0e7cf15251233d 112
+tests/unit/close/test_close_units.py
+  s_f5cd7978833346::t_973075b75c9c5c 1-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "905a3185fe87eaaf17bca2f2a5b91a01901d3a98",
+  "prompts": {},
+  "sessions": {
+    "s_f5cd7978833346": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0c1e75dffeukL1LRDyL5HMZM",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
