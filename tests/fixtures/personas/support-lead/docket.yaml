@@ -9,6 +9,11 @@ workflows:
     sources: [tickets, pager]
     questions: { kinds: [finding], budget: 12 }
     options: queue
+  isolation:
+    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    sources: [tickets, pager, metrics, kb, history]
+    questions: { kinds: [finding], budget: 4 }
+    options: queue
 
 profile:
   timezone: Europe/Lisbon
@@ -64,6 +69,7 @@ sources:
   tickets:
     kind: files
     path: data/tickets.jsonl
+    volatile: true
     mapping:
       id: "$.key"
       title: "$.summary"
@@ -73,8 +79,38 @@ sources:
       fields.queue: "$.queue"
       fields.priority: "$.priority"
   pager:
-    kind: exec_jsonl
-    description: Paging feed; the transport arrives in a later milestone.
+    extends: exec/jsonl-source
+    description: The paging feed, through a small exec bridge (recorded).
+    transport: pager-bridge
+    volatile: true
+    contract:
+      entry:
+        optional: { severity: str, service: str }
+        enums: { severity: [sev1, sev2, sev3] }
+    mapping: { title: "$.title", text: "$.text", at: "$.at", fields.queue: "$.service", fields.priority: "$.severity" }
+  metrics:
+    extends: http/json-api
+    description: Queue metrics API, failing in the recording.
+    transport: metrics-api
+    params: { path: /api/queue-stats }
+  kb:
+    extends: exec/jsonl-source
+    description: Knowledge base changes behind a token that has expired.
+    transport: kb-bridge
+    auth:
+      check: [docket-stub-auth, --fail]
+      instructions: "Renew the knowledge base token (stub-login kb), then rerun the collect command."
+  history:
+    extends: exec/jsonl-source
+    description: Closed-ticket history; the page budget is deliberately small.
+    transport: history-bridge
+    budget: { max_pages: 1, page_size: 4 }
+
+transports:
+  pager-bridge: { kind: replay, path: recordings/pager-bridge.jsonl }
+  metrics-api: { kind: replay, path: recordings/metrics-api.jsonl }
+  kb-bridge: { kind: replay, path: recordings/kb-bridge.jsonl }
+  history-bridge: { kind: replay, path: recordings/history-bridge.jsonl }
 
 decisions:
   option_sets:

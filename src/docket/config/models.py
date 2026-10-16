@@ -2,9 +2,10 @@
 
 Every top-level section is a Pydantic model with ``extra="forbid"``. Sections
 whose full content belongs to later milestones (signals, tasks, planning,
-journal, hooks, transports, shapes) are typed as open maps for now; the
-top-level structure, ``profile``, ``workflows``, ``sources``, ``decisions`` and
-``destinations`` are strict.
+journal, hooks, shapes) are typed as open maps for now; the top-level
+structure, ``profile``, ``workflows``, ``sources``, ``transports``, ``decisions``
+and ``destinations`` are strict. ``sources``, ``transports`` and ``signals.units``
+are modelled in ``docket.config.source_models``.
 """
 from __future__ import annotations
 
@@ -12,21 +13,23 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from docket.config.source_models import Source, TransportConfig  # noqa: F401  (sections owned there)
+
 STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close")
 StageName = Literal["collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close"]
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 SOURCE_KINDS: dict[str, frozenset[str]] = {
-    # kind -> capabilities. Only ``files`` is implemented in M1; the others are
-    # declared so configurations validate, and collect skips them with a record.
-    "files": frozenset({"read"}),
+    # kind (the transport kind) -> capabilities the transport can serve (TD §6.3).
+    "files": frozenset({"read", "context"}),
     "mcp_stdio": frozenset({"read", "discover", "resolve", "context"}),
     "mcp_http": frozenset({"read", "discover", "resolve", "context"}),
     "codemode": frozenset({"read", "discover", "resolve", "context"}),
     "exec_jsonl": frozenset({"read", "discover", "resolve", "context"}),
-    "http_json": frozenset({"read", "resolve", "context"}),
+    "http_json": frozenset({"read", "discover", "resolve", "context"}),
+    "replay": frozenset({"read", "discover", "resolve", "context"}),
 }
-IMPLEMENTED_SOURCE_KINDS = frozenset({"files"})
+IMPLEMENTED_SOURCE_KINDS = frozenset(SOURCE_KINDS)
 
 DESTINATION_ADAPTERS: dict[str, frozenset[str]] = {
     # adapter -> actions it can accept
@@ -149,21 +152,6 @@ class Workflow(Strict):
 # --- sources, decisions, destinations -------------------------------------
 
 
-class Source(Strict):
-    kind: str
-    description: str | None = None
-    path: str | None = None
-    extends: str | None = None
-    transport: dict[str, Any] | None = None
-    cursor: dict[str, Any] | None = None
-    auth: dict[str, Any] | None = None
-    budget: dict[str, Any] | None = None
-    contract: dict[str, Any] | None = None
-    volatile: bool = False
-    required: bool = False
-    mapping: dict[str, str] = {}
-
-
 class OptionConfig(Strict):
     id: str
     action: str
@@ -201,7 +189,7 @@ class DocketConfig(Strict):
     workflows: dict[str, Workflow] = {}
     profile: Profile
     sources: dict[str, Source] = {}
-    transports: dict[str, Any] = {}
+    transports: dict[str, TransportConfig] = {}
     signals: dict[str, Any] = {}
     tasks: dict[str, Any] = {}
     decisions: Decisions = Decisions()

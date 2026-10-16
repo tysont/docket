@@ -53,6 +53,15 @@ CREATE TABLE leases (
   acquired_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL
 );
 """),
+    # M2 collection: proposals carry their generation, cursor model and completeness;
+    # the unit registry keeps the membership count classification read.
+    (2, """
+ALTER TABLE cursor_proposals ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cursor_proposals ADD COLUMN model TEXT;
+ALTER TABLE cursor_proposals ADD COLUMN complete INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE units ADD COLUMN members INTEGER;
+ALTER TABLE units ADD COLUMN rule TEXT;
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

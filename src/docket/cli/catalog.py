@@ -77,6 +77,24 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "stage.not_in_workflow": ("state", False, "The run's workflow does not include this stage."),
     "stage.post_apply_change": ("state", False, "Inputs changed after apply wrote receipts; the run cannot go backward."),
     "store.db_too_new": ("state", False, "The workspace database was written by a newer Docket."),
+    # --- M2 collection ---
+    "config.secret_literal": ("config", False, "A credential-named field holds a literal that looks like a secret; "
+                              "reference an environment variable or a file instead."),
+    "input.unknown_source": ("input", False, "The workspace defines no source with this id."),
+    "input.unknown_unit": ("input", False, "The source discovered no unit with this id."),
+    "source.failed": ("external", True, "A source or unit failed; details carry the raw cause."),
+    "source.auth_failed": ("external", True, "A source's unattended auth check failed; the source is unavailable."),
+    "source.contract.type_changed": ("external", False, "A required response field changed type; the unit failed."),
+    "source.contract.not_json": ("external", False, "A response body is not the JSON the contract describes."),
+    "source.budget_exhausted": ("external", True, "A source's page or time budget ended collection as partial."),
+    "source.truncated": ("external", True, "A page stayed truncated at the minimum page size; the unit is partial."),
+    "transport.timeout": ("external", True, "A transport request or handshake timed out."),
+    "transport.too_large": ("external", True, "A response exceeded the transport's size cap or was declared too large."),
+    "transport.status": ("external", True, "The remote system answered with an error status."),
+    "transport.protocol": ("external", False, "The remote system broke the transport protocol."),
+    "transport.unavailable": ("external", True, "The transport could not start or connect."),
+    "transport.no_recording": ("external", False, "A replay transport has no recording for this request digest."),
+    "transport.error": ("external", True, "A transport failed; the message is the system's own."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

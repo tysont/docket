@@ -382,6 +382,8 @@ def load(root: Path) -> Loaded:
             layered = merge_layers(layered, lay, issues)
             preset_ids.append(pid)
     layered = merge_layers(layered, ws, issues)
+    from docket.config.source_checks import apply_extends  # source presets (TD §6.1)
+    layered = apply_extends(layered, issues)
     return Loaded(root, layered.data, layered.origins, files, preset_ids, issues)
 
 

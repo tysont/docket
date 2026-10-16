@@ -1,0 +1,16 @@
+# JSON-lines files read incrementally by line offset. Sources use it through extends (a files source with a path extends it by default).
+source:
+  kind: files
+  capabilities: [read]
+  cursor: { model: incremental, position: token }
+  request:
+    read:
+      path: "{source.path}"
+      args: { offset: "{page.token}", limit: "{page.size}" }
+  paging:
+    page_size: 500
+    min_page_size: 50
+    entries: "$.entries"
+    next: "$.next"
+    end: "$.end"
+    end_when: [flag]

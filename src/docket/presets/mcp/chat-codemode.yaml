@@ -1,0 +1,68 @@
+# Chat spaces and messages through an MCP gateway's code-execution tool. The workspace names the transport and the gateway's tools in params.
+source:
+  capabilities: [read, discover]
+  volatile: true
+  cursor: { model: units, position: order_key, lookback: 1d }
+  params: { spaces_tool: null, messages_tool: null }
+  request:
+    discover:
+      script: |
+        async () => {
+          const call = (name, args) => codemode[name](args);
+          const raw = await call({{tool}}, { pageToken: {{token}} });
+          const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+          const spaces = (v.spaces ?? []).map(s => ({
+            name: s.name ?? null, displayName: s.displayName ?? null,
+            spaceType: s.spaceType ?? null, memberCount: s.memberCount ?? null }));
+          return JSON.stringify({ spaces, nextPageToken: v.nextPageToken ?? null });
+        }
+      args: { tool: "{params.spaces_tool}", token: "{page.token}" }
+    read:
+      script: |
+        async () => {
+          const call = (name, args) => codemode[name](args);
+          const raw = await call({{tool}}, { parent: {{space}}, after: {{after}}, pageSize: {{page_size}}, pageToken: {{token}} });
+          const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+          const messages = (v.messages ?? []).map(m => ({
+            name: m.name ?? null, createTime: m.createTime ?? null, text: String(m.text ?? "").slice(0, 2000),
+            sender: { name: m.sender?.name ?? null, displayName: m.sender?.displayName ?? null },
+            thread: { name: m.thread?.name ?? null } }));
+          return JSON.stringify({ messages, nextPageToken: v.nextPageToken ?? null, truncated: v.truncated ?? false });
+        }
+      args:
+        tool: "{params.messages_tool}"
+        space: "{unit.id}"
+        after: "{cursor.start}"
+        page_size: "{page.size}"
+        token: "{page.token}"
+  discover:
+    kind: space
+    entries: "$.spaces"
+    next: "$.nextPageToken"
+    id: "$.name"
+    name: "$.displayName"
+    type: "$.spaceType"
+    members: "$.memberCount"
+  paging:
+    kind: message
+    page_size: 100
+    min_page_size: 10
+    entries: "$.messages"
+    next: "$.nextPageToken"
+    end_when: [token_absent]
+    truncated: "$.truncated"
+    too_large: ["too large", "truncat"]
+    order_key: "$.createTime"
+  contract:
+    space:
+      required: { name: str }
+      optional: { displayName: str, spaceType: str, memberCount: int }
+      enums: { spaceType: [ROOM, DM, GROUP_DM] }
+      variations:
+        spaceType: { unknown: { reading: "treat as a group space", value: ROOM, extend: "preset mcp/chat-codemode: contract.space.enums.spaceType" } }
+    message:
+      required: { name: str, createTime: timestamp }
+      optional: { text: str, sender.displayName: str, sender.name: str, thread.name: str }
+      variations:
+        sender.displayName: { missing: { reading: "use sender.name", use: sender.name, record: false } }
+  mapping: { id: "$.name", text: "$.text", title: "$.text", from: "$.sender.displayName", at: "$.createTime" }

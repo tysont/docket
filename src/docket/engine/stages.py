@@ -16,8 +16,8 @@ Delegated and interactive outputs are pure functions of results and answers;
 they are computed in memory (``docket next`` writes nothing) and written as
 artifacts by the next mutating command.
 
-M1 implements every stage as a stub with the real interface: collect reads
-``files`` sources, the delegated stages issue one task per batch, decide asks
+M1 implements every stage as a stub with the real interface; M2 replaces the
+collect stub with real collection (``docket.sources``). The delegated stages issue one task per batch, decide asks
 one question per kept item, plan lists task-line operations, apply appends
 lines to a Markdown task store and close advances cursors and seals.
 """
@@ -33,17 +33,14 @@ from docket.cli.errors import ExternalError
 from docket.config import contexts
 from docket.config.defaults import DEFAULT_OPTION_SET, DEFAULT_SECTION, DEFAULT_TASK_LINE
 from docket.config.digest import digest, pretty_json
-from docket.config.models import IMPLEMENTED_SOURCE_KINDS
 from docket.engine.steps import (
     AskOption, AskQuestion, AskStep, Command, DispatchStep, DispatchTask, RunStep, WaitStep,
 )
-from docket.items.mapping import map_record
 from docket.shapes.unexpected import unexpected
 from docket.store.paths import read_json, write_atomic
 from docket.tasks.packs import build_packs, render_prompt
 from docket.tasks.submit import RESULT_SCHEMAS
 from docket.text import templates
-from docket.transports.files import read_jsonl
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
@@ -192,59 +189,33 @@ class CollectStage(BaseStage):
     name = "collect"
     config_sections = ("sources", "transports", "workflow.sources")
     command = ("collect",)
-    expect = "a record index per source under gen-0/records and the collect artifact"
+    expect = "records per source under gen-<n>/records, cursor proposals and the collect artifact"
+
+    def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
+        from docket.sources.generations import current_generation, unavailable_required
+        ev = self.computational_eval(run, up, extra={"generation": current_generation(run)})
+        if ev.state == "current":
+            missing = unavailable_required(ev.output)
+            if missing:
+                ev.state, ev.reason = "waiting", "sources_unavailable"
+                ev.extra["unavailable"] = missing
+        return ev
+
+    def step(self, run: "RunContext") -> Any:
+        ev = run.eval(self.name)
+        if ev.reason == "sources_unavailable":
+            missing = ev.extra["unavailable"]
+            lines = [f"{sid}: {row.get('reason') or 'unavailable'}"
+                     + (f" -> {row['instructions']}" if row.get("instructions") else "") for sid, row in missing.items()]
+            return WaitStep(stage=self.name, reason="sources_unavailable",
+                            instructions="Required source(s) could not be read. " + " | ".join(lines),
+                            resume_when="the operator has fixed access to the named sources",
+                            command=Command.of(run.argv("collect", "--refresh", "--sources", ",".join(sorted(missing)))))
+        return super().step(run)
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
-        ws, r = run.ws, run.run
-        clock = r.header.clock
-        sources: dict[str, Any] = {}
-        items: dict[str, dict[str, Any]] = {}
-        db = r.store.db
-        for sid in run.source_ids():
-            src = ws.config.sources[sid]
-            if src.kind not in IMPLEMENTED_SOURCE_KINDS:
-                unexpected("source.kind", f"{src.kind} not implemented", reading="skip the source",
-                           extend=f"docket/transports: implement the {src.kind} transport")
-                sources[sid] = {"kind": src.kind, "outcome": "skipped", "records": 0, "reason": "not implemented"}
-                continue
-            row = db.execute("SELECT position FROM cursors WHERE source=? AND unit='*'", (sid,)).fetchone()
-            start = int(row["position"]) if row and row["position"] else 0
-            fr = read_jsonl(ws.root / (src.path or ""), start)
-            if not fr.exists:
-                sources[sid] = {"kind": src.kind, "outcome": "unavailable", "records": 0,
-                                "reason": f"file not found: {src.path}"}
-                continue
-            index_rows = []
-            for line_no, raw in fr.lines:
-                blob = r.store.blobs.put(raw)
-                try:
-                    rec = json.loads(raw)
-                except ValueError:
-                    unexpected("source.files", "line is not JSON", sample=raw[:200].decode("utf-8", "replace"),
-                               reading="skip the line", extend=f"sources.{sid}: fix the file or its parser")
-                    continue
-                if not isinstance(rec, dict):
-                    unexpected("source.files", "line is not an object", reading="skip the line",
-                               extend=f"sources.{sid}: fix the file or its parser")
-                    continue
-                item = map_record(sid, rec, src.mapping, fallback_identity=blob)
-                rid = "r_" + digest([sid, item["unit"], item["identity"]])[:16]
-                item["record_id"] = rid
-                items[item["id"]] = item
-                index_rows.append({
-                    "record_id": rid, "source": sid, "unit": item["unit"], "generation": 0,
-                    "query": {"path": src.path, "line": line_no}, "interval": {"from": None, "to": clock.instant},
-                    "page": 0, "outcome": "read", "blob": blob, "received_at": clock.instant,
-                })
-            idx_path = r.paths.records(0, sid)
-            write_atomic(idx_path, "".join(json.dumps(x, sort_keys=True) + "\n" for x in index_rows))
-            with db:
-                db.execute(
-                    "INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end) "
-                    "VALUES (?,?,?,?,?)", (r.id, sid, "*", str(fr.total_lines), clock.instant))
-            sources[sid] = {"kind": src.kind, "outcome": "read" if index_rows else "empty",
-                            "records": len(index_rows), "index": idx_path.relative_to(r.dir).as_posix()}
-        return {"generation": 0, "sources": sources, "items": [items[k] for k in sorted(items)]}
+        from docket.sources.stage import execute_collect
+        return execute_collect(run)
 
 
 # --- delegated stages --------------------------------------------------------
@@ -643,18 +614,11 @@ class CloseStage(BaseStage):
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
         r = run.run
         db = r.store.db
-        advanced, held = [], []
+        from docket.sources.cursors import apply_proposals
+        moved: dict[str, list[Any]] = {"advanced": [], "held": [], "regressions": []}
         with db:
             if not r.header.sandbox:
-                for p in db.execute("SELECT * FROM cursor_proposals WHERE run_id=? ORDER BY source, unit", (r.id,)):
-                    cur = db.execute("SELECT position FROM cursors WHERE source=? AND unit=?",
-                                     (p["source"], p["unit"])).fetchone()
-                    if cur and cur["position"] and int(cur["position"]) > int(p["position"] or 0):
-                        held.append(p["source"])
-                        continue
-                    db.execute("INSERT OR REPLACE INTO cursors (source, unit, position, coverage_end, updated_run) "
-                               "VALUES (?,?,?,?,?)", (p["source"], p["unit"], p["position"], p["coverage_end"], r.id))
-                    advanced.append(p["source"])
+                moved = apply_proposals(db, r.id)
             dec = run.eval_or_none("decide")
             if dec is not None and dec.output:
                 for qid, ans in sorted(dec.output["answers"].items()):
@@ -665,7 +629,8 @@ class CloseStage(BaseStage):
                                                            (ans.get("overrides") or {}).get("note")))
         journal = self.render_journal(run)
         write_atomic(r.paths.journal, journal)
-        return {"cursors_advanced": advanced, "cursors_held": held, "journal": "journal.md",
+        return {"cursors_advanced": moved["advanced"], "cursors_held": moved["held"],
+                "cursor_regressions": moved["regressions"], "journal": "journal.md",
                 "sealed": True, "sandbox": r.header.sandbox}
 
     def render_journal(self, run: "RunContext") -> str:

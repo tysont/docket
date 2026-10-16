@@ -1,26 +1,60 @@
+# Sources of the reference-like persona. Transports replay recorded sessions
+# (tests/fixtures/make_recordings.py writes recordings/ from data/); all data is invented.
+transports:
+  chat-gateway:
+    kind: replay
+    description: The chat gateway's code-execution tool, recorded.
+    path: recordings/chat-gateway.jsonl
+  mail-server:
+    kind: replay
+    description: The mail MCP server, recorded.
+    path: recordings/mail-server.jsonl
+  notes-gateway:
+    kind: replay
+    description: Meeting notes over the exec protocol, recorded.
+    path: recordings/notes-gateway.jsonl
+  status-api:
+    kind: replay
+    description: A service status API that is failing in the recording.
+    path: recordings/status-api.jsonl
+  wiki-feed:
+    kind: replay
+    path: recordings/wiki-feed.jsonl
+  archive-api:
+    kind: replay
+    path: recordings/archive-api.jsonl
+
 sources:
   chat:
-    kind: files
-    path: data/chat.jsonl
-    volatile: true
-    mapping:
-      id: "$.name"
-      unit: "$.space"
-      text: "$.text"
-      title: "$.text"
-      from: "$.sender.displayName"
-      at: "$.createTime"
+    extends: mcp/chat-codemode
+    transport: chat-gateway
+    params: { spaces_tool: chat_spaces_list, messages_tool: chat_messages_list }
+    cursor: { model: units, lookback: 3d }
+    budget: { page_size: 4, concurrency: 4 }
   mail:
-    kind: files
-    path: data/mail.jsonl
-    volatile: true
-    mapping:
-      id: "$.messageId"
-      title: "$.subject"
-      text: "$.snippet"
-      from: "$.from"
-      at: "$.date"
+    extends: mcp/mail
+    transport: mail-server
+    params: { search_tool: mail_search, query: "in:inbox" }
   transcripts:
-    kind: mcp_stdio
-    description: Meeting transcripts; the transport arrives in a later milestone.
-    transport: { server: notes-gateway }
+    extends: exec/jsonl-source
+    description: Meeting notes, read on Mondays only.
+    transport: notes-gateway
+    cursor: { model: cadence, inner: incremental, weekdays: [mon], position: token }
+  status:
+    extends: http/json-api
+    description: Service status changes.
+    transport: status-api
+    params: { path: /v1/changes }
+  wiki:
+    extends: exec/jsonl-source
+    description: Wiki page changes behind single sign-on.
+    transport: wiki-feed
+    auth:
+      check: [docket-stub-auth, --fail]
+      instructions: "Sign in to the wiki gateway (stub-login wiki), then rerun the collect command."
+  archive:
+    extends: http/json-api
+    description: The long message archive; its page budget is deliberately small.
+    transport: archive-api
+    params: { path: /v1/archive }
+    budget: { max_pages: 1, page_size: 3 }

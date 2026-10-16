@@ -1,0 +1,29 @@
+# Mail over an MCP server's message-search tool, read incrementally by message date. The workspace sets the tool name and query.
+source:
+  volatile: true
+  cursor: { model: incremental, position: order_key, lookback: 1d }
+  params: { search_tool: null, query: "" }
+  request:
+    read:
+      tool: "{params.search_tool}"
+      args:
+        query: "{params.query}"
+        after: "{cursor.start}"
+        page_size: "{page.size}"
+        page_token: "{page.token}"
+  paging:
+    kind: message
+    page_size: 50
+    min_page_size: 5
+    entries: "$.messages"
+    next: "$.nextPageToken"
+    end_when: [token_absent]
+    order_key: "$.date"
+    too_large: ["too large", "truncat"]
+  contract:
+    message:
+      required: { id: str, date: timestamp }
+      optional: { subject: str, from: str, snippet: str, threadId: str }
+      variations:
+        subject: { missing: { reading: "use the snippet as the title", use: snippet, record: false } }
+  mapping: { id: "$.id", title: "$.subject", text: "$.snippet", from: "$.from", at: "$.date" }

@@ -1,0 +1,1 @@
+{"request": {"method": "GET", "params": {"limit": 100, "updated_after": "2026-10-14T18:00:00-05:00"}, "url": "/v1/changes"}, "response": {"body": "", "error": {"kind": "status", "message": "HTTP 503: upstream shard 7 offline; retry after maintenance", "retryable": true, "status": 503}, "status": 503, "truncated": false}}

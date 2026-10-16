@@ -31,7 +31,8 @@ def test_shapes_reach_envelope_run_file_db_and_report(cli, persona, pinned_now):
     code, env = cli("collect", "--workspace", str(ws))
     assert code == 0
     got = {(u["area"], u["detail"]) for u in env["unexpected"]}
-    assert ("source.kind", "mcp_stdio not implemented") in got  # transcripts are declared but stubbed
+    assert ("source.unit", "chat unit without name") in got  # the recorded gateway lists a nameless space
+    assert ("source.contract", "chat.space.spaceType=THREADED_ROOM") in got  # of a type the preset does not know
     assert ("item.mapping", "chat.from missing") in got  # one chat record lacks a sender
     assert all(u["extend"] for u in env["unexpected"])
     assert env["data"]["result"]["sources"]["transcripts"]["outcome"] == "skipped"
@@ -41,16 +42,17 @@ def test_shapes_reach_envelope_run_file_db_and_report(cli, persona, pinned_now):
     assert len(lines) == len(env["unexpected"])
     code, env = cli("unexpected", "--workspace", str(ws))
     shapes = {(s["area"], s["detail"]): s for s in env["data"]["shapes"]}
-    assert shapes[("source.kind", "mcp_stdio not implemented")]["extend"].startswith("docket/transports")
+    assert shapes[("source.contract", "chat.space.spaceType=THREADED_ROOM")]["extend"].startswith(
+        "preset mcp/chat-codemode: contract.space")
     code, env = cli("unexpected", "--since", "1d", "--workspace", str(ws))
     assert env["data"]["total"] == len(shapes)
-    code, env = cli("unexpected", "accept", "source.kind", "mcp_stdio not implemented", "--reason",
-                    "transport lands in M2", "--workspace", str(ws))
+    shape = ("source.unit", "chat unit without name")
+    code, env = cli("unexpected", "accept", *shape, "--reason", "the hallway space has no name", "--workspace", str(ws))
     assert code == 0
     code, env = cli("unexpected", "--workspace", str(ws))
-    assert ("source.kind", "mcp_stdio not implemented") not in {(s["area"], s["detail"]) for s in env["data"]["shapes"]}
+    assert shape not in {(s["area"], s["detail"]) for s in env["data"]["shapes"]}
     code, env = cli("unexpected", "--all", "--workspace", str(ws))
-    assert ("source.kind", "mcp_stdio not implemented") in {(s["area"], s["detail"]) for s in env["data"]["shapes"]}
+    assert shape in {(s["area"], s["detail"]) for s in env["data"]["shapes"]}
 
 
 def test_dry_run_records_nothing(cli, persona, pinned_now):

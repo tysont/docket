@@ -1,0 +1,38 @@
+# A source program speaking the Docket exec protocol (JSON lines on stdin and stdout). Use with an exec_jsonl transport.
+source:
+  capabilities: [read, discover]
+  cursor: { model: incremental, position: token }
+  request:
+    discover: { op: discover, args: {} }
+    read:
+      op: read
+      args: { unit: "{unit.id}", position: "{page.token}", page_size: "{page.size}", after: "{interval.from}" }
+    resolve: { op: resolve, args: { ref: "{ref}" } }
+  discover:
+    entries: "$.result.units"
+    id: "$.id"
+    name: "$.name"
+    type: "$.type"
+    members: "$.members"
+  paging:
+    page_size: 100
+    min_page_size: 10
+    entries: "$.result.items"
+    next: "$.result.next"
+    end: "$.result.end"
+    end_when: [flag]
+    truncated: "$.result.truncated"
+  resolve:
+    fields:
+      state: "$.result.state"
+      last_activity: "$.result.last_activity"
+      last_actor: "$.result.last_actor"
+      title: "$.result.title"
+  contract:
+    entry:
+      required: { id: any }
+      optional: { title: str, text: str, at: timestamp }
+    unit:
+      required: { id: str }
+      optional: { name: str, type: str, members: int }
+  mapping: { id: "$.id", title: "$.title", text: "$.text", at: "$.at" }

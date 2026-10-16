@@ -1,0 +1,12 @@
+#!/bin/sh
+# A stub auth check for tests: --ok succeeds, --fail fails like an expired session,
+# --if-file PATH succeeds once PATH exists, --hang waits for input it never gets (an interactive prompt), --env prints DOCKET_NONINTERACTIVE.
+case "$1" in
+  --ok) exit 0 ;;
+  --if-file) if [ -f "$2" ]; then exit 0; fi; echo "stub-sso: no session file (code 401)" >&2; exit 3 ;;
+  --fail) echo "stub-sso: session expired (code 401); run stub-login to renew" >&2; exit 3 ;;
+  --hang) sleep 30; exit 0 ;;
+  --stdin) if read -r line; then echo "read: $line"; exit 4; fi; echo "stdin closed" >&2; exit 0 ;;
+  --env) echo "DOCKET_NONINTERACTIVE=$DOCKET_NONINTERACTIVE" >&2; [ "$DOCKET_NONINTERACTIVE" = "1" ] || exit 5; exit 0 ;;
+esac
+exit 2

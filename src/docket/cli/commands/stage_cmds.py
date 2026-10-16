@@ -57,8 +57,8 @@ def _not_ready(rc: Any, ctx: Any, blocker: Any, target: str) -> StateError:
 def _brief(data: dict[str, Any]) -> dict[str, Any]:
     out = {}
     for k, v in data.items():
-        if k == "items" and isinstance(v, list):
-            out["item_count"] = len(v)
+        if k in ("items", "context") and isinstance(v, list):
+            out["item_count" if k == "items" else "context_count"] = len(v)
         else:
             out[k] = v
     return out
@@ -104,7 +104,7 @@ def advance(ctx: Any, stage: str) -> Result:
 
 
 _STAGE_EFFECT = {
-    "collect": ["reads configured sources", "writes blobs, gen-0 record indexes and the collect artifact",
+    "collect": ["reads configured sources", "writes blobs, gen-<n> record indexes and the collect artifact",
                 "writes cursor proposals (applied at close)"],
     "merge": ["writes the merge artifact"],
     "plan": ["writes plan/<digest>/plan.json and diff.md and the plan artifact"],
@@ -113,10 +113,15 @@ _STAGE_EFFECT = {
 }
 
 
-@command("collect", "Collect records from the workflow's sources.", run=True, mutating=True,
-         effects=_STAGE_EFFECT["collect"], examples=["docket collect --json"])
+@command("collect", "Collect records from the workflow's sources; --refresh opens a new generation.", run=True,
+         mutating=True, effects=_STAGE_EFFECT["collect"],
+         args=[Arg("--refresh", "Open a new generation for volatile sources, reading from this run's coverage end.",
+                   action="store_true"),
+               Arg("--sources", "Comma-separated source ids to refresh (default: refresh_on_resume, else volatile).")],
+         examples=["docket collect --json", "docket collect --refresh --sources chat,mail --json"])
 def cmd_collect(ctx: Any, ns: Any) -> Result:
-    return advance(ctx, "collect")
+    from docket.cli.commands.source_cmds import collect_command
+    return collect_command(ctx, ns)
 
 
 @command("merge", "Merge assessed items.", run=True, mutating=True, effects=_STAGE_EFFECT["merge"],

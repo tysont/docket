@@ -87,3 +87,11 @@ def unexpected(area: str, detail: str, *, sample: Any = None, reading: str, exte
     if col is not None:
         col.add(shape)
     return shape
+
+
+def replay(shape: Shape) -> None:
+    """Add an already-recorded shape to the current collector (collection re-emits each
+    source's shapes in source order once concurrent reads finish)."""
+    col = _current.get()
+    if col is not None:
+        col.add(shape)

@@ -20,8 +20,7 @@ from pydantic import BaseModel, ValidationError
 from docket.config import contexts
 from docket.config.loader import Issue, Loaded, Path_, closest, dotted, origin_for
 from docket.config.models import (
-    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, MAPPING_KEYS, SOURCE_KINDS, STAGES,
-    WHEN_GUARDS, DocketConfig,
+    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, STAGES, WHEN_GUARDS, DocketConfig,
 )
 from docket.text import templates
 
@@ -273,20 +272,6 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
                     out.append(_issue(loaded, "config.unknown_kind", f"unknown guard {when!r}", base + ("when",), 3,
                                       suggestion=closest(when, list(WHEN_GUARDS))))
 
-    for sname, src in _items(_get(d, "sources")):
-        if not isinstance(src, dict):
-            continue
-        for key, val in _items(src.get("mapping")):
-            mp = ("sources", sname, "mapping", key)
-            if key not in MAPPING_KEYS and not key.startswith("fields."):
-                out.append(_issue(loaded, "config.bad_mapping", f"unknown mapping key {key!r}", mp, 3,
-                                  suggestion=closest(key, list(MAPPING_KEYS))))
-            if not (isinstance(val, str) and val.startswith("$.") and len(val) > 2):
-                out.append(_issue(loaded, "config.bad_mapping", f"mapping {key!r} must be a path like '$.field'", mp, 3))
-        if src.get("kind") == "files" and not src.get("path"):
-            out.append(_issue(loaded, "config.missing_key", f"source {sname!r} of kind files needs a path",
-                              ("sources", sname), 3))
-
     for wname, wf in _items(_get(d, "workflows")):
         if not isinstance(wf, dict):
             continue
@@ -324,11 +309,6 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
 def pass_capabilities(loaded: Loaded) -> list[Issue]:
     d = loaded.data
     out: list[Issue] = []
-    for sname, src in _items(_get(d, "sources")):
-        kind = _get(src, "kind")
-        if isinstance(kind, str) and kind not in SOURCE_KINDS:
-            out.append(_issue(loaded, "config.unknown_kind", f"unknown source kind {kind!r}", ("sources", sname, "kind"), 4,
-                              suggestion=closest(kind, list(SOURCE_KINDS))))
     dests = dict(_items(_get(d, "destinations")))
     for dname, dest in dests.items():
         ad = _get(dest, "adapter")
@@ -371,4 +351,6 @@ def validate(loaded: Loaded) -> tuple[DocketConfig | None, list[Issue]]:
     issues += pass_references(loaded)
     issues += pass_semantics(loaded)
     issues += pass_capabilities(loaded)
+    from docket.config.source_checks import check as check_sources  # sources, transports, signals.units
+    issues += check_sources(loaded)
     return (model if not issues else None), issues

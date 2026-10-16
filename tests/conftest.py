@@ -3,6 +3,7 @@
 - a fake HOME and a fake state root under the test's temporary directory;
 - every environment variable whose name looks like a credential is removed;
 - no network: sockets may connect to localhost only;
+- stub binaries (``tests/fixtures/bin``) first on ``PATH``;
 - a pinned clock helper; derived output never reads the wall clock;
 - the CLI runs in process through ``docket.cli.main``.
 """
@@ -22,6 +23,7 @@ import pytest
 from docket.cli import main
 
 FIXTURES = Path(__file__).parent / "fixtures"
+STUB_BIN = FIXTURES / "bin"
 PERSONAS = FIXTURES / "personas"
 PINNED_NOW = "2026-10-15T18:00:00-05:00"
 CREDENTIAL = re.compile(r"TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL|AUTH", re.I)
@@ -51,6 +53,7 @@ def isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
     for name in list(os.environ):
         if CREDENTIAL.search(name):
             monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("PATH", f"{STUB_BIN}{os.pathsep}{os.environ.get('PATH', '')}")  # stub binaries first
     for name in ("DOCKET_WORKSPACE", "DOCKET_SESSION", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(socket.socket, "connect", _guard(socket.socket.connect))

@@ -17,3 +17,8 @@ class Record(BaseModel):
     outcome: str
     blob: str
     received_at: str
+    # M2: a record is one entry of a page; ``blob`` holds the page body as received.
+    entry: int | None = None
+    identity: str | None = None
+    item_id: str | None = None
+    target: str | None = None

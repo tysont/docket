@@ -1,0 +1,22 @@
+# A plain JSON API paged by a continuation cursor. The workspace sets params.path and the transport's base URL and credentials.
+source:
+  cursor: { model: incremental, position: order_key, lookback: 1d }
+  params: { path: null }
+  request:
+    read:
+      method: GET
+      url: "{params.path}"
+      params: { updated_after: "{cursor.start}", limit: "{page.size}", cursor: "{page.token}" }
+  paging:
+    page_size: 100
+    min_page_size: 10
+    entries: "$.items"
+    next: "$.next"
+    end_when: [token_absent]
+    order_key: "$.updated_at"
+    too_large: ["response too large"]
+  contract:
+    entry:
+      required: { id: any, updated_at: timestamp }
+      optional: { title: str, body: str, author: str, url: str }
+  mapping: { id: "$.id", title: "$.title", text: "$.body", from: "$.author", at: "$.updated_at", url: "$.url" }

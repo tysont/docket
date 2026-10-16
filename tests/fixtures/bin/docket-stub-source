@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""A stub source program speaking the Docket exec protocol (TD §17.2), for transport tests.
+
+Units u1 and u2 hold ROWS entries each (default 7). Options:
+  --rows N         entries per unit
+  --max-page N     a read with page_size above N answers {"code": "too_large"}
+  --protocol N     the protocol version hello reports
+  --exit-on-hello  exit before answering hello
+Ops: hello, discover, read {unit, position, page_size}, resolve {ref}, boom (an error with
+the program's own message), sleep {seconds}, leak (an error echoing $STUB_TOKEN).
+"""
+import json
+import os
+import sys
+import time
+
+args = sys.argv[1:]
+
+
+def opt(name, default):
+    return int(args[args.index(name) + 1]) if name in args else default
+
+
+ROWS, MAX_PAGE, PROTOCOL = opt("--rows", 7), opt("--max-page", 1000), opt("--protocol", 1)
+DATA = {u: [{"id": f"{u}-{i:03d}", "title": f"Entry {i} of {u}", "text": "invented", "at": f"2026-10-15T0{i % 10}:00:00Z"}
+            for i in range(ROWS)] for u in ("u1", "u2")}
+sys.stderr.write("stub source started\n")
+sys.stderr.flush()
+
+
+def reply(rid, result=None, error=None):
+    msg = {"v": 1, "id": rid, "ok": error is None}
+    if error is None:
+        msg["result"] = result
+    else:
+        msg["error"] = error
+    sys.stdout.write(json.dumps(msg) + "\n")
+    sys.stdout.flush()
+
+
+for line in sys.stdin:
+    req = json.loads(line)
+    rid, op, a = req["id"], req["op"], req.get("args") or {}
+    if op == "hello":
+        if "--exit-on-hello" in args:
+            sys.stderr.write("fatal: config file missing\n")
+            sys.exit(9)
+        reply(rid, {"name": "stub-source", "protocol": PROTOCOL, "capabilities": ["discover", "read", "resolve"],
+                    "interactive": os.environ.get("DOCKET_NONINTERACTIVE") != "1"})
+    elif op == "discover":
+        reply(rid, {"units": [{"id": "u1", "name": "Unit one", "type": "queue", "members": 3}, {"id": "u2"}]})
+    elif op == "read":
+        size = int(a.get("page_size") or 100)
+        if size > MAX_PAGE:
+            reply(rid, error={"code": "too_large", "message": f"page of {size} rows exceeds {MAX_PAGE}"})
+            continue
+        rows = DATA.get(a.get("unit") or "u1", [])
+        start = int(a.get("position") or 0)
+        chunk = rows[start:start + size]
+        nxt = start + len(chunk)
+        reply(rid, {"items": chunk, "next": str(nxt), "end": nxt >= len(rows)})
+    elif op == "resolve":
+        reply(rid, {"state": "open", "last_activity": "2026-10-15T09:00:00Z", "last_actor": "users/7",
+                    "title": f"Item {a.get('ref')}"})
+    elif op == "boom":
+        reply(rid, error={"code": "permission", "message": "queue u9 is not readable by this account",
+                          "retryable": False})
+    elif op == "sleep":
+        time.sleep(float(a.get("seconds") or 1))
+        reply(rid, {"slept": True})
+    elif op == "leak":
+        reply(rid, error={"code": "auth", "message": "rejected token " + os.environ.get("STUB_TOKEN", "")})
+    else:
+        reply(rid, error={"code": "unknown_op", "message": f"no op {op}"})

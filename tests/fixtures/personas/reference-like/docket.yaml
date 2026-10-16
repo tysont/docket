@@ -19,6 +19,12 @@ workflows:
     sources: [chat, mail]
     questions: { kinds: [finding], budget: 8 }
     options: basic
+  isolation:
+    description: Every source, including one failing, one unavailable and one over budget.
+    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    sources: [chat, mail, transcripts, status, wiki, archive]
+    questions: { kinds: [finding], budget: 5 }
+    options: basic
 
 decisions:
   templates:
@@ -26,6 +32,12 @@ decisions:
 
 signals:
   scoring: { floor: 50 }
+  units:
+    rules:
+      - { id: direct, match: { source: chat, type: [DM] }, set: { kind: direct, class: direct, tier: 1 } }
+      - { id: war-room, match: { source: chat, name_regex: "(?i)war room" }, set: { class: incident, tier: 1 } }
+      - { id: small-room, match: { source: chat, members_max: 8 }, set: { kind: team, class: team, tier: 2 } }
+      - { id: large-room, match: { source: chat, members_min: 9 }, set: { kind: broadcast, class: broadcast, tier: 3 } }
 
 tasks:
   assess: { max_items: 10 }
