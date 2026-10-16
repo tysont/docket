@@ -77,6 +77,13 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "stage.not_in_workflow": ("state", False, "The run's workflow does not include this stage."),
     "stage.post_apply_change": ("state", False, "Inputs changed after apply wrote receipts; the run cannot go backward."),
     "store.db_too_new": ("state", False, "The workspace database was written by a newer Docket."),
+    # --- M7 planning ---
+    "plan.window_too_small": ("input", False, "A scheduling window has too little free time for the task's estimate."),
+    "plan.window_unresolved": ("input", False, "A named-event window matches no calendar event in the horizon."),
+    "plan.unknown_item": ("input", False, "No planned task matches the reference given to plan explain."),
+    "plan.not_built": ("state", True, "No current plan exists for the run; build it first."),
+    "plan.no_calendar": ("config", False, "The command needs planning.calendar, which the workspace does not set."),
+    "plan.invalid": ("integrity", False, "A built plan failed validation by its own constraint engine (a defect)."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

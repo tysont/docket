@@ -1,0 +1,14 @@
+# Planning for the reference-like persona. The calendar is a JSON fixture; all data is invented.
+planning:
+  workflows: [week-plan]
+  calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: work-calendar }
+  tasks: { destination: backlog, sections: ["## Inbox"] }
+  policy:
+    day_window: "09:00-17:00"
+    deep_window: "09:00-12:00"
+    lunch: "12:00-13:00"
+    meeting_buffer: 5m
+    daily_cap: 4h
+    horizon_days: 10
+  mirrors:
+    - { from: personal, to: work, as: { title: Busy } }

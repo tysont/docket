@@ -59,6 +59,7 @@ profile:
     classify:
       - { match: { title_regex: "^Shift Handover" }, kind: meeting }
       - { match: { title_regex: "^Vacation" }, kind: out_of_office }
+      - { match: { property: { attendees: true } }, kind: meeting }
 
 sources:
   tickets:

@@ -491,7 +491,13 @@ class PlanStage(BaseStage):
         op.update({"question_id": qid, "item_id": item["id"]})
         return op
 
+    def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
+        from docket.plan.build import input_digests, planning_active
+        extra = input_digests(run) if up is not None and up.output is not None and planning_active(run) else None
+        return self.computational_eval(run, up, extra=extra)
+
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
+        from docket.plan.build import planning_active
         out = up.output
         qs = {q["id"]: q for q in out["questions"]}
         items = {f["question_id"]: f["item"] for f in out["findings"]}
@@ -507,6 +513,8 @@ class PlanStage(BaseStage):
             "inputs": {"decide": up.output_digest, "config_digest": ev.config_digest},
             "operations": ops, "schedule": [], "unschedulable": [], "notes": [],
         }
+        if planning_active(run):  # M7: schedule open tasks and add calendar operations (TD §12)
+            return self.execute_planning(run, plan, up)
         pd = digest(plan)
         pdir = run.run.paths.plan(pd)
         write_atomic(pdir / "plan.json", pretty_json(plan))
@@ -516,6 +524,19 @@ class PlanStage(BaseStage):
             diff.append("- No operations.")
         write_atomic(pdir / "diff.md", "\n".join(diff) + "\n")
         return {"plan_digest": pd, "operations": ops, "diff": pdir.relative_to(run.run.dir).as_posix() + "/diff.md"}
+
+    def execute_planning(self, run: "RunContext", plan: dict[str, Any], up: StageEval) -> dict[str, Any]:
+        from zoneinfo import ZoneInfo
+        from docket.plan.build import extend_plan, render_diff
+        built = extend_plan(run, plan, up.output, up.output_digest)
+        pd = digest(plan)
+        pdir = run.run.paths.plan(pd)
+        write_atomic(pdir / "plan.json", pretty_json(plan))
+        write_atomic(pdir / "diff.md", render_diff(plan, pd, ZoneInfo(run.run.header.clock.timezone)))
+        return {"plan_digest": pd, "operations": plan["operations"],
+                "diff": pdir.relative_to(run.run.dir).as_posix() + "/diff.md",
+                "planning": {"blocks": len(plan["schedule"]), "unschedulable": len(plan["unschedulable"]),
+                             "calendar_operations": len(built.ops)}}
 
 
 # --- approve ---------------------------------------------------------------

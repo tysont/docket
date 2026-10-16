@@ -1,16 +1,16 @@
 """Configuration models (TD §3.2).
 
 Every top-level section is a Pydantic model with ``extra="forbid"``. Sections
-whose full content belongs to later milestones (signals, tasks, planning,
-journal, hooks, transports, shapes) are typed as open maps for now; the
-top-level structure, ``profile``, ``workflows``, ``sources``, ``decisions`` and
-``destinations`` are strict.
+whose full content belongs to later milestones (signals, tasks, journal,
+hooks, transports, shapes) are typed as open maps for now; the top-level
+structure, ``profile``, ``workflows``, ``sources``, ``decisions``,
+``destinations`` and ``planning`` are strict.
 """
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close")
 StageName = Literal["collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close"]
@@ -98,9 +98,25 @@ class Forum(Strict):
     calendar_match: dict[str, Any] | None = None
 
 
+CALENDAR_KINDS = ("meeting", "focus", "soft_hold", "out_of_office", "boundary", "mirrored", "owned",
+                  "informational")
+CalendarKind = Literal["meeting", "focus", "soft_hold", "out_of_office", "boundary", "mirrored", "owned",
+                       "informational"]
+
+
+class ClassifyMatch(Strict):
+    """Every key given must hold (TD §12.1). ``property`` values: ``true`` means present and
+    truthy, ``false`` absent or falsy, anything else equality (case-insensitive for text)."""
+    title_regex: str | None = None
+    property: dict[str, Any] = {}
+    calendar: str | None = None
+    transparency: Literal["opaque", "transparent"] | None = None
+    all_day: bool | None = None
+
+
 class ClassifyRule(Strict):
-    match: dict[str, Any]
-    kind: str
+    match: ClassifyMatch
+    kind: CalendarKind
 
 
 class CalendarVocabulary(Strict):
@@ -191,6 +207,132 @@ class Destination(Strict):
     policy: dict[str, Any] | None = None
 
 
+# --- planning (TD §12) -------------------------------------------------------
+
+ORDERING_KEYS = ("imminent", "overdue", "due", "tier", "size", "carry")
+Duration = str | int
+
+
+def _check_duration(v: Any) -> Any:
+    if v is None:
+        return v
+    from docket.text.durations import parse_duration
+    try:
+        parse_duration(v)
+    except Exception:
+        raise ValueError(f"not a duration: {v!r} (use 45, 45m, 1h, 1.5h or 1h30m)") from None
+    return v
+
+
+def _check_range(v: Any) -> Any:
+    if v is None:
+        return v
+    from docket.plan.types import parse_clock_range
+    try:
+        parse_clock_range(v)
+    except ValueError:
+        raise ValueError(f"not a time range: {v!r} (use HH:MM-HH:MM)") from None
+    return v
+
+
+class PlanningBatch(Strict):
+    max_minutes: Duration = "15m"   # tasks at or under this batch together; 0 disables batching
+    block_max: Duration = "1h"      # the longest a daily batch block grows
+
+
+class PlanningPolicy(Strict):
+    """Scheduling policy. Every value has a neutral default; durations use the duration parser."""
+    workdays: list[Weekday] | None = None          # default: profile.workdays
+    day_window: str = "09:00-17:00"
+    deep_window: str | None = None
+    deep_kinds: list[str] = ["deep"]              # block kinds that must sit inside deep_window
+    deep_min: Duration = "60m"                     # a task this long or longer is a deep block
+    lunch: str | None = None
+    granularity: Duration = "15m"
+    min_block: Duration = "30m"
+    max_block: Duration = "2h"
+    meeting_buffer: Duration = "0m"
+    daily_cap: Duration | None = None
+    horizon_days: int = Field(14, ge=1, le=366)
+    move_cap: int = Field(3, ge=0)
+    move_lock: Duration = "0m"
+    ordering: list[Literal["imminent", "overdue", "due", "tier", "size", "carry"]] = \
+        ["imminent", "overdue", "due", "tier", "size"]
+    imminent_days: int = Field(2, ge=0)
+    default_lead_days: int = Field(3, ge=0)
+    default_est: Duration = "30m"
+    busy_kinds: list[CalendarKind] = ["meeting", "focus", "soft_hold", "out_of_office", "boundary", "mirrored",
+                                      "owned"]
+    window_available_kinds: list[CalendarKind] = ["soft_hold", "out_of_office"]
+    buffer_kinds: list[CalendarKind] = ["meeting"]
+    batch: PlanningBatch = PlanningBatch()
+
+    @field_validator("granularity", "min_block", "max_block", "meeting_buffer", "daily_cap", "move_lock",
+                     "default_est", "deep_min")
+    @classmethod
+    def _durations(cls, v: Any) -> Any:
+        return _check_duration(v)
+
+    @field_validator("day_window", "deep_window", "lunch")
+    @classmethod
+    def _ranges(cls, v: Any) -> Any:
+        return _check_range(v)
+
+
+class PlanningCalendar(Strict):
+    """Where availability is read from and which calendar blocks go to."""
+    provider: Literal["json_file"] = "json_file"
+    path: str
+    calendar: str = "work"              # calendar id blocks are written to
+    destination: str = "calendar"       # destination id carried on calendar operations
+    key_property: str = "docket_key"    # event property holding the ownership key
+    marker_regex: str | None = None     # or: a regex over notes whose group 1 is the key
+
+
+class PlanningTasks(Strict):
+    destination: str | None = None      # default: the first markdown_tasks destination
+    sections: list[str] | None = None   # headings to schedule from, in tier order; default all
+    fields: dict[str, str] = {}         # task attribute -> inline field name (due, est, start, tier, when, ...)
+
+
+class MirrorAs(Strict):
+    title: str = "Busy"
+    transparency: Literal["opaque", "transparent"] = "opaque"
+
+
+class PlanningMirror(Strict):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, serialize_by_alias=True)
+    from_: str = Field(alias="from")
+    to: str
+    as_: MirrorAs = Field(MirrorAs(), alias="as")
+    respect_deletions: bool = True
+    include_all_day: bool = False
+
+
+class PlanningTitles(Strict):
+    task: str = "{title}"
+    batch: str = "{count} small tasks"
+    notes: str = ""
+    batch_notes: str = "{#members}- {title}\n{/members}"
+
+    @field_validator("task", "batch", "notes", "batch_notes")
+    @classmethod
+    def _tpl(cls, v: str) -> str:
+        from docket.text import templates
+        templates.parse(v)
+        return v
+
+
+class Planning(Strict):
+    policy: PlanningPolicy = PlanningPolicy()
+    calendar: PlanningCalendar | None = None
+    workflows: list[str] | None = None   # workflows that schedule; default every workflow with a plan stage
+    tasks: PlanningTasks = PlanningTasks()
+    mirrors: list[PlanningMirror] = []
+    titles: PlanningTitles = PlanningTitles()
+    key_prefix: str = "dk_"
+
+
 # --- top level -------------------------------------------------------------
 
 
@@ -206,7 +348,7 @@ class DocketConfig(Strict):
     tasks: dict[str, Any] = {}
     decisions: Decisions = Decisions()
     destinations: dict[str, Destination] = {}
-    planning: dict[str, Any] = {}
+    planning: Planning = Planning()
     journal: dict[str, Any] = {}
     hooks: dict[str, Any] = {}
     shapes: dict[str, Any] = Field(default_factory=dict)
