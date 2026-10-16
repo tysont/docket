@@ -180,7 +180,7 @@ def test_every_override_is_echoed_normalized_and_reaches_the_line(persona, cli):
     assert "--when '2026-10-19 09:00-11:00'" in env["data"]["answer"]["normalized"]
     line = env["data"]["preview"]["line"]
     assert line == ("- [ ] Name the on-call owner for next sprint [source:: chat] [due:: 2026-10-16] [est:: 1h30m] "
-                    "[links:: https://wiki.example/oncall, https://wiki.example/rota]")
+                    "[when:: 2026-10-19 09:00-11:00] [links:: https://wiki.example/oncall, https://wiki.example/rota]")
     loads = env["data"]["action_preview"]["day_load"]
     assert [d["date"] for d in loads] == ["2026-10-16", "2026-10-19"]
     # the same decision in other words is not a change

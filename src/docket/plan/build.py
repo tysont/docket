@@ -152,8 +152,7 @@ def gather(rc: "RunContext") -> Inputs:
     tasks: list[Any] = []
     sd = "absent"
     if dest is not None and dest in cfg.destinations:
-        path = rc.ws.root / (cfg.destinations[dest].path or f"{dest}.md")
-        tasks, sd = read_store(path, dest, sections=cfg.planning.tasks.sections, field_map=cfg.planning.tasks.fields)
+        tasks, sd = read_store(rc, dest, sections=cfg.planning.tasks.sections)
     return Inputs(policy, tz, today, now, lo, hi, prov, events, tasks, sd, dest, read_ledger(rc))
 
 
@@ -215,9 +214,9 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         tid = "t_" + digest(["answer", qid])[:16]
         fields: dict[str, str] = {}
         if op is not None:
-            parsed = parse_line(op["line"], op["destination"], rc.ws.config.planning.tasks.fields)
-            if parsed is not None:
-                tid, title, fields = parsed
+            parsed = parse_line(rc, op["destination"], op["line"])
+            if parsed is not None:  # the id the store task will have once the line is written
+                tid, title, fields = parsed.id, parsed.title, dict(parsed.fields)
             if ov.get("title"):  # the block carries the title override; the line carries the task text
                 title = ov["title"]
         if "due" in ov:

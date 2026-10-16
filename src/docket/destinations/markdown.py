@@ -10,11 +10,13 @@ grammar cannot parse are left exactly as they are.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from docket.cli.errors import IntegrityError
 from docket.config.defaults import DEFAULT_SECTION, DEFAULT_TASK_LINE
+from docket.config.digest import digest
 from docket.destinations import quality as quality_mod
 from docket.destinations.base import (
     Acceptance, Action, BaseDestination, DestEnv, DestState, Operation, Receipt, VerifyResult, make_op,
@@ -22,7 +24,7 @@ from docket.destinations.base import (
 from docket.destinations.markdown_io import Doc, FileIO, TwinIO, line_digest
 from docket.shapes.unexpected import unexpected
 from docket.text import templates
-from docket.text.grammar import Grammar
+from docket.text.grammar import Grammar, TaskLine
 from docket.text.redact import Redactor
 
 DEFAULT_AGENDA_SECTION = "## Next"
@@ -131,6 +133,18 @@ class MarkdownBase(BaseDestination):
 # --- markdown_tasks -----------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class OpenTask:
+    """An open task line as the adapter reads it. ``fields`` are keyed by their name on the line."""
+    id: str
+    title: str
+    line: str
+    index: int
+    section: str
+    fields: dict[str, str]
+    tier: int = 0
+
+
 class MarkdownTasks(MarkdownBase):
     """A Markdown task store with a configurable grammar, tiers and quality rules."""
     adapter = "markdown_tasks"
@@ -169,6 +183,35 @@ class MarkdownTasks(MarkdownBase):
                                reading="leave the line untouched", extend=f"destinations.{self.id}.grammar")
                 continue
             out.append({"index": i, "line": ln, "section": doc.section_of(i), "task": t})
+        return out
+
+    def task_id(self, t: TaskLine, id_field: str = "id") -> str:
+        """A task's identity: its id field, else the destination and its normalized title.
+
+        Field edits (``set_field``, ``close``, carry) leave the title alone, so the line an
+        answer appends and the same line read on a later run share one id."""
+        return t.get(id_field) or "t_" + digest([self.id, t.title.casefold()])[:16]
+
+    def read_line(self, line: str, *, id_field: str = "id") -> OpenTask | None:
+        """An open task line under this destination's grammar, or None."""
+        t = self.grammar.parse(line)
+        if t is None or t.status != "open":
+            return None
+        return OpenTask(self.task_id(t, id_field), t.title, line, -1, "", dict(t.fields))
+
+    def open_tasks(self, state: DestState, *, sections: list[str] | None = None,
+                   id_field: str = "id") -> list[OpenTask]:
+        """Open tasks in file order. With ``sections``, only those headings are read and a task's
+        tier is its section's position in the list."""
+        wanted = [s.strip() for s in sections] if sections else None
+        out = []
+        for r in self.tasks(state):
+            t = r["task"]
+            section = r["section"] or ""  # the heading line as written: it is the anchor of a later edit
+            if t.status != "open" or (wanted is not None and section.strip() not in wanted):
+                continue
+            out.append(OpenTask(self.task_id(t, id_field), t.title, r["line"], r["index"], section,
+                                dict(t.fields), wanted.index(section.strip()) if wanted is not None else 0))
         return out
 
     def preview(self, action: Action, state: DestState, *, fix: quality_mod.Fix | None = None) -> list[Operation]:

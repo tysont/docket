@@ -1,4 +1,5 @@
 # A Markdown task list whose lines carry bracketed inline fields ([key:: value]).
+# An answer's window (--when) is written as [when:: ...] so the next run keeps its block there.
 # The workspace sets the file path. Tiers are headings; quality rules are a
 # denylist plus a safe default, never an allowlist.
 destinations:
@@ -14,7 +15,7 @@ destinations:
       done: ["- [x] ", "- [X] "]
       fields: bracket
     carry_field: carry
-    line_template: "- [ ] {title} [source:: {source}]{?due} [due:: {due}]{/due}{?est} [est:: {est|duration}]{/est}"
+    line_template: "- [ ] {title} [source:: {source}]{?due} [due:: {due}]{/due}{?est} [est:: {est|duration}]{/est}{?when} [when:: {when}]{/when}"
     quality:
       imperative: { deny: [fyi, note, maybe, consider], default_verb: "Follow up on" }
       max_length: 200

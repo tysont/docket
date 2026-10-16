@@ -33,6 +33,7 @@ _WIKI = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 _URL = re.compile(r"(?<![(\w])https?://[^\s)\]>]+")
 _TAG = re.compile(r"(?:(?<=\s)|^)#([A-Za-z][\w/-]*)")
 _CHECKBOX = re.compile(r"^(- \[)(.)(\] )")
+_TITLE_LINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\([^)]+\)")
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,12 @@ class TaskLine:
             if re.match(r"^https?://\S+$", v.strip()):
                 out.append(v.strip())
         return out
+
+    @property
+    def title(self) -> str:
+        """The text as a reader sees it: links shown by their label, whitespace collapsed."""
+        t = _TITLE_LINK.sub(lambda m: m.group(2) or m.group(1) or m.group(3) or "", self.text)
+        return " ".join(t.split())
 
     @property
     def tags(self) -> list[str]:

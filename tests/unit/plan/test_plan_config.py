@@ -9,7 +9,10 @@ import pytest
 
 from docket.config import check, load_workspace
 from docket.plan.providers import JsonFileProvider
-from docket.plan.taskstore import parse_line, read_store
+from docket.config.models import Destination as DestConfig
+from docket.config.models import Profile
+from docket.destinations import build
+from docket.destinations.base import DestEnv
 from docket.plan.types import Policy
 from docket.shapes.unexpected import collecting
 from tests.plan_helpers import TZ, d
@@ -112,15 +115,35 @@ def test_json_provider_reads_naive_times_markers_and_skips_malformed(tmp_path):
     assert sorted(s.detail for s in col.drain()) == ["event is not an object", "malformed event: ValueError"]
 
 
+def _store(tmp_path, text, **cfg):
+    (tmp_path / "tasks.md").write_text(text, encoding="utf-8")
+    base = {"adapter": "markdown_tasks", "path": "tasks.md", **cfg}
+    return build("backlog", DestConfig.model_validate(base),
+                 DestEnv(root=tmp_path, profile=Profile.model_validate({"me": {"name": "Test Person"}})))
+
+
 def test_task_store_reads_open_lines_fields_and_sections(tmp_path):
-    p = tmp_path / "tasks.md"
-    p.write_text("# Tasks\n\n## Now\n- [ ] Write [[Spec|the spec]] [due:: 2026-10-20] [est:: 1h] [tier:: 2]\n"
-                 "- [x] Done thing [est:: 30m]\n\n## Later\n- [ ] Someday item\n", encoding="utf-8")
-    tasks, dg = read_store(p, "backlog", sections=["## Now"])
-    assert [(t.title, t.fields, t.tier) for t in tasks] == [("Write the spec", {"due": "2026-10-20", "est": "1h",
-                                                                                "tier": "2"}, 0)]
-    assert dg != "absent" and read_store(tmp_path / "none.md", "backlog") == ([], "absent")
-    a = parse_line("- [ ] Write the spec [source:: chat]", "backlog")
-    b = parse_line("- [ ] Write the spec [due:: 2026-10-30]", "backlog")
-    assert a and b and a[0] == b[0]          # the id survives field changes
+    dest = _store(tmp_path, "# Tasks\n\n## Now\n- [ ] Write [[Spec|the spec]] [due:: 2026-10-20] [est:: 1h] [tier:: 2]\n"
+                            "- [x] Done thing [est:: 30m]\n\n## Later\n- [ ] Someday item\n")
+    tasks = dest.open_tasks(dest.snapshot(), sections=["## Now"])
+    assert [(t.title, t.fields, t.tier, t.section) for t in tasks] == [
+        ("Write the spec", {"due": "2026-10-20", "est": "1h", "tier": "2"}, 0, "## Now")]
+    assert [t.title for t in dest.open_tasks(dest.snapshot())] == ["Write the spec", "Someday item"]
+    a = dest.read_line("- [ ] Write the spec [source:: chat]")
+    b = dest.read_line("- [ ] Write the spec [due:: 2026-10-30]")
+    assert a and b and a.id == b.id          # the id survives field changes
+    assert dest.read_line("- [x] Write the spec") is None
+    assert dest.read_line("- [ ] Write the spec [id:: t_fixed]").id == "t_fixed"
     assert d(0).year == 2026
+
+
+def test_task_store_reads_a_delimited_grammar_with_the_same_ids_it_writes(tmp_path):
+    grammar = {"open": "TODO ", "done": ["DONE "], "fields": "delimited", "separator": " | ", "assign": "="}
+    dest = _store(tmp_path, "## Today\nTODO Call the customer back | queue=billing | due=2026-10-19\n"
+                            "DONE Old ticket | queue=tier1\n- [ ] Not a task here\n", grammar=grammar)
+    with collecting():
+        tasks = dest.open_tasks(dest.snapshot())
+    assert [(t.title, t.fields) for t in tasks] == [("Call the customer back", {"queue": "billing", "due": "2026-10-19"})]
+    again = dest.read_line("TODO Call the customer back | queue=billing | carried=1")
+    assert again is not None and again.id == tasks[0].id
+    assert dest.read_line("- [ ] Call the customer back") is None

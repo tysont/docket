@@ -4,8 +4,8 @@ Reconcile and verification read the task store the way apply will write it:
 through the ``markdown_tasks`` adapter's grammar, so the carry count is the
 adapter's ``carry_field`` and the line text is exactly what a ``task.close``,
 ``task.carry`` or ``task.update`` operation will target. A task's id is the
-planning id (``docket.plan.taskstore``) so a block's ownership key maps back to
-its task.
+adapter's (``MarkdownTasks.task_id``, read through ``docket.plan.taskstore``), the
+same id planning uses, so a block's ownership key maps back to its task.
 """
 from __future__ import annotations
 
@@ -49,39 +49,22 @@ def block_key(prefix: str, task_id: str) -> str:
 
 
 def open_tasks(rc: "RunContext") -> list[StoreTask]:
-    from docket.destinations import for_run
-    from docket.plan.taskstore import parse_line, task_id
+    from docket.plan.taskstore import read_store
     did = store_destination(rc)
     if did is None:
         return []
-    dest = for_run(rc, did)
-    try:
-        state = dest.snapshot()
-        rows = dest.tasks(state)
-        carry_name = dest.cfg.carry_field or "carry"
-    finally:
-        dest.close()
-    fmap = rc.ws.config.planning.tasks.fields
+    rows, _ = read_store(rc, did)
+    carry_name = rc.ws.config.destinations[did].carry_field or "carry"
     out = []
     for r in rows:
-        t = r["task"]
-        if t.status != "open":
-            continue
-        parsed = parse_line(r["line"], did, fmap)
-        if parsed is not None:
-            tid, title, _ = parsed
-        else:
-            title = " ".join(t.text.split())
-            tid = task_id(did, title)
-        raw = t.get(carry_name)
+        raw = r.raw.get(carry_name)
         try:
             carry = int(raw or 0)
         except ValueError:
             unexpected("decide.store", "carry field is not a number", sample=str(raw)[:20],
                        reading="count no carries", extend=f"destinations.{did}.carry_field")
             carry = 0
-        fields = {k: v for k, v in t.fields}
-        out.append(StoreTask(tid, title, r["line"], r["section"] or "", did, carry, fields))
+        out.append(StoreTask(r.id, r.title, r.line, r.section, did, carry, dict(r.raw)))
     return out
 
 
