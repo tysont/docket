@@ -195,6 +195,11 @@ def pass_references(loaded: Loaded) -> list[Issue]:
                 "source of this workflow")
         ref(wf.get("options"), option_sets, ("workflows", wname, "options"), "option set")
 
+    # planning (M7): workflows and destinations it names
+    for j, w in enumerate(_get(d, "planning", "workflows") or []):
+        ref(w, [k for k, _ in _items(_get(d, "workflows"))], ("planning", "workflows", j), "workflow")
+    ref(_get(d, "planning", "tasks", "destination"), dests, ("planning", "tasks", "destination"), "destination")
+
     for sname, kinds in _items(_get(d, "decisions", "option_sets")):
         for kind, opts in _items(kinds):
             seen_opt: set[str] = set()
@@ -293,6 +298,7 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
         _check_regex(loaded, _get(rule, "match", "title_regex"), ("profile", "calendar", "classify", i, "match", "title_regex"), out)
     for i, f in _dicts(_get(d, "profile", "forums")):
         _check_regex(loaded, _get(f, "calendar_match", "title_regex"), ("profile", "forums", i, "calendar_match", "title_regex"), out)
+    _check_regex(loaded, _get(d, "planning", "calendar", "marker_regex"), ("planning", "calendar", "marker_regex"), out)
 
     for dname, dest in _items(_get(d, "destinations")):
         if isinstance(dest, dict):

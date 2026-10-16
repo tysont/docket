@@ -107,6 +107,13 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "dest.protocol": ("external", True, "An exec-protocol program sent a malformed or failed response."),
     "plugin.unknown": ("input", False, "No built-in adapter or configured destination has this name."),
     "plugin.check_failed": ("external", False, "The conformance suite failed; details.report lists every check."),
+    # --- M7 planning ---
+    "plan.window_too_small": ("input", False, "A scheduling window has too little free time for the task's estimate."),
+    "plan.window_unresolved": ("input", False, "A named-event window matches no calendar event in the horizon."),
+    "plan.unknown_item": ("input", False, "No planned task matches the reference given to plan explain."),
+    "plan.not_built": ("state", True, "No current plan exists for the run; build it first."),
+    "plan.no_calendar": ("config", False, "The command needs planning.calendar, which the workspace does not set."),
+    "plan.invalid": ("integrity", False, "A built plan failed validation by its own constraint engine (a defect)."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

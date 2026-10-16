@@ -57,4 +57,9 @@ profile:
     classify:
       - { match: { title_regex: "^Deep Work" }, kind: focus }
       - { match: { title_regex: "\\bPTO\\b" }, kind: out_of_office }
+      - { match: { title_regex: "\\bFlight\\b" }, kind: out_of_office }
+      - { match: { title_regex: "^Desk time" }, kind: soft_hold }
+      - { match: { calendar: personal }, kind: mirrored }
       - { match: { property: { transparency: transparent } }, kind: informational }
+      - { match: { property: { attendees: true } }, kind: meeting }
+      - { match: { all_day: true }, kind: informational }

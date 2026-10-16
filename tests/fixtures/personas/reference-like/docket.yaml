@@ -1,7 +1,7 @@
 # Reference-like persona: a people manager with chat, mail and a Markdown backlog.
 # All names, handles and data are invented.
 version: 1
-includes: [profile.yaml, sources.yaml, destinations.yaml]
+includes: [profile.yaml, sources.yaml, destinations.yaml, planning.yaml]
 presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic]
 
 workflows:
@@ -24,6 +24,12 @@ workflows:
     stages: [collect, assess, merge, decide, plan, approve, apply, close]
     sources: [chat, mail, transcripts, status, wiki, archive]
     questions: { kinds: [finding], budget: 5 }
+    options: basic
+  week-plan:
+    description: Plan the next days onto the calendar and show the plan; nothing is applied.
+    stages: [collect, assess, merge, decide, plan, close]
+    sources: [chat, mail]
+    questions: { kinds: [finding], budget: 3 }
     options: basic
 
 decisions:

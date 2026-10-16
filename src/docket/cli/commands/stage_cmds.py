@@ -314,7 +314,8 @@ def cmd_ask_show(ctx: Any, ns: Any) -> Result:
                Arg("option", "Option id, label, leading words of the label, or 1-based position."),
                Arg("--due", "Due date: today, tomorrow, a weekday name (next occurrence after the run date), YYYY-MM-DD."),
                Arg("--est", "Estimate: 45, 45m, 1h, 1.5h, 1h30m."),
-               Arg("--when", "Window: a day, a day with times (thu 13:00-17:00), or 'this week'."),
+               Arg("--when", "Window: a day, a day with times (thu 13:00-17:00), 'this week', or the title of "
+                             "a calendar event to schedule over."),
                Arg("--title", "Task title override."),
                Arg("--note", "Free-text note kept with the answer."),
                Arg("--digest", "Plan digest; required to approve.")],
@@ -324,7 +325,8 @@ def cmd_ask_show(ctx: Any, ns: Any) -> Result:
 def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
     from docket.decide.options import resolve_option
     from docket.engine.clock import run_date
-    from docket.text.dates import normalize_date, parse_window
+    from docket.plan.windows import normalize_when
+    from docket.text.dates import normalize_date
     from docket.text.durations import format_duration, parse_duration
     rc = ctx.run_context()
     match = next(((ev, q, a) for ev, q, a in _questions(rc) if q["id"] == ns.question_id), None)
@@ -347,7 +349,7 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
     if ns.est:
         overrides["est"] = parse_duration(ns.est)
     if ns.when:
-        overrides["when"] = parse_window(ns.when, ref).normalized()
+        overrides["when"] = normalize_when(ns.when, ref)
     if ns.title:
         overrides["title"] = ns.title
     if ns.note:

@@ -1,0 +1,24 @@
+{
+  "timezone": "America/Chicago",
+  "events": [
+    {"id": "sync-platform", "calendar": "work", "title": "Platform Sync", "start": "2026-08-20T10:00:00", "end": "2026-08-20T10:30:00",
+     "attendees": 6, "recurrence": {"freq": "weekly", "byday": ["thu", "mon"]}},
+    {"id": "sync-platform-x1", "calendar": "work", "series_id": "sync-platform", "original_start": "2026-10-19T10:00:00", "status": "cancelled"},
+    {"id": "focus-am", "calendar": "work", "title": "Deep Work", "start": "2026-09-01T09:00:00", "end": "2026-09-01T10:00:00",
+     "recurrence": {"freq": "weekly", "byday": ["tue", "thu"]}},
+    {"id": "one-on-one-kim", "calendar": "work", "title": "1:1 Kim / Dana", "start": "2026-10-16T14:00:00", "end": "2026-10-16T14:30:00",
+     "attendees": 2, "recurrence": {"freq": "weekly", "count": 10}},
+    {"id": "design-review", "calendar": "work", "title": "Design review: ingest v2", "start": "2026-10-16T09:00:00", "end": "2026-10-16T10:30:00", "attendees": 8},
+    {"id": "old-review", "calendar": "work", "title": "Design review (moved)", "start": "2026-10-16T15:00:00", "end": "2026-10-16T16:00:00", "attendees": 8, "status": "cancelled"},
+    {"id": "trip", "calendar": "work", "title": "Flight to the offsite", "start": "2026-10-21T13:00:00", "end": "2026-10-21T16:00:00"},
+    {"id": "desk", "calendar": "work", "title": "Desk time (can move)", "start": "2026-10-20T15:00:00", "end": "2026-10-20T17:00:00"},
+    {"id": "pto", "calendar": "work", "title": "PTO", "all_day": true, "start": "2026-10-23", "end": "2026-10-24"},
+    {"id": "season", "calendar": "work", "title": "Planning season", "all_day": true, "start": "2026-09-15", "end": "2026-11-10", "transparency": "transparent"},
+    {"id": "vendor", "calendar": "work", "title": "Vendor QBR 3", "start": "2026-10-22T11:00:00", "end": "2026-10-22T12:00:00"},
+    {"id": "pickup", "calendar": "personal", "title": "School pickup", "start": "2026-10-16T15:30:00", "end": "2026-10-16T16:00:00"},
+    {"id": "blk-seed", "calendar": "work", "title": "Review the ingest service runbook", "start": "2026-10-16T11:00:00", "end": "2026-10-16T11:30:00",
+     "docket_key": "dk_t_61a4bf1529ea"},
+    {"id": "blk-done", "calendar": "work", "title": "A task closed since", "start": "2026-10-19T11:00:00", "end": "2026-10-19T12:00:00",
+     "docket_key": "dk_t_000000c105ed"}
+  ]
+}
