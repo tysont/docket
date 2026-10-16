@@ -1,0 +1,128 @@
+# Signals of the reference-like persona (TD §8). They express the predecessor's
+# signal categories (PRD Appendix B) as configuration; every name is invented.
+signals:
+  references:
+    incident: { pattern: "\\bINC-\\d{3,6}\\b" }
+    escalation: { pattern: "\\bESC-\\d{2,6}\\b" }
+
+  scoring:
+    formula: weighted
+    weights: { importance: 0.3, urgency: 0.4, agent: 0.3 }
+    base: 50
+    floor: 55
+    always_keep: 80
+    caps: { per_source: { default: 40, mail: 25 } }
+  budgets: { questions: 15, review_pool: 40 }
+
+  units:
+    rules:
+      - { id: direct, match: { source: chat, type: [DM] }, set: { kind: direct, class: direct, tier: 1 } }
+      - { id: war-room, match: { source: chat, name_regex: "(?i)war room" }, set: { class: incident, tier: 1 } }
+      - { id: bot-room, match: { source: chat, name_regex: "(?i)\\b(bots?|deploys?)\\b" }, set: { class: bots, tier: 3 } }
+      - { id: alert-room, match: { source: chat, name_regex: "(?i)\\balerts?\\b" }, set: { class: alerts, tier: 3 } }
+      - { id: announce-room, match: { source: chat, name_regex: "(?i)\\bannounce" }, set: { class: announcements, tier: 3 } }
+      - { id: small-room, match: { source: chat, members_max: 8 }, set: { kind: team, class: team, tier: 2 } }
+      - { id: large-room, match: { source: chat, members_min: 9 }, set: { kind: broadcast, class: broadcast, tier: 3 } }
+
+  rules:
+    # --- room classes: automated rooms are dismissed, broadcast rooms weigh less
+    - id: automated-rooms
+      when: { unit: { class: [bots, alerts] } }
+      then: { dismiss: "Automated room" }
+    - id: announcement-rooms
+      when: { unit: { class: announcements } }
+      then: { importance: -20 }
+    - id: broadcast-rooms
+      when: { unit: { class: broadcast } }
+      then: { importance: -30, reason: "Broadcast room" }
+
+    # --- direct messages weighted by counterpart, not by channel
+    - id: dm-from-chain
+      when: { all: [ { unit: { kind: direct } }, { from: { relation: chain } } ] }
+      then: { importance: +30, urgency: +10 }
+    - id: dm-from-report
+      when: { all: [ { unit: { kind: direct } }, { from: { relation: reports } } ] }
+      then: { importance: +20, urgency: +10 }
+    - id: dm-from-peer
+      when: { all: [ { unit: { kind: direct } }, { from: { relation: peers } } ] }
+      then: { importance: +10 }
+    - id: dm-from-unknown
+      when: { all: [ { unit: { kind: direct } }, { from: { relation: unknown } } ] }
+      then: { importance: -10, reason: "Sender not in the profile" }
+
+    # --- mail: automated classes are suppressed; compliance notices always surface
+    - id: automated-mail
+      when:
+        all:
+          - source: mail
+          - any:
+              - from: { handle: ["(?i)\\bno-?reply@", "(?i)^notifications?@", "(?i)^calendar@"] }
+              - text: { regex: "^(Accepted|Declined|Tentative|Invitation|Canceled|Updated invitation):", fields: [title] }
+      then: { dismiss: "Automated mail" }
+    - id: compliance-notice
+      when:
+        all:
+          - source: mail
+          - text: { regex: "(?i)\\b(compliance|mandatory training|policy acknowledg\\w*)\\b" }
+      then: { surface: always, urgency: +20, reason: "Compliance notice" }
+    - id: external-mail
+      when: { all: [ { source: mail }, { from: { relation: external } } ] }
+      then: { importance: +10 }
+
+    # --- must-surface
+    - id: chain-on-owned-topic
+      when: { all: [ { from: { relation: chain } }, { mentions: { topics: { owned: true } } } ] }
+      then: { importance: +30, surface: always, reason: "Management chain on an owned topic" }
+    - id: customer-signal
+      when:
+        all:
+          - mentions: { entities: { protected: true } }
+          - any:
+              - mentions: { topics: { owned: true } }
+              - text: { regex: "(?i)\\b(asked|escalat\\w*|outage|latency|incident)\\b" }
+      then: { importance: +20, surface: always, reason: "Customer signal" }
+    - id: direct-ask
+      when: { all: [ { to: mentioned }, { not: { from: { is_me: true } } } ] }
+      then: { urgency: +15, surface: always, reason: "Asked directly" }
+    - id: user-started-thread
+      when: { all: [ { thread: { started_by_me: true } }, { not: { from: { is_me: true } } } ] }
+      then: { surface: always, reason: "Reply in a thread the operator started" }
+    - id: report-waiting
+      when: { all: [ { from: { relation: reports } }, { unanswered: 1d } ] }
+      then: { urgency: +15, reason: "A report has waited a day" }
+
+    # --- sensitivity
+    - id: protected-entity
+      when: { mentions: { entities: { protected: true } } }
+      then: { sensitivity: customer, tags: [customer] }
+    - id: personnel-subject
+      when: { text: { regex: "(?i)\\b(headcount|compensation|performance review)\\b" } }
+      then: { sensitivity: personnel }
+
+    # --- incidents named outside the wiki are checked against it
+    - id: incident-coverage
+      when: { all: [ { reference: incident }, { source: [chat, mail] } ] }
+      then: { tags: [incident], expect_in: { source: wiki, reference: incident } }
+
+    # --- social chatter
+    - id: social-chatter
+      when: { text: { phrases: ["lunch order"] } }
+      then: { dismiss: "Social chatter" }
+
+    # --- escalation tickets: assessed by rules alone, by priority and status
+    - id: escalation-p1
+      when: { all: [ { source: escalations }, { field: { name: priority, in: [P0, P1] } } ] }
+      then: { assess: rules_only, importance: +40, urgency: +30, surface: always, route: backlog,
+              reason: "Priority escalation" }
+    - id: escalation-p2
+      when: { all: [ { source: escalations }, { field: { name: priority, equals: P2 } } ] }
+      then: { assess: rules_only, importance: +20, urgency: +10, route: backlog }
+    - id: escalation-low
+      when: { all: [ { source: escalations }, { field: { name: priority, in: [P3, P4] } } ] }
+      then: { assess: rules_only, importance: -10 }
+    - id: escalation-closed
+      when: { all: [ { source: escalations }, { field: { name: status, in: [resolved, closed] } } ] }
+      then: { dismiss: "Escalation closed" }
+    - id: escalation-deadline
+      when: { source: escalations }
+      then: { deadline: { pattern: "\\bby (?P<date>\\d{4}-\\d{2}-\\d{2})" } }

@@ -58,3 +58,15 @@ sources:
     transport: archive-api
     params: { path: /v1/archive }
     budget: { max_pages: 1, page_size: 3 }
+  escalations:
+    kind: files
+    description: Customer escalation tickets, assessed by rules alone.
+    path: data/escalations.jsonl
+    mapping:
+      id: "$.key"
+      title: "$.summary"
+      text: "$.description"
+      from: "$.reporter"
+      at: "$.created"
+      fields.priority: "$.priority"
+      fields.status: "$.status"
