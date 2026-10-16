@@ -1,0 +1,19 @@
+.gitignore
+  s_f5cd7978833346::t_39b48138b032c6 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "372eecdf91613dc1c9e3c6f8ebbaaa40bb3c332c",
+  "prompts": {},
+  "sessions": {
+    "s_f5cd7978833346": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0c1e75dffeukL1LRDyL5HMZM",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Tyson Trautmann <ttrautmann@cloudflare.com>"
+    }
+  }
+}
