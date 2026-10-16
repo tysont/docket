@@ -471,25 +471,14 @@ class PlanStage(BaseStage):
 
     def build_op(self, run: "RunContext", qid: str, item: dict[str, Any], option: dict[str, Any],
                  overrides: dict[str, Any]) -> dict[str, Any] | None:
-        """The operation an answer produces, or None when its action writes nothing."""
-        if option.get("action") != "task.add":
-            return None
-        dest_id = self.target_destination(run, option)
-        if dest_id is None:
-            return None
-        dest = run.ws.config.destinations[dest_id]
-        ctx = item_context(item)
-        ctx.update({
-            "question_id": qid, "title": overrides.get("title") or ctx["title"], "due": overrides.get("due", ""),
-            "est": overrides.get("est", ""), "when": overrides.get("when", ""), "note": overrides.get("note", ""),
-            "area": "", "run": {"id": run.run.id, "date": run.run.header.clock.date},
-        })
-        line = templates.render(dest.line_template or DEFAULT_TASK_LINE, ctx)
-        op = {"destination": dest_id, "verb": "append", "path": dest.path or f"{dest_id}.md",
-              "anchor": dest.section or DEFAULT_SECTION, "line": line}
-        op["op_id"] = "op_" + digest(op)[:16]
-        op.update({"question_id": qid, "item_id": item["id"]})
-        return op
+        """The operation an answer produces, or None when its action writes nothing.
+
+        The destination's own ``preview`` renders it (grammar, quality rules,
+        redaction, ownership); see ``docket.destinations.planning``.
+        """
+        from docket.destinations.planning import answer_operations
+        ops = answer_operations(run, qid, item, option, overrides)
+        return ops[0] if ops else None
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
         out = up.output
@@ -575,37 +564,39 @@ class ApplyStage(BaseStage):
     expect = "one receipt per operation in receipts.jsonl"
 
     def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
-        return self.computational_eval(run, up, extra={"sandbox": run.run.header.sandbox})
+        ev = self.computational_eval(run, up, extra={"sandbox": run.run.header.sandbox})
+        if ev.state == "current" and any(r.get("outcome") == "failed" for r in (ev.output or {}).get("receipts", [])):
+            # an external failure can succeed on retry: hold the run at apply (TD §13.3). A refusal is final.
+            ev.state, ev.reason = "waiting", "apply_partial"
+        return ev
 
-    def destination(self, run: "RunContext", dest_id: str):
-        from docket.destinations.markdown_tasks import MarkdownTasks
-        cfg = run.ws.config.destinations[dest_id]
-        live = MarkdownTasks(dest_id, cfg, run.ws.root)
-        return live.sandbox(run.run.paths.sandbox) if run.run.header.sandbox else live
+    def step(self, run: "RunContext") -> Any:
+        ev = run.eval(self.name)
+        if ev.reason == "apply_partial":
+            rows = [r for r in ev.output["receipts"] if r.get("outcome") in ("failed", "blocked")]
+            return WaitStep(stage=self.name, reason="apply_partial",
+                            instructions=f"{len(rows)} operation(s) failed or are blocked by a failed operation; "
+                                         f"completed operations will not repeat. Fix the cause and run the retry "
+                                         f"command.", command=Command.of(run.argv("apply")))
+        return super().step(run)
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
-        from docket.apply import receipts
-        ops = up.output["operations"]
+        from docket.apply import executor
         hdr = run.run.header
         if hdr.applied_plan != up.output["plan_digest"]:
             hdr.applied_plan = up.output["plan_digest"]
             run.run.save_header()
-        rows = []
-        for op in ops:
-            prior = receipts.existing(run.run.store.db, op)
-            if prior is not None and prior["verify_status"] == "verified":
-                rows.append({"op_id": op["op_id"], "outcome": prior["outcome"], "verify_status": "verified"})
-                continue
-            dest = self.destination(run, op["destination"])
-            try:
-                res = dest.apply(op)
-            except OSError as e:
-                raise ExternalError("dest.apply_failed", f"{op['destination']}: {e}", hint=" ".join(run.argv("apply")),
-                                    details={"op_id": op["op_id"], "error": str(e)}) from None
-            ok = dest.verify(op)
-            rec = receipts.record(run.run, op, res["outcome"], res["external_id"], ok)
-            rows.append({"op_id": op["op_id"], "outcome": rec["outcome"], "verify_status": rec["verify_status"]})
-        return {"plan_digest": up.output["plan_digest"], "sandbox": hdr.sandbox, "receipts": rows}
+        rows = executor.execute(run, up.output["operations"])
+        data = {"plan_digest": up.output["plan_digest"], "sandbox": hdr.sandbox, "receipts": rows}
+        failed = [r for r in rows if r["outcome"] == "failed"]
+        if failed:
+            self.finish(run, ev, data)  # keep what completed; docket next now waits with apply_partial
+            first = failed[0].get("error") or {}
+            raise ExternalError("dest.apply_failed",
+                                f"{len(failed)} operation(s) failed; first: {first.get('message', 'unknown error')}",
+                                hint=" ".join(run.argv("apply")), retryable=True, next_command=run.argv("apply"),
+                                details={"failed": failed, "receipts": len(rows)})
+        return data
 
 
 # --- close -----------------------------------------------------------------

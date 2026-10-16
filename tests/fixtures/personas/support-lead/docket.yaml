@@ -91,6 +91,11 @@ destinations:
     path: worklog/todo.md
     section: "## Today"
     line_template: "TODO {title|truncate:70} | queue={fields.queue} | prio={fields.priority}{?due} | due={due}{/due}"
+    grammar: { open: "TODO ", done: ["DONE "], fields: delimited, separator: " | ", assign: "=" }
+    carry_field: carried
+    quality:
+      imperative: { deny: [fyi, maybe], default_verb: "Look into" }
+      max_length: 90
 
 signals:
   scoring: { floor: 40 }

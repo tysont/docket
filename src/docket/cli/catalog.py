@@ -77,6 +77,18 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "stage.not_in_workflow": ("state", False, "The run's workflow does not include this stage."),
     "stage.post_apply_change": ("state", False, "Inputs changed after apply wrote receipts; the run cannot go backward."),
     "store.db_too_new": ("state", False, "The workspace database was written by a newer Docket."),
+    # --- M6 destinations ---
+    "dest.line_changed": ("integrity", False, "A Markdown line changed since the plan was built: zero or several lines match the operation's old-line digest in its section."),
+    "dest.redaction_leak": ("integrity", False, "Text rendered for a shared destination still names a protected entity or a person."),
+    "dest.unowned": ("integrity", False, "The operation targets an object Docket does not own (no valid ownership marker, or attendees or recurrence)."),
+    "dest.state_changed": ("integrity", False, "The destination object differs from what the operation expects."),
+    "dest.quality": ("integrity", False, "A task line fails the destination's quality rules; details.fix names the answer override."),
+    "dest.not_accepted": ("integrity", False, "The destination cannot accept the action (full, missing target, or not supported)."),
+    "dest.unsupported": ("integrity", False, "The destination does not declare the verb the operation needs."),
+    "dest.unavailable": ("external", True, "The destination's program, server or transport is not reachable."),
+    "dest.protocol": ("external", True, "An exec-protocol program sent a malformed or failed response."),
+    "plugin.unknown": ("input", False, "No built-in adapter or configured destination has this name."),
+    "plugin.check_failed": ("external", False, "The conformance suite failed; details.report lists every check."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }
