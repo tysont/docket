@@ -202,7 +202,7 @@ class When(Strict):
     @model_validator(mode="after")
     def _non_empty(self) -> "When":
         if not self.model_fields_set:
-            raise ValueError("a condition needs at least one predicate or combinator")
+            raise ValueError("a condition needs at least one predicate or combinator")  # raise-ok: pydantic validator; config loading reports it as config.invalid
         return self
 
 
@@ -217,7 +217,7 @@ class DeadlineEff(Strict):
     @model_validator(mode="after")
     def _one(self) -> "DeadlineEff":
         if (self.field is None) == (self.pattern is None):
-            raise ValueError("deadline needs exactly one of field or pattern")
+            raise ValueError("deadline needs exactly one of field or pattern")  # raise-ok: pydantic validator (config loading)
         return self
 
 
@@ -295,9 +295,9 @@ class Scoring(Strict):
     def _finite(cls, v: dict[str, float]) -> dict[str, float]:
         for k, w in v.items():
             if not math.isfinite(w) or w < 0:
-                raise ValueError(f"weight {k} must be a finite number >= 0")
+                raise ValueError(f"weight {k} must be a finite number >= 0")  # raise-ok: pydantic validator (config loading)
         if v and not any(w > 0 for w in v.values()):
-            raise ValueError("at least one weight must be positive")
+            raise ValueError("at least one weight must be positive")  # raise-ok: pydantic validator (config loading)
         return v
 
 

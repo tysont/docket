@@ -373,7 +373,7 @@ def _annotation(spec: FieldSpec, kind: str, prefix: str) -> tuple[Any, dict[str,
         sub = _row_model(f"{prefix}{_camel(spec.name)}", kind, spec.rows, (), with_id=False)
         tp = list[sub]  # type: ignore[valid-type]
     else:  # pragma: no cover - the field type set is closed
-        raise ValueError(f"unknown field type {t}")
+        raise ValueError(f"unknown field type {t}")  # raise-ok: the field type set is closed (a programming error)
     if spec.echo:
         extra["x-echo"] = spec.echo
     return tp, {"json_schema_extra": extra, **kw}

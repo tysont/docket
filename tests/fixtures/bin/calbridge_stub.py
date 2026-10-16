@@ -6,7 +6,8 @@ State lives in a JSON file (``--state``). ``hello`` picks the target from its
 fresh fixture with one plain meeting and one marker-carrying event that has an
 attendee (so it is never owned). Flags: ``--no-sandbox``, ``--no-scratch``,
 ``--caps a,b`` (declared capabilities), ``--fail VERB`` (that verb returns an
-error), ``--calls FILE`` (append each request op to FILE).
+error), ``--calls FILE`` (append each request op to FILE), ``--access VALUE``
+(what the non-prompting ``status`` verb reports, default ``granted``).
 All data is invented.
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ def main() -> int:
     ap.add_argument("--caps", default=",".join(ALL))
     ap.add_argument("--fail", action="append", default=[])
     ap.add_argument("--calls")
+    ap.add_argument("--access", default="granted")
     a = ap.parse_args()
     caps = [c for c in a.caps.split(",") if c]
     path = a.state
@@ -121,7 +123,7 @@ def main() -> int:
         elif op == "mirror":
             reply({"planned": []})
         elif op == "status":
-            reply({"access": "granted"})
+            reply({"access": a.access})
         else:
             reply(error={"code": "unknown_op", "message": f"unknown op {op}", "retryable": False})
     return 0

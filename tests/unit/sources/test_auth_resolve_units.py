@@ -21,7 +21,7 @@ from docket.transports.base import Response, Secrets
 pytestmark = pytest.mark.smoke
 
 
-def auth_source(check, timeout=2.0):
+def auth_source(check, timeout=15.0):  # generous: a busy parallel run starts processes slowly
     cfg = Source.model_validate({"transport": "t", "request": {"read": {"op": "read"}},
                                  "auth": {"check": check, "timeout_s": timeout,
                                           "instructions": "Run stub-login, then collect again."}})

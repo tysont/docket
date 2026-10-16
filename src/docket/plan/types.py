@@ -35,11 +35,11 @@ def parse_clock_range(text: str) -> tuple[int, int]:
     """``"09:00-17:00"`` -> (540, 1020). ``24:00`` is allowed as an end. Raises ValueError."""
     m = _CLOCK.match(str(text))
     if not m:
-        raise ValueError(text)
+        raise ValueError(text)  # raise-ok: documented ValueError contract for config validators (validated config)
     h0, m0, h1, m1 = (int(x) for x in m.groups())
     a, b = h0 * 60 + m0, h1 * 60 + m1
     if m0 > 59 or m1 > 59 or not (0 <= a < b <= DAY):
-        raise ValueError(text)
+        raise ValueError(text)  # raise-ok: documented ValueError contract for config validators (validated config)
     return a, b
 
 

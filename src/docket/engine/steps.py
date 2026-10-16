@@ -81,6 +81,7 @@ class WaitStep(BaseModel):
     resume_when: str | None = None
     command: Command | None = None
     inspect: list[Command] = []     # read-only commands that show the cause (post_apply_change)
+    rehearse: Command | None = None  # paused with rehearse_at_pause: rehearse now, so defects surface tonight
 
 
 class DoneStep(BaseModel):

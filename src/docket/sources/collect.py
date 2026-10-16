@@ -102,7 +102,12 @@ async def _read_one(src: DeclarativeSource, sid: str, cfg: SourceConfig, *, star
     if skip:
         res.outcome = Outcome("skipped", reason=skip)
         return res
-    auth = await src.check_auth()
+    from docket.sources.recorded import active
+    if active() is not None:  # rehearsal: replay recorded records; no auth check, no live system
+        from docket.sources.base import AuthStatus
+        auth = AuthStatus(True)
+    else:
+        auth = await src.check_auth()
     if not auth.ok:
         res.outcome = Outcome("unavailable", reason=auth.reason, instructions=auth.instructions,
                               cause={"code": "source.auth_failed", "message": auth.reason})
@@ -160,11 +165,19 @@ async def _read_one(src: DeclarativeSource, sid: str, cfg: SourceConfig, *, star
 
 def _build_transports(ws: Any, names: set[str], *, env: Mapping[str, str], log_dir: Path | None,
                       secrets: Secrets) -> dict[str, tuple[Any, Any]]:
+    from docket.sources.recorded import active
     from docket.transports.registry import build_transport
+    rep = active()
     out: dict[str, tuple[Any, Any]] = {}
     for name in sorted(names):
         cfg = ws.config.transports[name]
-        out[name] = build_transport(name, cfg, root=ws.root, env=env, log_dir=log_dir, secrets=secrets)
+        if rep is not None and cfg.kind not in ("replay", "files"):
+            out[name] = (rep.wrap(None, cfg.kind), None)  # never built: a live transport is not even started
+            continue
+        if rep is not None and cfg.record is not None:
+            cfg = cfg.model_copy(update={"record": None})  # rehearsal writes no recording into the workspace
+        t, problem = build_transport(name, cfg, root=ws.root, env=env, log_dir=log_dir, secrets=secrets)
+        out[name] = (rep.wrap(t, cfg.kind) if rep is not None and t is not None else t, problem)
     return out
 
 
@@ -194,6 +207,9 @@ async def read_sources(ws: Any, sids: list[str], *, env: Mapping[str, str], inst
                 else:
                     t, problem = build_transport(f"{sid}-files", implicit_transport(), root=ws.root, env=env,
                                                  log_dir=log_dir, secrets=secrets)
+                    from docket.sources.recorded import active
+                    if active() is not None and t is not None:
+                        t = active().wrap(t, "files")
                     implicit[sid] = t
                     sem = asyncio.Semaphore(4)
                 kind = ws.config.transports[cfg.transport].kind if cfg.transport else "files"

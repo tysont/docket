@@ -13,7 +13,7 @@ from typing import Any
 
 from docket.cli.commands.run_cmds import _guard_mutable, _step_next, step_summary
 from docket.cli.envelope import Result
-from docket.cli.errors import InputError, StateError
+from docket.cli.errors import IntegrityError, InputError, StateError
 from docket.cli.registry import Arg, command
 from docket.config.digest import canonical_json
 
@@ -235,6 +235,30 @@ def cmd_task_show(ctx: Any, ns: Any) -> Result:
     raise InputError("input.unknown_task", f"No current task {ns.task_id!r}.", hint="docket task list")
 
 
+def _check_issued_pack(rc: Any, pack: dict[str, Any]) -> None:
+    """The pack the agent read must be the pack the current inputs produce (TD §14.1: a stage digest
+    mismatch on an artifact a command consumes refuses). The task id is its input digest, so a
+    difference means the file was edited after it was issued."""
+    from docket.config.digest import digest
+    from docket.store.paths import read_json
+    pp = rc.run.paths.task(pack["task_id"]) / "pack.json"
+    if not pp.is_file():
+        return
+    try:
+        disk = read_json(pp)
+    except ValueError:
+        disk = None
+    if isinstance(disk, dict):
+        disk.pop("issued_generation", None)
+    if not isinstance(disk, dict) or digest(disk) != digest(pack):
+        raise IntegrityError(
+            "integrity.stale_artifact",
+            f"{pp} differs from the pack the current inputs produce (digest {pack.get('input_digest', '')[:12]}); "
+            f"a result built from it cannot be accepted.",
+            hint=f"Delete {pp}, run {' '.join(rc.argv('task', 'issue'))}, and redo the task from the new pack",
+            details={"task_id": pack["task_id"], "pack_path": str(pp), "input_digest": pack.get("input_digest")})
+
+
 @command("task submit", "Submit a task result (a file path, or - for stdin).", run=True, mutating=True,
          args=[Arg("task_id", "Task id."), Arg("result", "Path to the JSON result, or - to read stdin.")],
          effects=["validates the result", "writes tasks/<task-id>/result.json when accepted"],
@@ -257,6 +281,7 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
     ev, pack = found
     plan = ev.extra["plan"]
     rerun = Command.of(submit_argv(rc, ns.task_id)).shell
+    _check_issued_pack(rc, pack)
     if ns.result == "-":
         raw = (ctx.stdin.read() if ctx.stdin is not None else "")
     else:

@@ -1,0 +1,362 @@
+# Requirement traceability (Test Plan §9).
+#
+# Every requirement id in docs/Docket Product Requirements.md maps to the tests that prove it,
+# as test node ids (file::function; a parametrized test is named once). A requirement deferred
+# by the Implementation Plan §5 carries `deferred: <reason>` and maps the tests of the part that
+# is in v1. tests/contract/test_traceability.py fails when a Must, or a non-deferred Should, has
+# no mapped test, when a mapped test does not exist, or when an id here is not in the PRD.
+
+# --- sources ---------------------------------------------------------------------------------
+FR-SRC-01:
+  - tests/unit/sources/test_source_config.py::test_persona_sources_use_presets_and_recorded_transports
+  - tests/unit/sources/test_source_config.py::test_extends_merges_the_preset_under_the_instance_with_origins
+  - tests/unit/sources/test_source_config.py::test_a_files_source_extends_files_jsonl_by_default
+FR-SRC-02:
+  - tests/unit/sources/test_cursor_models.py::test_snapshot_complete_only_when_paging_reached_the_end
+  - tests/unit/sources/test_cursor_models.py::test_incremental_proves_coverage_and_proposes_the_last_order_key
+  - tests/unit/sources/test_cursor_models.py::test_id_scan_reads_unprocessed_ids_each_individually
+  - tests/unit/sources/test_cursor_models.py::test_cadence_skips_and_never_reports_a_gap
+  - tests/scenario/test_collection.py::test_isolation_journal_and_units
+FR-SRC-03:
+  - tests/conformance/test_transports.py::test_mcp_stdio_conformance
+  - tests/conformance/test_transports.py::test_mcp_http_conformance
+  - tests/conformance/test_transports.py::test_codemode_renders_the_script_and_pages
+  - tests/conformance/test_transports.py::test_exec_jsonl_conformance
+  - tests/conformance/test_transports.py::test_http_json_conformance
+  - tests/conformance/test_transports.py::test_files_transport_pages_by_line_offset
+FR-SRC-04:
+  - tests/unit/sources/test_source_config.py::test_extends_merges_the_preset_under_the_instance_with_origins
+  - tests/unit/config/test_config.py::test_preset_may_not_define_people
+  - tests/litmus/test_no_literals.py::test_no_denylist_literals_in_src
+FR-SRC-05:
+  - tests/unit/shapes/test_unexpected.py::test_shapes_reach_envelope_run_file_db_and_report
+  - tests/scenario/test_task_scenarios.py::test_evidence_is_checked_against_the_latest_generation_of_a_record
+  - tests/scenario/test_rehearse.py::test_rehearsal_replays_records_when_collect_reruns
+FR-SRC-06:
+  - tests/scenario/test_collection.py::test_isolation_one_failing_one_unavailable_one_partial
+  - tests/unit/sources/test_auth_resolve_units.py::test_exceptions_at_the_source_boundary_are_isolated
+FR-SRC-07:
+  - tests/unit/sources/test_contracts.py::test_missing_optional_is_not_drift_and_takes_the_declared_reading
+  - tests/unit/sources/test_contracts.py::test_missing_required_fails_the_record_only
+  - tests/unit/sources/test_contracts.py::test_type_change_on_required_fails_the_unit_with_the_sample
+  - tests/unit/sources/test_contracts.py::test_variants_through_a_source_isolate_per_unit
+  - tests/contract/test_shape_tolerance.py::test_variant_takes_the_safe_reading_and_records_one_shape
+FR-SRC-08:
+  - tests/unit/sources/test_cursor_models.py::test_step_down_on_truncation_retries_the_same_position
+  - tests/unit/sources/test_cursor_models.py::test_truncated_at_min_page_size_is_partial_with_its_retry_position
+  - tests/unit/sources/test_cursor_models.py::test_budget_ends_as_partial_never_failed_and_the_proposal_ends_at_the_gap
+FR-SRC-09:
+  - tests/scenario/test_collection.py::test_context_records_never_enter_the_item_pipeline
+FR-SRC-10:
+  - tests/unit/sources/test_auth_resolve_units.py::test_resolve_claims_by_pattern_and_reports_unclaimed_refs
+  - tests/scenario/test_decisions_scenario.py::test_verify_questions_come_from_resolve
+FR-SRC-11:
+  deferred: "IP §5: rule classification of units is in v1; agent classification of units is deferred to v1.1."
+  tests:
+    - tests/unit/sources/test_auth_resolve_units.py::test_unit_rules_apply_in_order_by_name_type_and_members
+    - tests/scenario/test_collection.py::test_isolation_journal_and_units
+FR-SRC-12:
+  - tests/unit/sources/test_auth_resolve_units.py::test_auth_checks_run_unattended
+  - tests/unit/sources/test_auth_resolve_units.py::test_an_auth_check_that_waits_is_treated_as_interactive
+  - tests/scenario/test_collection.py::test_required_unavailable_source_waits_then_its_command_reads_it
+
+# --- items and signals -------------------------------------------------------------------------
+FR-SIG-01:
+  - tests/unit/signals/test_signal_merge.py::test_mapping_structure_keys_and_identity
+  - tests/unit/signals/test_signal_rules.py::test_references_extract_named_groups_and_identity
+FR-SIG-02:
+  - tests/unit/signals/test_signal_rules.py::test_predicate
+  - tests/unit/signals/test_signal_rules.py::test_effect
+  - tests/unit/signals/test_signal_config.py::test_unknown_predicate_names_the_closest_with_file_and_line
+  - tests/unit/signals/test_signal_rules.py::test_plugin_predicate_through_the_registry
+FR-SIG-03:
+  - tests/unit/config/test_config.py::test_relationship_sets
+  - tests/unit/signals/test_signal_rules.py::test_sender_resolution_and_unknown_is_valid
+FR-SIG-04:
+  - tests/unit/signals/test_signal_scoring.py::test_formula
+  - tests/unit/signals/test_signal_scoring.py::test_per_source_caps_keep_the_top_n_and_always_keep_bypasses
+  - tests/unit/signals/test_signal_scoring.py::test_daily_budget_counts_only_competing_items
+  - tests/scenario/test_signals_scenario.py::test_config_test_shows_a_score_change_after_a_weight_edit_without_writing
+FR-SIG-05:
+  - tests/unit/signals/test_signal_scoring.py::test_floor_drops_and_must_surface_bypasses_the_floor
+  - tests/unit/signals/test_signal_merge.py::test_must_surface_item_is_never_dropped_by_the_agent_or_the_floor
+FR-SIG-06:
+  - tests/unit/signals/test_signal_rules.py::test_rules_only_items_need_no_agent
+  - tests/scenario/test_signals_scenario.py::test_assess_issues_tasks_only_for_items_that_need_them
+FR-SIG-07:
+  - tests/unit/signals/test_signal_merge.py::test_merge_across_sources_by_reference_keeps_the_strongest
+  - tests/unit/signals/test_signal_merge.py::test_suppression_paths
+  - tests/scenario/test_close_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
+FR-SIG-08:
+  - tests/unit/signals/test_signal_merge.py::test_coverage_cross_reference_miss_and_hit
+FR-SIG-09:
+  - tests/scenario/test_signals_scenario.py::test_item_why_explains_kept_dropped_merged_and_suppressed
+
+# --- agent tasks ----------------------------------------------------------------------------------
+FR-TSK-01:
+  - tests/scenario/test_task_scenarios.py::test_task_kinds_and_schemas_for_every_kind
+  - tests/unit/tasks/test_task_submit.py::test_workspace_kind_validates_like_a_core_kind
+FR-TSK-02:
+  - tests/unit/tasks/test_task_parity.py::test_prompt_names_exactly_the_accepted_fields
+  - tests/unit/tasks/test_task_parity.py::test_the_embedded_example_validates
+  - tests/unit/tasks/test_task_parity.py::test_generated_results_validate_or_refuse_with_a_documented_code
+FR-TSK-03:
+  - tests/unit/tasks/test_task_packs.py::test_pack_is_self_contained_with_line_ids_units_profile_excerpts_and_vocabulary
+  - tests/unit/tasks/test_task_packs.py::test_content_cannot_close_the_fence_or_leave_it
+FR-TSK-04:
+  - tests/unit/tasks/test_task_submit.py::test_identity_partition_refuses
+  - tests/unit/tasks/test_task_submit.py::test_per_row_integrity_and_cross_field_errors_name_path_rule_and_fix
+  - tests/unit/tasks/test_task_submit.py::test_unknown_and_denied_vocabulary_take_the_safe_reading_and_are_recorded
+  - tests/contract/test_integrity_refusals.py::test_integrity_code_refuses_with_code_kind_exit_and_hint
+FR-TSK-05:
+  - tests/unit/tasks/test_task_packs.py::test_byte_budget_batches_and_trims_an_oversize_ordinary_item
+  - tests/unit/tasks/test_task_packs.py::test_must_surface_items_over_budget_are_never_dropped_and_record_over_budget
+FR-TSK-06:
+  - tests/unit/tasks/test_task_packs.py::test_review_pack_shows_the_proposal_without_score_or_keep
+  - tests/unit/tasks/test_task_submit.py::test_review_rules_and_item_refs
+FR-TSK-07:
+  - tests/scenario/test_task_scenarios.py::test_review_verdicts_carry_forward_across_a_refresh_generation
+  - tests/scenario/test_task_scenarios.py::test_accepted_results_are_reused_by_input_digest_in_a_later_run
+
+# --- decisions -----------------------------------------------------------------------------------
+FR-DEC-01:
+  - tests/scenario/test_agent_loop.py::test_agent_loop_reaches_done
+  - tests/scenario/test_decisions_scenario.py::test_custom_option_set_with_guards_for_the_support_lead
+FR-DEC-02:
+  - tests/scenario/test_decisions_scenario.py::test_guards_can_accept_and_label_templates
+  - tests/unit/decide/test_answers.py::test_every_override_is_normalized
+FR-DEC-03:
+  - tests/unit/decide/test_answers.py::test_guards
+  - tests/scenario/test_decisions_scenario.py::test_drafts_are_not_offered_without_an_mcp_transport
+  - tests/unit/destinations/test_markdown.py::test_agenda_refuses_when_full_with_a_reason
+FR-DEC-04:
+  - tests/scenario/test_decisions_scenario.py::test_every_override_is_echoed_normalized_and_reaches_the_line
+  - tests/scenario/test_decisions_scenario.py::test_structured_answers_that_forced_hand_edits_are_one_command_each
+  - tests/scenario/test_decisions_scenario.py::test_undo_and_merge_with
+FR-DEC-05:
+  - tests/scenario/test_decisions_scenario.py::test_reconcile_options_map_to_task_store_operations
+  - tests/scenario/test_decisions_scenario.py::test_reconcile_at_the_carry_limit_offers_rescope_instead_of_another_carry
+  - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
+FR-DEC-06:
+  - tests/scenario/test_decisions_scenario.py::test_refresh_keeps_unchanged_answers_and_reasks_changed_items_with_previous
+  - tests/unit/decide/test_answers.py::test_bind_keeps_unchanged_answers_and_moves_changed_ones_to_previous
+FR-DEC-07:
+  - tests/scenario/test_decisions_scenario.py::test_verify_questions_come_from_resolve
+  - tests/scenario/test_decisions_scenario.py::test_batch_answers_from_a_file_are_all_or_nothing
+FR-DEC-08:
+  - tests/scenario/test_decisions_scenario.py::test_every_override_is_echoed_normalized_and_reaches_the_line
+  - tests/scenario/test_decisions_scenario.py::test_structured_answers_that_forced_hand_edits_are_one_command_each
+
+# --- destinations ----------------------------------------------------------------------------------
+FR-ACT-01:
+  - tests/unit/destinations/test_markdown.py::test_carry_close_and_update_replace_exactly_one_line
+  - tests/unit/destinations/test_calendar.py::test_create_move_delete_keep_unowned_events_byte_identical
+  - tests/unit/destinations/test_markdown.py::test_journal_entry_is_written_once_and_an_edit_is_refused
+  - tests/scenario/test_close_scenarios.py::test_message_drafts_flow_through_apply_and_there_is_no_send
+FR-ACT-02:
+  - tests/unit/destinations/test_destination_config.py::test_destination_validation
+  - tests/conformance/test_destinations.py::test_builtin_adapter_conforms
+FR-ACT-03:
+  - tests/conformance/test_destinations.py::test_builtin_adapter_conforms
+  - tests/conformance/test_destinations.py::test_exec_adapter_conforms_on_scratch_target
+  - tests/unit/destinations/test_markdown.py::test_twin_writes_a_copy_and_never_the_live_file
+FR-ACT-04:
+  - tests/unit/destinations/test_calendar.py::test_only_marker_carrying_events_without_attendees_or_recurrence_are_owned
+  - tests/unit/destinations/test_calendar.py::test_unowned_targets_are_refused
+  - tests/unit/destinations/test_markdown.py::test_a_line_edited_after_preview_is_refused_with_the_current_text
+  - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
+FR-ACT-05:
+  deferred: "IP §5: sending is deferred to after v1; v1 creates drafts only and refuses policy.send."
+  tests:
+    - tests/unit/destinations/test_calendar.py::test_message_drafts_never_send
+    - tests/unit/destinations/test_destination_config.py::test_send_policy_is_not_in_v1
+    - tests/scenario/test_close_scenarios.py::test_message_drafts_flow_through_apply_and_there_is_no_send
+FR-ACT-06:
+  - tests/unit/destinations/test_calendar.py::test_shared_calendar_redacts_and_refuses_a_protected_entity_leak
+  - tests/unit/destinations/test_calendar.py::test_private_calendar_keeps_full_detail
+  - tests/unit/text/test_redact.py::test_protected_entities_are_replaced_case_insensitively
+FR-ACT-07:
+  - tests/unit/destinations/test_markdown.py::test_imperative_denylist_rewrites_and_records_a_shape
+  - tests/unit/destinations/test_markdown.py::test_required_fields_take_answer_then_defaults_then_refuse_with_the_override
+  - tests/unit/destinations/test_markdown.py::test_max_length_and_evidence
+
+# --- planning ---------------------------------------------------------------------------------------
+FR-PLN-01:
+  - tests/unit/plan/test_plan_constraints.py::test_each_constraint
+  - tests/unit/plan/test_plan_config.py::test_policy_values_parse
+  - tests/unit/plan/test_plan_scheduler.py::test_greedy_places_in_order_on_the_earliest_slots
+FR-PLN-02:
+  - tests/unit/plan/test_plan_scheduler.py::test_small_tasks_batch_into_one_daily_block_filling_in_order
+FR-PLN-03:
+  - tests/unit/plan/test_plan_classify.py::test_rules_assign_one_kind_in_order
+  - tests/unit/plan/test_plan_classify.py::test_unknown_event_is_busy_and_records_its_word_shape
+  - tests/scenario/test_planning_scenario.py::test_persona_calendars_classify_with_only_the_injected_unknown
+FR-PLN-04:
+  - tests/unit/plan/test_plan_scheduler.py::test_window_over_an_out_of_office_event_places_the_block_on_it
+  - tests/scenario/test_planning_scenario.py::test_week_plan_schedules_over_the_flight_keeps_releases_and_mirrors
+FR-PLN-05:
+  - tests/unit/plan/test_plan_properties.py::test_every_built_block_passes_check
+  - tests/unit/plan/test_plan_properties.py::test_every_unschedulable_claim_is_confirmed_by_search
+FR-PLN-06:
+  - tests/unit/plan/test_plan_properties.py::test_every_owned_input_block_gets_exactly_one_operation
+  - tests/unit/plan/test_plan_scheduler.py::test_keep_update_move_and_release_existing_blocks
+  - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
+FR-PLN-07:
+  - tests/unit/plan/test_plan_mirrors.py::test_create_keep_move_release
+  - tests/unit/plan/test_plan_mirrors.py::test_a_deleted_hold_is_not_recreated
+FR-PLN-08:
+  - tests/unit/plan/test_plan_scheduler.py::test_explain_reports_ordering_candidate_days_and_first_violations
+  - tests/unit/plan/test_plan_scheduler.py::test_explain_of_an_unschedulable_task
+  - tests/scenario/test_planning_scenario.py::test_week_plan_schedules_over_the_flight_keeps_releases_and_mirrors
+
+# --- approve, apply, close -----------------------------------------------------------------------------
+FR-APP-01:
+  - tests/scenario/test_agent_loop.py::test_approval_is_bound_to_the_plan_digest
+  - tests/contract/test_integrity_refusals.py::test_integrity_code_refuses_with_code_kind_exit_and_hint
+FR-APP-02:
+  - tests/scenario/test_close_scenarios.py::test_calendar_change_between_build_and_approval_refuses_with_the_rebuild_command
+  - tests/scenario/test_close_scenarios.py::test_unchanged_destinations_approve_after_any_delay
+FR-APP-03:
+  - tests/scenario/test_close_scenarios.py::test_crash_after_verify_of_each_operation_resumes_without_duplicates
+  - tests/scenario/test_apply_destinations.py::test_crash_after_each_operation_resumes_without_duplicates
+FR-APP-04:
+  - tests/unit/close/test_close_units.py::test_gap_holds_while_others_advance_and_regressions_are_recorded
+  - tests/scenario/test_agent_loop.py::test_cursors_advance_at_close_and_next_run_reads_only_new
+  - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
+  - tests/scenario/test_close_scenarios.py::test_hooks_run_once_per_event_even_when_commands_repeat
+FR-APP-05:
+  - tests/unit/close/test_close_units.py::test_dispositions_by_topic_from_outcomes_answers_and_routes
+  - tests/scenario/test_close_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
+FR-APP-06:
+  - tests/scenario/test_close_scenarios.py::test_close_resumes_after_a_crash_between_steps_without_repeating
+  - tests/scenario/test_close_scenarios.py::test_hook_failure_under_warn_does_not_block_close_and_is_not_repeated
+
+# --- robustness -------------------------------------------------------------------------------------------
+FR-ROB-01:
+  - tests/contract/test_raise_discipline.py::test_data_packages_raise_only_catalogued_errors
+  - tests/contract/test_integrity_refusals.py::test_integrity_code_refuses_with_code_kind_exit_and_hint
+  - tests/contract/test_shape_tolerance.py::test_variant_takes_the_safe_reading_and_records_one_shape
+FR-ROB-02:
+  - tests/unit/shapes/test_unexpected.py::test_shapes_reach_envelope_run_file_db_and_report
+  - tests/unit/shapes/test_unexpected.py::test_config_acceptance_hides_a_shape_and_all_shows_it
+  - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
+  - tests/scenario/test_rehearse.py::test_both_personas_rehearse_to_close_writing_nothing_outside
+FR-ROB-03:
+  - tests/scenario/test_rehearse.py::test_both_personas_rehearse_to_close_writing_nothing_outside
+  - tests/scenario/test_rehearse.py::test_recorded_and_file_answers_and_refusals_are_reported
+  - tests/scenario/test_rehearse.py::test_rehearsal_synthesizes_tasks_and_reuses_accepted_results
+FR-ROB-04:
+  - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_declared_stages
+  - tests/scenario/test_engine_properties.py::test_stage_schema_bump_recomputes_exactly_that_stage
+  - tests/scenario/test_engine_properties.py::test_repeating_every_command_is_safe
+  - tests/scenario/test_close_scenarios.py::test_upstream_change_after_apply_waits_with_post_apply_change
+FR-ROB-05:
+  - tests/scenario/test_engine_properties.py::test_lease_held_adopted_and_stolen
+FR-ROB-06:
+  - tests/unit/engine/test_doctor.py::test_auth_checks_run_unattended
+  - tests/unit/engine/test_doctor.py::test_a_hanging_auth_check_is_reported_as_interactive_or_hung
+  - tests/unit/engine/test_doctor.py::test_exec_destination_permission_status_and_missing_programs
+  - tests/unit/engine/test_doctor.py::test_doctor_writes_nothing_and_names_the_fix
+
+# --- agent experience ----------------------------------------------------------------------------------------
+AE-01:
+  - tests/scenario/test_agent_loop.py::test_agent_loop_reaches_done
+  - tests/scenario/test_agent_loop.py::test_a_fresh_agent_with_only_help_completes_a_fixture_run
+AE-02:
+  - tests/contract/test_envelope.py::test_ok_envelope_shape
+  - tests/contract/test_envelope.py::test_human_output_has_summary_and_next
+AE-03:
+  - tests/contract/test_envelope.py::test_every_kind_has_an_exit_code_and_catalog_is_consistent
+  - tests/contract/test_envelope.py::test_every_error_code_raised_in_src_is_cataloged
+  - tests/contract/test_raise_discipline.py::test_every_error_construction_in_src_uses_a_catalogued_code
+AE-04:
+  - tests/contract/test_envelope.py::test_schema_list_prints_every_model
+  - tests/contract/test_envelope.py::test_help_json_describes_every_command
+  - tests/unit/config/test_config.py::test_config_explain_cli
+AE-05:
+  - tests/contract/test_envelope.py::test_no_command_reads_process_environment_home
+  - tests/unit/config/test_config.py::test_workspace_discovery
+  - tests/scenario/test_engine_properties.py::test_lease_held_adopted_and_stolen
+AE-06:
+  - tests/scenario/test_engine_properties.py::test_repeating_every_command_is_safe
+  - tests/scenario/test_engine_properties.py::test_commands_after_completion_are_no_ops
+  - tests/unit/shapes/test_unexpected.py::test_dry_run_records_nothing
+AE-07:
+  - tests/scenario/test_task_scenarios.py::test_dispatch_guidance_concurrency_inline_and_exact_commands
+  - tests/scenario/test_agent_loop.py::test_agent_loop_reaches_done
+AE-08:
+  - tests/scenario/test_task_scenarios.py::test_dispatch_guidance_concurrency_inline_and_exact_commands
+AE-09:
+  - tests/unit/decide/test_options.py::test_resolves
+  - tests/unit/decide/test_answers.py::test_forgiving_resolution
+  - tests/unit/text/test_dates.py::test_dates
+  - tests/unit/text/test_durations.py::test_durations
+AE-10:
+  - tests/perf/test_next_speed.py::test_next_is_fast_warm
+  - tests/perf/test_process_count.py::test_subprocess_launches_stay_constant_from_50_to_500_items
+AE-11:
+  - tests/unit/tasks/test_task_packs.py::test_content_cannot_close_the_fence_or_leave_it
+  - tests/unit/tasks/test_task_packs.py::test_nonce_skips_a_candidate_the_data_contains
+
+# --- configuration -------------------------------------------------------------------------------------------
+CFG-01:
+  - tests/unit/config/test_config.py::test_includes_and_duplicate_section
+  - tests/unit/config/test_config.py::test_personas_validate
+CFG-02:
+  - tests/unit/config/test_config.py::test_unknown_key_bad_reference_bad_template_all_reported
+  - tests/unit/config/test_config.py::test_yaml_syntax_error_has_position
+CFG-03:
+  - tests/unit/config/test_config.py::test_presets_merge_extend_remove_and_origins
+  - tests/unit/config/test_config.py::test_preset_may_not_define_people
+CFG-04:
+  - tests/scenario/test_agent_loop.py::test_triage_workflow_and_sandbox_write_nothing_live
+  - tests/scenario/test_agent_loop.py::test_reference_daily_pauses_reviews_and_writes_backlog
+  - tests/scenario/test_planning_scenario.py::test_planning_inactive_workflows_plan_as_before
+CFG-05:
+  - tests/unit/text/test_templates.py::test_render_table
+  - tests/unit/text/test_templates.py::test_rendering_is_total
+  - tests/unit/text/test_templates.py::test_filter_set_is_closed
+CFG-06:
+  - tests/unit/config/test_config.py::test_digest_ignores_file_split_and_partials_move_per_section
+  - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_declared_stages
+CFG-07:
+  - tests/scenario/test_signals_scenario.py::test_config_test_shows_a_score_change_after_a_weight_edit_without_writing
+
+# --- non-functional ------------------------------------------------------------------------------------------
+NFR-01:
+  - tests/scenario/test_agent_loop.py::test_approval_is_bound_to_the_plan_digest
+  - tests/unit/destinations/test_calendar.py::test_unowned_targets_are_refused
+  - tests/unit/destinations/test_destination_config.py::test_send_policy_is_not_in_v1
+  - tests/unit/sources/test_contracts.py::test_credentials_are_masked_in_samples
+  - tests/conformance/test_transports.py::test_recorder_and_replay_round_trip_with_redaction
+NFR-02:
+  - tests/unit/text/test_redact.py::test_check_refuses_with_the_leak_code
+  - tests/unit/destinations/test_markdown.py::test_shared_task_store_redacts_and_refuses_leaks
+  - tests/scenario/test_apply_destinations.py::test_shared_exec_calendar_refuses_a_protected_entity_and_writes_owned_blocks
+NFR-03:
+  - tests/scenario/test_engine_properties.py::test_two_runs_in_separate_state_roots_are_byte_identical
+  - tests/scenario/test_engine_properties.py::test_reordered_records_give_the_same_artifacts
+  - tests/unit/plan/test_plan_properties.py::test_plan_build_is_deterministic
+NFR-04:
+  - tests/scenario/test_signals_scenario.py::test_item_why_explains_kept_dropped_merged_and_suppressed
+  - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
+NFR-05:
+  - tests/unit/sources/test_auth_resolve_units.py::test_an_auth_check_that_waits_is_treated_as_interactive
+  - tests/scenario/test_close_scenarios.py::test_a_hook_that_hangs_times_out_and_reports_the_command
+  - tests/unit/destinations/test_calendar.py::test_exec_program_that_hangs_times_out
+  - tests/unit/engine/test_doctor.py::test_a_hanging_auth_check_is_reported_as_interactive_or_hung
+NFR-06:
+  - tests/perf/test_plan_speed.py::test_200_tasks_over_42_days_plan_in_under_5_seconds
+  - tests/perf/test_process_count.py::test_full_synthetic_run_under_60_seconds
+NFR-07:
+  - tests/contract/test_portability.py::test_no_platform_branches_or_platform_only_imports
+  - tests/contract/test_portability.py::test_adapters_load_lazily_from_the_registry
+NFR-08:
+  - tests/contract/test_envelope.py::test_no_command_reads_process_environment_home
+  - tests/scenario/test_rehearse.py::test_both_personas_rehearse_to_close_writing_nothing_outside
+  - tests/unit/sources/test_recordings_fresh.py::test_recordings_are_fresh
+NFR-09:
+  - tests/unit/store/test_store.py::test_refuses_newer_database
+  - tests/unit/store/test_store.py::test_cli_reports_db_too_new
+  - tests/unit/store/test_store.py::test_migration_creates_tables_and_is_idempotent
+  - tests/conformance/test_destinations.py::test_exec_program_without_scratch_runs_handshake_only

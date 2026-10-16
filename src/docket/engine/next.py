@@ -76,11 +76,15 @@ def compute_step(rc: RunContext, *, token: str | None = None) -> Any:
     if ev is None:
         return DoneStep(summary=summary(rc))
     if ev.reason == "paused":
-        return WaitStep(stage=ev.name, reason="paused",
-                        instructions=f"The {rc.workflow_name()} workflow pauses before {ev.name} until the operator's "
-                                     f"next session. Run the resume command when the operator is ready.",
+        rehearse = Command.of(rc.argv("run", "rehearse")) if rc.workflow.rehearse_at_pause else None
+        text = (f"The {rc.workflow_name()} workflow pauses before {ev.name} until the operator's next session. "
+                f"Run the resume command when the operator is ready.")
+        if rehearse is not None:
+            text += (" Before stopping, run the rehearse command: it drives a copy of this run to close and reports "
+                     "every refusal and unexpected shape now, not in the morning.")
+        return WaitStep(stage=ev.name, reason="paused", instructions=text,
                         resume_when="the operator starts the next session",
-                        command=Command.of(rc.argv("run", "resume")))
+                        command=Command.of(rc.argv("run", "resume")), rehearse=rehearse)
     if ev.reason == "post_apply_change":
         return WaitStep(stage=ev.name, reason="post_apply_change",
                         instructions=f"{ev.name} changed after apply wrote receipts; the run does not go backward. "

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from docket.cli.errors import IntegrityError
 from docket.destinations.calendar import CalendarAdapter, Event, instant
 from docket.shapes.unexpected import unexpected
 from docket.store.paths import write_atomic
@@ -201,7 +202,8 @@ class IcsBackend:
         for b in f.blocks:
             if b.event is not None and b.event.id == ev.id:
                 return b
-        raise KeyError(ev.id)
+        raise IntegrityError("dest.state_changed", f"{self.where}: event {ev.id} left the file between the listing "
+                             "and the write", hint="docket plan build", details={"event": ev.id})
 
     def list(self, calendar: str | None, window: tuple[str, str] | None) -> list[Event]:
         out = []

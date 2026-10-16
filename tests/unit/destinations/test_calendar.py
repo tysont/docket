@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from docket.cli.errors import DocketError, IntegrityError
+from docket.cli.errors import ConfigError, DocketError, IntegrityError
 from docket.config.models import Destination as DestConfig
 from docket.config.models import Profile
 from docket.destinations import build
@@ -39,7 +39,7 @@ def test_marker_template_renders_and_parses():
     notes = m.attach("Some notes", "dk_123abc")
     assert notes == "Some notes\n\n(owned by docket cal dk_123abc)"
     assert m.find(notes) == "dk_123abc" and m.find("(owned by docket other dk_123abc)") is None
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigError):
         Marker("no key here", "cal")
 
 

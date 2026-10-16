@@ -1,9 +1,9 @@
 """Configuration models (TD §3.2).
 
 Every top-level section is a Pydantic model with ``extra="forbid"``. Sections
-whose full content belongs to later milestones (signals, shapes) are typed as
-open maps for now; ``journal`` and ``hooks`` are modelled in
-``docket.config.close_models``; the top-level structure, ``profile``,
+whose full content belongs to later milestones (signals) are typed as open
+maps for now; ``shapes`` holds reviewed shape acceptances (TD §14.2);
+``journal`` and ``hooks`` are modelled in ``docket.config.close_models``; the top-level structure, ``profile``,
 ``workflows``, ``sources``, ``transports``, ``decisions``, ``destinations``,
 ``planning`` and ``tasks`` are strict. ``sources``, ``transports`` and
 ``signals.units`` are modelled in ``docket.config.source_models``; ``tasks`` in
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from docket.config.source_models import Source, TransportConfig  # noqa: F401  (sections owned there)
 from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
@@ -162,6 +162,7 @@ class Workflow(Strict):
     stages: list[StageName]
     sources: list[str] | None = None
     pause_before: StageName | None = None
+    rehearse_at_pause: bool = False     # the pause step carries the rehearse command (TD §14.3)
     refresh_on_resume: list[str] = []
     review: WorkflowReview | None = None
     questions: WorkflowQuestions = WorkflowQuestions()
@@ -392,13 +393,24 @@ class PlanningPolicy(Strict):
 
 
 class PlanningCalendar(Strict):
-    """Where availability is read from and which calendar blocks go to."""
-    provider: Literal["json_file"] = "json_file"
-    path: str
+    """Where availability is read from and which calendar blocks go to.
+
+    ``provider: destination`` reads the calendar destination itself, so blocks a run applied
+    are the owned blocks the next run keeps, moves or releases. ``json_file`` reads a JSON
+    fixture at ``path``. Either way an event is owned when its notes carry the destination's
+    ownership marker (``destinations.<destination>.marker``); there is no second scheme.
+    """
+    provider: Literal["json_file", "destination"] = "json_file"
+    path: str | None = None             # json_file: the fixture file
     calendar: str = "work"              # calendar id blocks are written to
-    destination: str = "calendar"       # destination id carried on calendar operations
-    key_property: str = "docket_key"    # event property holding the ownership key
-    marker_regex: str | None = None     # or: a regex over notes whose group 1 is the key
+    destination: str = "calendar"       # destination id carried on calendar operations (and its marker)
+    key_property: str = "docket_key"    # json_file: a fixture property that holds an ownership key
+
+    @model_validator(mode="after")
+    def _path_for_file(self) -> "PlanningCalendar":
+        if self.provider == "json_file" and not self.path:
+            raise ValueError("provider json_file needs path")
+        return self
 
 
 class PlanningTasks(Strict):
@@ -445,6 +457,20 @@ class Planning(Strict):
     key_prefix: str = "dk_"
 
 
+# --- shapes (TD §14.2) ------------------------------------------------------
+
+
+class AcceptedShape(Strict):
+    """An unexpected shape the operator reviewed and accepted; reports stop listing it."""
+    area: str
+    detail: str
+    reason: str
+
+
+class ShapesConfig(Strict):
+    accepted: list[AcceptedShape] = []
+
+
 # --- top level -------------------------------------------------------------
 
 
@@ -463,7 +489,7 @@ class DocketConfig(Strict):
     planning: Planning = Planning()
     journal: JournalConfig = JournalConfig()
     hooks: dict[str, Hook] = {}
-    shapes: dict[str, Any] = Field(default_factory=dict)
+    shapes: ShapesConfig = ShapesConfig()
 
 
 SECTIONS: tuple[str, ...] = tuple(k for k in DocketConfig.model_fields if k not in ("includes",))

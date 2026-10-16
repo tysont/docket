@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from docket.cli.errors import DocketError
+from docket.cli.errors import DocketError, InputError, IntegrityError
 from docket.config.models import Destination as DestConfig
 from docket.config.models import Profile
 from docket.destinations import build
@@ -210,7 +210,8 @@ def _find(state: DestState, needle: str) -> str:
     for ln in (state.data.get("text") or "").splitlines():
         if needle in ln:
             return ln
-    raise LookupError(needle)
+    raise IntegrityError("dest.state_changed", f"conformance: the scratch target lost the seeded line {needle!r}",
+                         hint="docket plugin check", details={"needle": needle})
 
 
 def _text_norm(state: DestState) -> Any:
@@ -421,7 +422,7 @@ class FakeMcp:
             did = f"draft-{self.n}"
             self.drafts[did] = {"id": did, **copy.deepcopy(args)}
             return {"id": did}
-        raise KeyError(name)
+        raise KeyError(name)  # raise-ok: in-memory test double; an unknown tool name is a harness programming error
 
 
 MCP_CAL_TOOLS = {"list": "list_events", "create": "create_event", "move": "move_event", "update": "update_event",
@@ -497,7 +498,7 @@ def scenario_for(adapter: str, cfg: DestConfig, scratch: Path, dest_id: str, *, 
         return mcp_calendar_scenario(cfg.model_copy(update={"tools": MCP_CAL_TOOLS}), dest_id)
     if adapter == "message_mcp":
         return mcp_message_scenario(cfg.model_copy(update={"tools": MCP_DRAFT_TOOLS}), dest_id)
-    raise KeyError(adapter)
+    raise InputError("plugin.unknown", f"No conformance scenario for adapter {adapter!r}.", hint="docket plugin list")
 
 
 def check(adapter: str, cfg: DestConfig, scratch: Path, dest_id: str, **kw: Any) -> Report:

@@ -135,3 +135,21 @@ def test_stage_command_out_of_order_is_not_ready(persona, cli, pinned_now):
     assert code == 7 and env["error"]["code"] == "stage.not_ready"
     assert env["error"]["details"]["blocking_stage"] == "collect"
     assert env["next"]["command"][1] == "collect"
+
+
+def test_a_fresh_agent_with_only_help_completes_a_fixture_run(persona, cli, pinned_now):
+    """IP M9 exit: an agent that has read nothing but ``docket help --json`` completes a run."""
+    ws = persona("reference-like")
+    code, env = cli("help", "--json")
+    assert code == 0 and "docket next --json" in env["data"]["loop"]
+    names = {c["name"]: c for c in env["data"]["commands"]}
+    assert "next" in names and "run start" in names
+    code, env = cli("next", "--workspace", str(ws))  # no run yet: done, with the command that starts one
+    step = env["data"]["step"]
+    assert step["kind"] == "done" and step["command"]["argv"][1:3] == ["run", "start"]
+    flags = {a["name"] for a in names["run start"]["arguments"]}
+    assert "--now" in flags  # pinned clock, for a reproducible fixture run
+    code, env = cli(*step["command"]["argv"][1:], "--now", pinned_now)
+    assert code == 0 and env["data"]["created"] is True
+    res = run_agent(ws)
+    assert res.failures == [] and res.final["kind"] == "done" and res.final["summary"]["status"] == "sealed"

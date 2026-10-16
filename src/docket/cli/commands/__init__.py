@@ -5,3 +5,5 @@ from docket.cli.commands import item_cmds  # noqa: F401  (M3: item why, item lis
 from docket.cli.commands import task_cmds  # noqa: F401  (M4: task kinds, workspace task schemas)
 from docket.cli.commands import ask_cmds  # noqa: F401  (M5: ask list, show, answer, undo, resolve)
 from docket.cli.commands import close_cmds  # noqa: F401  (M8: run continue)
+from docket.cli.commands import import_cmds  # noqa: F401  (M9: import cursors)
+from docket.cli.commands import doctor_cmds  # noqa: F401  (M9: doctor)

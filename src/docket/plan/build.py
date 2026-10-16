@@ -73,7 +73,7 @@ class Inputs:
     now: datetime
     lo: date
     hi: date
-    provider: JsonFileProvider
+    provider: Any
     events: list[Any]
     store_tasks: list[Any]
     store_digest: str
@@ -81,11 +81,36 @@ class Inputs:
     ledger: dict[str, str]
 
 
-def _provider(rc: "RunContext", tz: ZoneInfo) -> JsonFileProvider:
+def _provider(rc: "RunContext", tz: ZoneInfo) -> Any:
+    """The planner's calendar. Ownership is always the calendar destination's marker
+    (``docket.destinations.calendar.owned_key``): the scheme apply writes is the scheme planning reads."""
+    from docket.destinations.calendar import marker_for, owned_key
     c = rc.ws.config.planning.calendar
     assert c is not None
-    return JsonFileProvider(rc.ws.root / c.path, tz, default_calendar=c.calendar, key_property=c.key_property,
-                            marker_regex=c.marker_regex)
+    dests = rc.ws.config.destinations
+    marker = marker_for(dests, c.destination)
+
+    def owner(notes: str, attendees: int, recurring: bool) -> str | None:
+        return owned_key(marker, notes, attendees=attendees, recurring=recurring, dest_id=c.destination)
+
+    if c.provider == "destination":
+        from docket.destinations import build, env_for
+        from docket.plan.providers import ListingProvider
+        adapter = build(c.destination, dests[c.destination], env_for(rc.ws, run=rc.run, env=rc.env))
+        today = date.fromisoformat(rc.run.header.clock.date)
+        horizon = rc.ws.config.planning.policy.horizon_days
+        window = (at(today - timedelta(days=1), 0, tz), at(today + timedelta(days=horizon + 1), 0, tz))
+
+        def list_raw(w: tuple[str, str]) -> list[Any]:
+            try:
+                return adapter.backend.list(adapter.calendar, w)
+            finally:
+                adapter.close()
+
+        return ListingProvider(list_raw, adapter.owner_key, tz, window=window, default_calendar=c.calendar,
+                               where=f"destinations.{c.destination}", strip=adapter.marker.strip)
+    return JsonFileProvider(rc.ws.root / (c.path or ""), tz, default_calendar=c.calendar,
+                            key_property=c.key_property, owner=owner, strip=marker.strip)
 
 
 def read_ledger(rc: "RunContext") -> dict[str, str]:

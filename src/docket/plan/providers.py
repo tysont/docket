@@ -1,6 +1,8 @@
 """Calendar providers for the planner.
 
 ``InMemoryProvider`` serves a list of events (tests, sandbox twins).
+``ListingProvider`` reads the calendar destination itself (``planning.calendar.provider:
+destination``), so the blocks apply wrote are the blocks the next run plans around.
 ``JsonFileProvider`` reads a JSON fixture file:
 
 ```json
@@ -16,17 +18,18 @@
 
 Fields Docket does not model go to ``Event.properties``, where classification
 rules can match them. Naive times are read in the file's ``timezone`` (else
-the profile's). The ownership key comes from ``owned_key``, the configured
-``key_property``, or a ``marker_regex`` over ``notes``. A malformed event is
-skipped and recorded as an unexpected shape.
+the profile's). The ownership key comes from ``owned_key`` or the configured
+``key_property`` (a property of the fixture format), else from the ``owner``
+reader: the calendar destination's ownership marker over ``notes``
+(``docket.destinations.calendar.owned_key``, the one implementation of
+ownership). A malformed event is skipped and recorded as an unexpected shape.
 """
 from __future__ import annotations
 
 import json
-import re
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from docket.config.digest import digest
@@ -55,18 +58,27 @@ def _when(v: Any, tz: ZoneInfo, all_day: bool) -> datetime | date:
     return dt if dt.tzinfo else dt.replace(tzinfo=tz)
 
 
+# (notes, attendees, recurring) -> the ownership key, or None when Docket does not own the event
+Owner = Callable[[str, int, bool], "str | None"]
+
+
 def event_from_json(row: dict[str, Any], tz: ZoneInfo, *, default_calendar: str = "work",
-                    key_property: str = "docket_key", marker: re.Pattern[str] | None = None) -> Event:
+                    key_property: str = "docket_key", owner: Owner | None = None,
+                    strip: Callable[[str], str] | None = None) -> Event:
     """Raises KeyError/ValueError/TypeError on a malformed row."""
     status = str(row.get("status") or "confirmed").lower()
     all_day = bool(row.get("all_day"))
     props = dict(row.get("properties") or {})
     props.update({k: v for k, v in row.items() if k not in _KNOWN})
     notes = str(row.get("notes") or "")
+    recurring = bool(row.get("recurrence") or row.get("series_id") or row.get("recurring"))
     key = row.get("owned_key") or props.get(key_property)
-    if not key and marker is not None and notes:
-        m = marker.search(notes)
-        key = m.group(1) if m and m.groups() else None
+    if not key and owner is not None and notes:
+        att = props.get("attendees")
+        n_att = len(att) if isinstance(att, list) else (int(att) if isinstance(att, int) else 0)
+        key = owner(notes, n_att, recurring)
+        if key and strip is not None:
+            notes = strip(notes)  # the marker is ownership, not content: compare notes without it
     cancelled = status == "cancelled"
     start = _when(row["start"], tz, all_day) if "start" in row or not cancelled else None
     end = _when(row["end"], tz, all_day) if "end" in row or not cancelled else None
@@ -79,8 +91,7 @@ def event_from_json(row: dict[str, Any], tz: ZoneInfo, *, default_calendar: str 
         title=str(row.get("title") if row.get("title") is not None else row.get("summary") or ""),
         start=start, end=end, all_day=all_day,  # type: ignore[arg-type]
         transparency=str(row.get("transparency") or "opaque").lower(), properties=props,
-        owned_key=str(key) if key else None, recurring=bool(row.get("recurrence") or row.get("series_id")
-                                                             or row.get("recurring")),
+        owned_key=str(key) if key else None, recurring=recurring,
         status=status, recurrence=row.get("recurrence") or None,
         series_id=str(row["series_id"]) if row.get("series_id") else None, original_start=original, notes=notes,
     )
@@ -88,12 +99,13 @@ def event_from_json(row: dict[str, Any], tz: ZoneInfo, *, default_calendar: str 
 
 class JsonFileProvider:
     def __init__(self, path: Path, tz: ZoneInfo, *, default_calendar: str = "work", key_property: str = "docket_key",
-                 marker_regex: str | None = None) -> None:
+                 owner: Owner | None = None, strip: Callable[[str], str] | None = None) -> None:
         self.path = path
+        self.strip = strip
         self.tz = tz
         self.default_calendar = default_calendar
         self.key_property = key_property
-        self.marker = re.compile(marker_regex) if marker_regex else None
+        self.owner = owner
         self._raw: dict[str, Any] | None = None
 
     def raw(self) -> dict[str, Any]:
@@ -132,8 +144,67 @@ class JsonFileProvider:
                 continue
             try:
                 out.append(event_from_json(row, tz, default_calendar=self.default_calendar,
-                                           key_property=self.key_property, marker=self.marker))
+                                           key_property=self.key_property, owner=self.owner,
+                                           strip=self.strip))
             except (KeyError, ValueError, TypeError) as e:
                 unexpected("plan.calendar", f"malformed event: {type(e).__name__}", sample={"fields": sorted(row)},
                            reading="skip the event", extend="docket/plan/providers.py: event_from_json")
+        return out
+
+
+def _instant(value: str, tz: ZoneInfo) -> datetime | date:
+    v = str(value).strip()
+    if len(v) == 10:
+        return date.fromisoformat(v)
+    dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=tz)
+
+
+class ListingProvider:
+    """Events read from a calendar destination's backend.
+
+    ``list_raw(window)`` returns the destination's events (``docket.destinations.calendar.Event``)
+    and ``owner(event)`` its ownership key, both supplied by the engine so the planner never
+    imports an adapter. ``window`` is the span ``digest()`` covers.
+    """
+
+    def __init__(self, list_raw: Callable[[tuple[str, str]], list[Any]], owner: Callable[[Any], "str | None"],
+                 tz: ZoneInfo, *, window: tuple[datetime, datetime], default_calendar: str = "work",
+                 where: str = "planning.calendar.destination", strip: Callable[[str], str] | None = None) -> None:
+        self.list_raw = list_raw
+        self.strip = strip
+        self.owner = owner
+        self.tz = tz
+        self.window = window
+        self.default_calendar = default_calendar
+        self.where = where
+        self._cache: dict[tuple[str, str], list[Any]] = {}
+
+    def _raw(self, start: datetime, end: datetime) -> list[Any]:
+        w = (start.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             end.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        if w not in self._cache:
+            self._cache[w] = sorted(self.list_raw(w), key=lambda e: (e.start, e.id))
+        return self._cache[w]
+
+    def digest(self) -> str:
+        return digest([e.as_dict() for e in self._raw(*self.window)])
+
+    def list_events(self, start: datetime | None, end: datetime | None) -> list[Event]:
+        rows = self._raw(start or self.window[0], end or self.window[1])
+        out = []
+        for e in rows:
+            try:
+                s, t = _instant(e.start, self.tz), _instant(e.end, self.tz)
+            except (TypeError, ValueError):
+                unexpected("plan.calendar", "destination event with an unreadable time", sample={"id": e.id},
+                           reading="skip the event", extend=f"{self.where}: the adapter's event times")
+                continue
+            all_day = isinstance(s, date) and not isinstance(s, datetime)
+            props = {"attendees": e.attendees} if e.attendees else {}
+            key = self.owner(e)
+            notes = self.strip(e.notes) if key and self.strip is not None else e.notes
+            out.append(Event(id=e.id, calendar=e.calendar or self.default_calendar, title=e.title, start=s, end=t,
+                             all_day=all_day, transparency="transparent" if e.transparent else "opaque",
+                             properties=props, owned_key=key, recurring=e.recurring, notes=notes))
         return out

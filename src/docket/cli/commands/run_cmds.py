@@ -187,3 +187,32 @@ def cmd_run_abandon(ctx: Any, ns: Any) -> Result:
         rc.run.set_status("abandoned")
         rc.run.store.db.execute("DELETE FROM leases WHERE run_id=?", (rc.run.id,))
     return Result({"run": rc.run.id, "status": "abandoned", "changed": True}, f"abandoned {rc.run.id}")
+
+
+@command("run rehearse", "Drive a copy of a run to its end against sandbox twins and recorded records; report "
+                         "every stage outcome, operation, refusal and unexpected shape.",
+         args=[Arg("--run", "Run id (default: the most recent open run, else the most recent run).", metavar="RUN"),
+               Arg("--answers", "Where answers come from: recorded (then recommended, then first option), "
+                                "recommended, or file:<path> (an ask answer --file document).", default="recorded")],
+         effects=["writes runs/<run-id>/rehearse-<n>/ only: a copied state root, synthetic results and report.json",
+                  "nothing in the live run, database, workspace or destinations changes"],
+         examples=["docket run rehearse --json", "docket run rehearse --run 2026-10-16-daily --answers recommended --json"])
+def cmd_run_rehearse(ctx: Any, ns: Any) -> Result:
+    from docket.engine.rehearse import Rehearsal, latest_run
+    from docket.store.paths import state_root
+    ws = ctx.workspace()
+    live_root = state_root(ws.root, ctx.env)
+    run_id = ns.run or latest_run(live_root)
+    if not run_id or not (live_root / "runs" / run_id / "run.json").is_file():
+        raise StateError("rehearse.no_run", f"No run {run_id!r} to rehearse." if run_id else "No run to rehearse.",
+                         hint=ctx.start_hint())
+    ctx.run_id = run_id
+    rep = Rehearsal(ws=ws, live_root=live_root, run_id=run_id, env=ctx.env, answers=ns.answers, cwd=ctx.cwd).run()
+    lines = [f"rehearsal {rep['rehearsal']} of {run_id}: {'ok' if rep['ok'] else 'NOT ok'} in {rep['elapsed_s']}s "
+             f"(reached {rep['reached'].get('kind') if rep['reached'] else '?'})"]
+    lines += [f"  {s['stage']:<8} {s['state']}" + (f" ({s['reason']})" if s["reason"] else "") for s in rep["stages"]]
+    lines.append(f"operations: {len(rep['operations'])}; refusals: {len(rep['refusals'])}; "
+                 f"unexpected shapes: {len(rep['unexpected'])}")
+    lines += [f"  refused: {r['code']}: {r['message']}" for r in rep["refusals"][:20]]
+    lines.append(f"report: {rep['report']}")
+    return Result(rep, "\n".join(lines))

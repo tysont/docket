@@ -62,3 +62,26 @@ def test_dry_run_records_nothing(cli, persona, pinned_now):
     assert code == 0 and env["data"]["dry_run"] is True and env["unexpected"] == []
     code, env = cli("unexpected", "--workspace", str(ws))
     assert env["data"]["shapes"] == []
+
+
+def test_config_acceptance_hides_a_shape_and_all_shows_it(cli, persona, pinned_now):
+    """``shapes.accepted`` is reviewable configuration with the same effect as ``unexpected accept`` (TD §14.2)."""
+    ws = persona("reference-like")
+    cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
+    cli("collect", "--workspace", str(ws))
+    shape = ("item.mapping", "chat.from missing")
+    cfg = ws / "docket.yaml"
+    cfg.write_text(cfg.read_text() + '\nshapes:\n  accepted:\n    - { area: item.mapping, detail: "chat.from missing", '
+                   'reason: "system messages carry no sender" }\n')
+    code, env = cli("unexpected", "--workspace", str(ws))
+    assert code == 0 and shape not in {(s["area"], s["detail"]) for s in env["data"]["shapes"]}
+    assert env["data"]["accepted_hidden"] >= 1
+    code, env = cli("unexpected", "--all", "--workspace", str(ws))
+    row = {(s["area"], s["detail"]): s for s in env["data"]["shapes"]}[shape]
+    assert row["accepted_in"] == "config" and row["accepted_reason"] == "system messages carry no sender"
+    code, env = cli("unexpected", "accept", "source.unit", "chat unit without name", "--reason", "hallway",
+                    "--workspace", str(ws))
+    assert code == 0 and env["data"]["in_config"] is False
+    assert "shapes:\n  accepted:" in env["data"]["config_entry"] and '"chat unit without name"' in env["data"]["config_entry"]
+    code, env = cli("config", "validate", "--workspace", str(ws))
+    assert code == 0

@@ -25,6 +25,30 @@ from docket.config.models import (
 from docket.text import templates
 
 
+def _check_planning_calendar(loaded: Loaded, d: Any, out: list[Issue]) -> None:
+    """A calendar provider that reads the destination needs a calendar destination; planning keys must
+    survive the ownership marker (TD §11.2: one ownership scheme)."""
+    from docket.destinations.calendar import key_is_markable
+    cal = _get(d, "planning", "calendar")
+    prefix = _get(d, "planning", "key_prefix")
+    if isinstance(prefix, str) and not key_is_markable(prefix + "x"):
+        out.append(_issue(loaded, "config.bad_type", "planning.key_prefix may use only letters, digits, _ and - "
+                          "(the characters an ownership marker parses)", ("planning", "key_prefix"), 3))
+    if not isinstance(cal, dict) or cal.get("provider") != "destination":
+        return
+    did = cal.get("destination", "calendar")
+    dest = _get(d, "destinations", did)
+    if not isinstance(dest, dict):
+        out.append(_issue(loaded, "config.bad_reference", f"planning.calendar.destination names destination "
+                          f"{did!r}, which is not defined (provider destination reads it)",
+                          ("planning", "calendar", "destination"), 3,
+                          suggestion=closest(str(did), [k for k, _ in _items(_get(d, "destinations"))])))
+    elif dest.get("adapter") not in ("calendar_file", "calendar_exec", "calendar_mcp"):
+        out.append(_issue(loaded, "config.capability_missing", f"planning.calendar.destination {did!r} is a "
+                          f"{dest.get('adapter')} destination; provider destination needs a calendar adapter",
+                          ("planning", "calendar", "destination"), 3))
+
+
 def _issue(loaded: Loaded, code: str, msg: str, path: Path_, pass_no: int, **kw: Any) -> Issue:
     org = origin_for(loaded.origins, path)
     return Issue(code, msg, path=dotted(path), file=org.file if org else None,
@@ -298,7 +322,7 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
         _check_regex(loaded, _get(rule, "match", "title_regex"), ("profile", "calendar", "classify", i, "match", "title_regex"), out)
     for i, f in _dicts(_get(d, "profile", "forums")):
         _check_regex(loaded, _get(f, "calendar_match", "title_regex"), ("profile", "forums", i, "calendar_match", "title_regex"), out)
-    _check_regex(loaded, _get(d, "planning", "calendar", "marker_regex"), ("planning", "calendar", "marker_regex"), out)
+    _check_planning_calendar(loaded, d, out)
 
     for dname, dest in _items(_get(d, "destinations")):
         if isinstance(dest, dict):

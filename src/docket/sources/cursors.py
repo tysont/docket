@@ -167,3 +167,79 @@ def apply_proposals(db: sqlite3.Connection, run_id: str) -> dict[str, list[Any]]
                    "VALUES (?,?,?,?,?)", (src, unit, p["position"], p["coverage_end"], run_id))
         advanced.add(src)
     return {"advanced": sorted(advanced), "held": sorted(held), "regressions": regressions}
+
+
+# --- import (TD §19) ----------------------------------------------------------------
+
+
+def parse_import(data: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """Cursor rows from an import file, and the problems found (each names the row).
+
+    Accepted forms: a list of rows, ``{"cursors": [rows]}``, or a mapping
+    ``{source: position | {unit: position | row}}``. A row is
+    ``{"source", "unit" (default "*"), "position", "coverage_end" (optional)}``.
+    """
+    rows: list[dict[str, Any]] = []
+    problems: list[str] = []
+    if isinstance(data, dict) and isinstance(data.get("cursors"), list):
+        data = data["cursors"]
+    if isinstance(data, dict):
+        flat = []
+        for src, val in data.items():
+            if isinstance(val, dict) and "position" not in val:
+                for unit, v in val.items():
+                    flat.append({"source": src, "unit": unit, **(v if isinstance(v, dict) else {"position": v})})
+            else:
+                flat.append({"source": src, **(val if isinstance(val, dict) else {"position": val})})
+        data = flat
+    if not isinstance(data, list):
+        return [], ["the file must hold a list of cursor rows, {\"cursors\": [...]}, or {source: position}"]
+    for i, r in enumerate(data):
+        if not isinstance(r, dict):
+            problems.append(f"row {i}: not an object")
+            continue
+        src, pos = r.get("source"), r.get("position")
+        if not isinstance(src, str) or not src:
+            problems.append(f"row {i}: no source")
+            continue
+        if pos is None or isinstance(pos, (dict, list, bool)):
+            problems.append(f"row {i} ({src}): position must be a string or a number")
+            continue
+        unknown = sorted(set(r) - {"source", "unit", "position", "coverage_end"})
+        if unknown:
+            problems.append(f"row {i} ({src}): unknown key(s) {', '.join(unknown)}")
+            continue
+        cov = r.get("coverage_end")
+        rows.append({"source": src, "unit": str(r.get("unit") or "*"), "position": str(pos),
+                     "coverage_end": str(cov) if cov is not None else None})
+    seen: set[tuple[str, str]] = set()
+    for r in rows:
+        k = (r["source"], r["unit"])
+        if k in seen:
+            problems.append(f"{k[0]}/{k[1]}: listed twice")
+        seen.add(k)
+    return rows, problems
+
+
+def plan_import(db: sqlite3.Connection, rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Classify each row against the durable cursors: ``write``, ``same`` or ``behind`` (a regression)."""
+    out: dict[str, list[dict[str, Any]]] = {"write": [], "same": [], "behind": []}
+    for r in rows:
+        cur = db.execute("SELECT position, coverage_end FROM cursors WHERE source=? AND unit=?",
+                         (r["source"], r["unit"])).fetchone()
+        cur_pos = cur["position"] if cur else None
+        row = {**r, "durable": cur_pos}
+        if cur_pos is not None and compare(r["position"], cur_pos) == 0:
+            out["same"].append(row)
+        elif cur_pos is not None and is_behind(r["position"], cur_pos):
+            out["behind"].append(row)
+        else:
+            out["write"].append(row)
+    return out
+
+
+def write_import(db: sqlite3.Connection, rows: list[dict[str, Any]], marker: str) -> None:
+    """Write imported positions as durable cursors (the caller holds the transaction)."""
+    for r in rows:
+        db.execute("INSERT OR REPLACE INTO cursors (source, unit, position, coverage_end, updated_run) "
+                   "VALUES (?,?,?,?,?)", (r["source"], r["unit"], r["position"], r["coverage_end"], marker))

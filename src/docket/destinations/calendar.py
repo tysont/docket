@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from docket.cli.errors import IntegrityError
+from docket.cli.errors import ConfigError, IntegrityError
 from docket.config.digest import digest
 from docket.destinations.base import (
     Acceptance, Action, BaseDestination, DestEnv, DestState, Operation, Receipt, VerifyResult, make_op,
@@ -169,9 +169,11 @@ class Marker:
             elif isinstance(nd, templates.Var) and nd.path == "destination":
                 parts.append(re.escape(dest_id))
             else:
-                raise ValueError("a marker template may use only {key} and {destination}")
+                raise ConfigError("config.bad_template", "a marker template may use only {key} and {destination}",
+                                  hint=f"docket config explain destinations.{dest_id}.marker")
         if "(?P<key>" not in "".join(parts):
-            raise ValueError("a marker template must contain {key}")
+            raise ConfigError("config.bad_template", "a marker template must contain {key}",
+                              hint=f"docket config explain destinations.{dest_id}.marker")
         self.rx = re.compile("".join(parts))
 
     def render(self, key: str) -> str:
@@ -191,6 +193,37 @@ class Marker:
 
 def ownership_key(dest_id: str, seed: str) -> str:
     return "dk_" + digest([dest_id, seed])[:12]
+
+
+def owned_key(marker: Marker, notes: str, *, attendees: int = 0, recurring: bool = False,
+              dest_id: str = "calendar") -> str | None:
+    """The ownership key an event carries, or None when Docket does not own it (TD §11.2).
+
+    The one implementation of ownership: the destination's adapter (apply,
+    verify, snapshot) and planning (classification, scheduling, reconcile, mirrors)
+    both read events through it, so a block apply creates is the block the
+    next run's planning finds as owned. A marker on an event with attendees or
+    recurrence is never ownership.
+    """
+    key = marker.find(notes)
+    if key is None:
+        return None
+    if attendees or recurring:
+        unexpected("dest.calendar", "marker on an event with attendees or recurrence",
+                   reading="treat the event as not owned", extend=f"destinations.{dest_id}.marker")
+        return None
+    return key
+
+
+def marker_for(destinations: dict[str, Any], dest_id: str) -> Marker:
+    """The ownership marker of a configured destination (the default marker when it is not configured)."""
+    cfg = destinations.get(dest_id)
+    return Marker(getattr(cfg, "marker", None), dest_id)
+
+
+def key_is_markable(key: str) -> bool:
+    """Whether a key survives a round trip through any marker (the characters a marker parses)."""
+    return re.fullmatch(KEY_CHARS, key or "") is not None
 
 
 # --- the adapter ---------------------------------------------------------------------
@@ -243,14 +276,7 @@ class CalendarAdapter(BaseDestination):
 
     # --- ownership ---------------------------------------------------------------
     def owner_key(self, ev: Event) -> str | None:
-        key = self.marker.find(ev.notes)
-        if key is None:
-            return None
-        if ev.attendees or ev.recurring:
-            unexpected("dest.calendar", "marker on an event with attendees or recurrence",
-                       reading="treat the event as not owned", extend=f"destinations.{self.id}.marker")
-            return None
-        return key
+        return owned_key(self.marker, ev.notes, attendees=ev.attendees, recurring=ev.recurring, dest_id=self.id)
 
     def listing(self) -> tuple[dict[str, Event], list[Event]]:
         owned: dict[str, Event] = {}
@@ -323,7 +349,7 @@ class CalendarAdapter(BaseDestination):
         if action.kind == "calendar.place":
             if not action.key:
                 raise IntegrityError("dest.not_accepted", f"{self.id}: a calendar block needs a key seed",
-                                     details={"destination": self.id})
+                                     hint="docket plan build", details={"destination": self.id})
             key = ownership_key(self.id, action.key)
             start, end = ctx.get("start"), ctx.get("end")
             if not start or not end:

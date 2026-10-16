@@ -67,7 +67,11 @@ def test_policy_values_parse(tmp_path):
     ("planning:\n  policy: { lunch: noon }\n", "config.bad_type", "planning.policy.lunch"),
     ("planning:\n  workflows: [weak]\n", "config.bad_reference", "planning.workflows[0]"),
     ("planning:\n  tasks: { destination: nowhere }\n", "config.bad_reference", "planning.tasks.destination"),
-    ("planning:\n  calendar: { path: c.json, marker_regex: '(' }\n", "config.bad_regex", "planning.calendar.marker_regex"),
+    ("planning:\n  calendar: { path: c.json, marker_regex: '(' }\n", "config.unknown_key", "planning.calendar.marker_regex"),
+    ("planning:\n  calendar: { provider: destination, destination: nowhere }\n", "config.bad_reference",
+     "planning.calendar.destination"),
+    ("planning:\n  calendar: { calendar: work }\n", "config.bad_type", "planning.calendar"),
+    ("planning:\n  key_prefix: 'dk.'\n", "config.bad_type", "planning.key_prefix"),
     ("profile:\n  calendar: { classify: [{ match: { title_regex: x }, kind: meetings }] }\n", "config.bad_type",
      "profile.calendar.classify[0].kind"),
     ("profile:\n  calendar: { classify: [{ match: { titel_regex: x }, kind: focus }] }\n", "config.unknown_key",
@@ -97,7 +101,9 @@ def test_json_provider_reads_naive_times_markers_and_skips_malformed(tmp_path):
         {"id": "c", "title": "Broken", "start": "not a time", "end": "x"},
         "not an object",
     ]}))
-    prov = JsonFileProvider(p, TZ, marker_regex=r"\[key:(dk_\w+)\]")
+    from docket.destinations.calendar import Marker, owned_key
+    marker = Marker("[key:{key}]", "calendar")  # the destination's marker is the only ownership scheme
+    prov = JsonFileProvider(p, TZ, owner=lambda n, a, r: owned_key(marker, n, attendees=a, recurring=r))
     with collecting() as col:
         evs = prov.list_events(None, None)  # type: ignore[arg-type]
     assert [e.id for e in evs] == ["a", "b"]

@@ -147,6 +147,12 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
                            "details.destinations names each change. Rebuild the plan and approve again."),
     "hook.failed": ("external", True, "A hook under the fail policy exited non-zero, timed out or could not start; "
                     "details carry its exit status and log path."),
+    # --- M9 robustness ---
+    "cursor.regression": ("integrity", False, "An imported or proposed cursor position is behind the durable cursor; "
+                          "cursors only move forward. details.rows names each."),
+    "input.bad_cursor_file": ("input", False, "A cursor import file has the wrong shape; details.problems names each row."),
+    "rehearse.no_run": ("state", False, "No run to rehearse: name one with --run, or start a run first."),
+    "doctor.failed": ("external", True, "One or more doctor checks failed; details.checks names each with its fix."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

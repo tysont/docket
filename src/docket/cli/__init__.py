@@ -120,6 +120,10 @@ def _human(env_out: dict[str, Any], summary: str | None, out: IO[str], err: IO[s
                 where += f":{row['line']}:{row.get('column') or 1}"
             sugg = f" (did you mean {row['suggestion']!r}?)" if row.get("suggestion") else ""
             err.write(f"  {where}: {row['code']}: {row['message']}{sugg}\n")
+    for row in (e.get("details") or {}).get("checks", [])[:200]:  # docket doctor
+        if isinstance(row, dict) and row.get("status") in ("fail", "warn"):
+            err.write(f"  {row['status']:<4} {row['subject']}: {row['detail']}"
+                      + (f" (fix: {row['fix']})" if row.get("fix") else "") + "\n")
     if e.get("hint"):
         err.write(f"hint: {e['hint']}\n")
     if env_out.get("next"):

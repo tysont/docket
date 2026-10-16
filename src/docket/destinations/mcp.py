@@ -51,6 +51,7 @@ class McpCalendarBackend:
         t = self.tools.get(verb)
         if not t:
             raise IntegrityError("dest.unsupported", f"{self.dest_id}: no tool is declared for {verb}",
+                                 hint=f"docket config explain destinations.{self.dest_id}.tools",
                                  details={"destination": self.dest_id, "verb": verb})
         return t
 
@@ -118,7 +119,7 @@ class MemoryDrafts:
             did = f"draft-{self.n}"
             self.drafts[did] = {"id": did, **copy.deepcopy(args)}
             return {"id": did}
-        raise IntegrityError("dest.unsupported", f"draft twin has no tool {name}")
+        raise IntegrityError("dest.unsupported", f"draft twin has no tool {name}", hint="docket plugin check message_mcp")
 
 
 class MessageMcp(BaseDestination):
@@ -139,6 +140,7 @@ class MessageMcp(BaseDestination):
         t = self.tools.get(verb)
         if not t:
             raise IntegrityError("dest.unsupported", f"{self.id}: no tool is declared for {verb}",
+                                 hint=f"docket config explain destinations.{self.id}.tools",
                                  details={"destination": self.id, "verb": verb})
         return t
 
@@ -178,7 +180,7 @@ class MessageMcp(BaseDestination):
         ctx = action.fields
         if not action.key:
             raise IntegrityError("dest.not_accepted", f"{self.id}: a draft needs a key seed",
-                                 details={"destination": self.id})
+                                 hint="docket plan build", details={"destination": self.id})
         key = ownership_key(self.id, action.key)
         subject = templates.render(self.cfg.title_template or "{title}", ctx)
         body = templates.render(self.cfg.notes_template or "{note}", ctx)
