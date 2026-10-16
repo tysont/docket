@@ -1,0 +1,45 @@
+.gitignore
+  s_2c17abe8ef85ff::t_a773b704696db8 1-14
+"docs/Docket Implementation Plan.md"
+  s_0103e65d54e481::t_dfa693d313402e 1-170
+"docs/Docket Product Requirements.md"
+  s_0103e65d54e481::t_85e770c29c83aa 1-415
+"docs/Docket Technical Design.md"
+  s_0103e65d54e481::t_15f5c974fcea29 1-1044
+"docs/Docket Test Plan.md"
+  s_0103e65d54e481::t_4feee9ab8fb892 1-200
+scripts/privacy_scan.py
+  s_f5cd7978833346::t_e6edb88499950b 1-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3d94ef4de01528ede3ffb0f282e8659d8a884425",
+  "prompts": {},
+  "sessions": {
+    "s_0103e65d54e481": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a01d7ffeX7sZuP0t3Ey6qL",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_2c17abe8ef85ff": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebdc0f070ffelWKgqhclh3mrq1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_f5cd7978833346": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0c1e75dffeukL1LRDyL5HMZM",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
