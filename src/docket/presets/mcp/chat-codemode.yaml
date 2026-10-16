@@ -65,4 +65,5 @@ source:
       optional: { text: str, sender.displayName: str, sender.name: str, thread.name: str }
       variations:
         sender.displayName: { missing: { reading: "use sender.name", use: sender.name, record: false } }
-  mapping: { id: "$.name", text: "$.text", title: "$.text", from: "$.sender.displayName", at: "$.createTime" }
+  mapping: { id: "$.name", text: "$.text", title: "$.text", from: "$.sender.displayName", at: "$.createTime",
+             from.handle: "$.sender.name", thread: "$.thread.name" }

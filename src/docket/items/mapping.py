@@ -1,7 +1,16 @@
-"""Record-to-item mapping, M1 form (TD §7.1, §7.2).
+"""Record-to-item mapping (TD §7.1, §7.2).
 
 A mapping names a ``$.path`` per item field. A path that is absent in a record
 renders empty and records an unexpected shape naming the mapping to extend.
+
+Structure keys (M3) are optional per record and never a shape when absent: an
+unthreaded message or one with no recipients is a valid record.
+
+- ``from.handle`` / ``from.display``: the sender's handle (resolved later through
+  profile handles, ``docket.items.identity``) and display name. ``from`` stays the
+  display string templates render; without ``from.handle`` the handle is ``from``.
+- ``thread``: the source's thread key (the item id stands in for unthreaded records).
+- ``to``, ``cc``, ``mentions``: handles (a string or a list) addressed, copied or mentioned.
 """
 from __future__ import annotations
 
@@ -12,6 +21,25 @@ from docket.shapes.unexpected import unexpected
 
 DEFAULT_MAPPING = {"id": "$.id", "title": "$.title", "text": "$.text"}
 ITEM_FIELDS = ("title", "text", "from", "at", "url", "unit")
+STRUCTURE_FIELDS = ("from.handle", "from.display", "thread", "to", "cc", "mentions")
+
+
+def _scalar(v: Any) -> str:
+    return "" if v is None else (v if isinstance(v, str) else str(v))
+
+
+def _handles(v: Any) -> list[str]:
+    if v is None or v == "":
+        return []
+    if isinstance(v, list):
+        out = []
+        for x in v:
+            if isinstance(x, dict):  # a recipient object: take its address-like field
+                x = next((x[k] for k in ("handle", "email", "address", "name", "id") if x.get(k)), None)
+            if x not in (None, ""):
+                out.append(str(x))
+        return out
+    return [str(v)]
 
 
 def get_path(record: Any, path: str) -> Any:
@@ -55,6 +83,16 @@ def map_record(source: str, record: dict[str, Any], mapping: dict[str, str], *, 
     if not item["title"]:
         text = str(item.get("text") or "")
         item["title"] = text[:80]
+    st = {k: (get_path(record, m[k]) if m.get(k) else None) for k in STRUCTURE_FIELDS}
+    handle = _scalar(st["from.handle"]) if "from.handle" in m else _scalar(item.get("from"))
+    if st["from.display"] not in (None, ""):
+        item["from"] = _scalar(st["from.display"])
+    elif not item.get("from") and handle:
+        item["from"] = handle
+    item["handle"] = handle
+    item["thread"] = _scalar(st["thread"])
+    for k in ("to", "cc", "mentions"):
+        item[k] = _handles(st[k])
     item["fields"] = {
         k.split(".", 1)[1]: get_path(record, v) for k, v in sorted(m.items()) if k.startswith("fields.")
     }

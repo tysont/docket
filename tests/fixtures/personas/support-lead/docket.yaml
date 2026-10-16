@@ -136,6 +136,42 @@ destinations:
 
 signals:
   scoring: { floor: 40 }
+  # Queue work: tickets and pages are assessed by their fields; only low-priority tickets
+  # and pages of an unknown severity go to an agent. Every name is invented.
+  references:
+    ticket: { pattern: "\\bSUP-\\d{3,6}\\b" }
+    page: { pattern: "\\bPG-\\d{3,6}\\b" }
+  rules:
+    - id: p1-ticket
+      when: { all: [ { source: tickets }, { field: { name: priority, equals: P1 } } ] }
+      then: { assess: rules_only, importance: +35, urgency: +35, surface: always, reason: "P1 ticket" }
+    - id: p2-ticket
+      when: { all: [ { source: tickets }, { field: { name: priority, equals: P2 } } ] }
+      then: { assess: rules_only, importance: +15, urgency: +15 }
+    - id: strategic-requester
+      when: { all: [ { source: tickets }, { from: { domain: [globex.example] } } ] }
+      then: { importance: +15, sensitivity: customer, tags: [strategic] }
+    - id: protected-mention
+      when: { mentions: { entities: { protected: true } } }
+      then: { sensitivity: customer }
+    - id: billing-queue
+      when: { field: { name: queue, equals: billing } }
+      then: { route: worklog, area: Billing, importance: +10 }
+    - id: account-closure
+      when: { text: { phrases: ["close account"] } }
+      then: { dismiss: "Account closures belong to the retention queue" }
+    - id: sev1-page
+      when: { all: [ { source: pager }, { field: { name: priority, equals: sev1 } } ] }
+      then: { assess: rules_only, urgency: +40, surface: always, reason: "Sev1 page" }
+    - id: sev2-page
+      when: { all: [ { source: pager }, { field: { name: priority, equals: sev2 } } ] }
+      then: { assess: rules_only, urgency: +20 }
+    - id: sev3-page
+      when: { all: [ { source: pager }, { field: { name: priority, equals: sev3 } } ] }
+      then: { dismiss: "Low-severity page" }
+    - id: waiting-ticket
+      when: { all: [ { source: tickets }, { age: { older_than: 2d } } ] }
+      then: { urgency: +10, reason: "Waiting more than two days" }
 
 tasks:
   assess: { max_items: 8 }

@@ -46,7 +46,8 @@ IMPLEMENTED_ADAPTERS = frozenset(DESTINATION_ADAPTERS)
 ACTIONS = ("task.add", "agenda.add", "calendar.place", "message.draft", "now", "done", "watch", "dismiss")
 ACTION_NEEDS_DESTINATION = {"task.add", "agenda.add", "calendar.place", "message.draft"}
 WHEN_GUARDS = ("has_forum", "has_reply_channel", "has_deadline", "has_calendar", "source_is", "relation_is")
-MAPPING_KEYS = ("id", "title", "text", "from", "at", "url", "unit")
+MAPPING_KEYS = ("id", "title", "text", "from", "at", "url", "unit",
+                "from.handle", "from.display", "thread", "to", "cc", "mentions")  # M3 structure keys
 
 
 class Strict(BaseModel):

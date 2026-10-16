@@ -1,0 +1,4 @@
+{"key": "ESC-310", "summary": "Acme Corp export jobs failing", "description": "Exports fail after the ingest service upgrade.", "priority": "P1", "status": "open", "reporter": "casey@acme-corp.example", "created": "2026-10-15T06:30:00Z"}
+{"key": "ESC-311", "summary": "Dashboard totals lag by an hour", "description": "Reported by a regional partner; workaround known.", "priority": "P3", "status": "open", "reporter": "partner@fabrikam.example", "created": "2026-10-15T07:10:00Z"}
+{"key": "ESC-312", "summary": "Queue stall follow-up for INC-2041", "description": "Customer asks for the incident report by 2026-10-20.", "priority": "P2", "status": "open", "reporter": "casey@acme-corp.example", "created": "2026-10-15T08:40:00Z"}
+{"key": "ESC-313", "summary": "Old billing export question", "description": "Answered in the knowledge base.", "priority": "P2", "status": "resolved", "reporter": "partner@fabrikam.example", "created": "2026-10-14T15:00:00Z"}

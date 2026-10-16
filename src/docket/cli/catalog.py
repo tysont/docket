@@ -114,6 +114,15 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "plan.not_built": ("state", True, "No current plan exists for the run; build it first."),
     "plan.no_calendar": ("config", False, "The command needs planning.calendar, which the workspace does not set."),
     "plan.invalid": ("integrity", False, "A built plan failed validation by its own constraint engine (a defect)."),
+    # --- M3 signals ---
+    "config.unknown_predicate": ("config", False, "A signal rule condition names a predicate outside the closed set."),
+    "config.unknown_effect": ("config", False, "A signal rule names an effect outside the closed set."),
+    "config.unknown_plugin": ("config", False, "A rule or scoring formula names a plugin no installed plugin registers."),
+    "item.unknown": ("input", False, "No item of the run matches the id, URL or text given."),
+    "item.ambiguous": ("input", False, "More than one item matches the text given; details.matches lists them."),
+    "item.not_merged": ("state", True, "The run has no merge artifact yet; run the merge stage first."),
+    "item.bad_filter": ("input", False, "An item list filter is not key=value over a known key."),
+    "run.no_records": ("state", False, "No run of this workspace has collected records to test against."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

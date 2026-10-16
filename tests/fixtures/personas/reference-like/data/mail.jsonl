@@ -1,6 +1,6 @@
 {"date": "2026-10-15T07:00:00Z", "from": "lee@northwind.example", "messageId": "<msg-000@northwind.example>", "snippet": "Message body 0: please take a look when you can.", "subject": "Budget review for Q4"}
 {"date": "2026-10-15T07:11:00Z", "from": "kim@northwind.example", "messageId": "<msg-001@northwind.example>", "snippet": "Message body 1: please take a look when you can.", "subject": "Re: export latency for Acme Corp"}
-{"date": "2026-10-15T08:22:00Z", "from": "casey@acme-corp.example", "messageId": "<msg-002@northwind.example>", "snippet": "Message body 2: please take a look when you can.", "subject": "Incident follow-up: queue stall"}
+{"date": "2026-10-15T08:22:00Z", "from": "casey@acme-corp.example", "messageId": "<msg-002@northwind.example>", "snippet": "Message body 2: please take a look when you can.", "subject": "Incident follow-up: INC-2041 queue stall"}
 {"date": "2026-10-15T08:33:00Z", "from": "sam@northwind.example", "messageId": "<msg-003@northwind.example>", "snippet": "Message body 3: please take a look when you can.", "subject": "Offsite logistics"}
 {"date": "2026-10-15T09:44:00Z", "from": "lee@northwind.example", "messageId": "<msg-004@northwind.example>", "snippet": "Message body 4: please take a look when you can.", "subject": "Design review: ingest service v2"}
 {"date": "2026-10-15T09:55:00Z", "from": "kim@northwind.example", "messageId": "<msg-005@northwind.example>", "snippet": "Message body 5: please take a look when you can.", "subject": "Vendor contract renewal"}

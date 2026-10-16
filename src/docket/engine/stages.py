@@ -225,7 +225,7 @@ class DelegatedStage(BaseStage):
     kind = "delegated"
     task_kind = ""
 
-    def candidates(self, up: StageEval) -> list[dict[str, Any]]:
+    def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
         raise NotImplementedError
 
     def combine(self, up: StageEval, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -236,7 +236,7 @@ class DelegatedStage(BaseStage):
         inputs = self.up_input(up)
         dg, cfg = self.stage_digest(run, inputs)
         max_items = int(((run.ws.config.tasks.get(self.task_kind) or {}).get("max_items")) or 10)
-        packs = build_packs(self.task_kind, self.candidates(up), max_items)
+        packs = build_packs(self.task_kind, self.candidates(run, up), max_items)
         results: dict[str, dict[str, Any]] = {}
         issued: set[str] = set()
         for p in packs:
@@ -295,8 +295,10 @@ class AssessStage(DelegatedStage):
     task_kind = "assess"
     config_sections = ("profile", "signals", "tasks")
 
-    def candidates(self, up: StageEval) -> list[dict[str, Any]]:
-        return list(up.output["items"])
+    def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
+        # M3: only items that need an agent (not ``assess: rules_only``, not dismissed); must-surface stay in.
+        from docket.signals.stage import assess_selection
+        return assess_selection(run, list(up.output["items"])).candidates
 
     def combine(self, up: StageEval, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
         rows = {row["id"]: row for res in results.values() for row in res["items"]}
@@ -312,7 +314,7 @@ class ReviewStage(DelegatedStage):
     task_kind = "review"
     config_sections = ("tasks", "workflow.review")
 
-    def candidates(self, up: StageEval) -> list[dict[str, Any]]:
+    def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
         return [it for it in up.output["items"] if it.get("keep")]
 
     def combine(self, up: StageEval, results: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -331,13 +333,19 @@ class ReviewStage(DelegatedStage):
 
 
 class MergeStage(BaseStage):
+    """M3: rules, scores, merge by topic, suppression and coverage (``docket.signals``)."""
     name = "merge"
-    config_sections = ("signals",)
+    config_sections = ("profile", "signals", "destinations")
     command = ("merge",)
-    expect = "the merged item set"
+    expect = "the merge artifact: topics with scores, statuses, traces and coverage notes"
+
+    def evaluate(self, run: "RunContext", up: StageEval | None) -> StageEval:
+        from docket.signals.stage import merge_extra
+        return self.computational_eval(run, up, extra=merge_extra(run))
 
     def execute(self, run: "RunContext", ev: StageEval, up: StageEval | None) -> dict[str, Any]:
-        return {"items": list(up.output["items"])}  # M1: pass-through
+        from docket.signals.stage import execute_merge
+        return execute_merge(run, up)
 
 
 # --- decide ----------------------------------------------------------------

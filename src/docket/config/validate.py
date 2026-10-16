@@ -411,4 +411,6 @@ def validate(loaded: Loaded) -> tuple[DocketConfig | None, list[Issue]]:
     issues += pass_capabilities(loaded)
     from docket.config.source_checks import check as check_sources  # sources, transports, signals.units
     issues += check_sources(loaded)
+    from docket.signals.checks import check as check_signals  # signals rules, references, scoring (M3)
+    issues += check_signals(loaded)
     return (model if not issues else None), issues
