@@ -1,0 +1,8 @@
+# Neutral planning defaults. Every number is a starting point to override.
+planning:
+  policy:
+    day_window: "09:00-17:00"
+    granularity: 15m
+    min_block: 30m
+    max_block: 2h
+    default_lead_days: 3

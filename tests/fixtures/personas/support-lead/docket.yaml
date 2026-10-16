@@ -1,0 +1,99 @@
+# Support-lead persona: queue-based work from a ticket feed, a plain-text worklog.
+# Everything lives in this one file. All names, handles and data are invented.
+version: 1
+presets: [policy/basic-defaults]
+
+workflows:
+  shift:
+    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    sources: [tickets, pager]
+    questions: { kinds: [finding], budget: 12 }
+    options: queue
+
+profile:
+  timezone: Europe/Lisbon
+  workdays: [mon, tue, wed, thu, fri, sat]
+  internal_domains: [helpdesk-co.example]
+  me:
+    name: Morgan Ellis
+    aliases: [Morgan, ME]
+    handles: { tickets: mellis, mail: morgan@helpdesk-co.example }
+    reports_to: taylor
+  people:
+    - id: taylor
+      name: Taylor Brooks
+      handles: { tickets: tbrooks, mail: taylor@helpdesk-co.example }
+      roles: [support-director]
+    - id: riley
+      name: Riley Chen
+      handles: { tickets: rchen }
+      reports_to: me
+      roles: [agent]
+    - id: avery
+      name: Avery Quinn
+      handles: { tickets: aquinn }
+      reports_to: me
+      roles: [agent]
+  groups:
+    - id: billing-queue
+      name: Billing queue
+      members: [riley]
+    - id: tier1-queue
+      name: Tier 1 queue
+      members: [avery, riley]
+      forum: queue-standup
+  topics:
+    - id: refunds
+      aliases: [refund backlog, chargebacks]
+      area: Billing
+      owned: true
+  entities:
+    - id: globex
+      aliases: [Globex]
+      protected: true
+  forums:
+    - id: queue-standup
+      name: Queue Standup
+      calendar_match: { title_regex: "^Queue Standup" }
+  calendar:
+    classify:
+      - { match: { title_regex: "^Shift Handover" }, kind: meeting }
+      - { match: { title_regex: "^Vacation" }, kind: out_of_office }
+
+sources:
+  tickets:
+    kind: files
+    path: data/tickets.jsonl
+    mapping:
+      id: "$.key"
+      title: "$.summary"
+      text: "$.description"
+      from: "$.requester.email"
+      at: "$.created"
+      fields.queue: "$.queue"
+      fields.priority: "$.priority"
+  pager:
+    kind: exec_jsonl
+    description: Paging feed; the transport arrives in a later milestone.
+
+decisions:
+  option_sets:
+    queue:
+      finding:
+        - { id: take, action: task.add, label: "Take it: {title|truncate:50}" }
+        - { id: escalate, action: task.add, label: "Escalate to the {fields.queue} lead", destination: worklog }
+        - { id: watch, action: watch, label: "Watch" }
+        - { id: close, action: dismiss, label: "Close without action" }
+
+destinations:
+  worklog:
+    adapter: markdown_tasks
+    path: worklog/todo.md
+    section: "## Today"
+    line_template: "TODO {title|truncate:70} | queue={fields.queue} | prio={fields.priority}{?due} | due={due}{/due}"
+
+signals:
+  scoring: { floor: 40 }
+
+tasks:
+  assess: { max_items: 8 }

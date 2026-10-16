@@ -1,0 +1,60 @@
+profile:
+  timezone: America/Chicago
+  workdays: [mon, tue, wed, thu, fri]
+  internal_domains: [northwind.example]
+  me:
+    name: Dana Reyes
+    aliases: [Dana, DR]
+    handles: { chat: "users/1001", mail: dana@northwind.example }
+    reports_to: lee
+  people:
+    - id: lee
+      name: Lee Park
+      handles: { chat: "users/3003", mail: lee@northwind.example }
+      roles: [manager]
+    - id: kim
+      name: Kim Osei
+      handles: { chat: "users/2002", mail: kim@northwind.example }
+      reports_to: me
+      roles: [report]
+    - id: sam
+      name: Sam Rivera
+      handles: { chat: "users/4004", mail: sam@northwind.example }
+      reports_to: me
+      roles: [report]
+    - id: ola
+      name: Ola Berg
+      handles: { chat: "users/6006" }
+      reports_to: kim
+    - id: jordan
+      name: Jordan Blake
+      handles: { chat: "users/5005" }
+      reports_to: lee
+    - id: casey
+      name: Casey Moore
+      handles: { mail: casey@acme-corp.example }
+  groups:
+    - id: platform
+      members: [kim, sam, ola]
+      forum: platform-sync
+  topics:
+    - id: ingest
+      aliases: [ingest service, ingestion]
+      area: Platform
+      owned: true
+  entities:
+    - id: acme
+      aliases: [Acme Corp]
+      protected: true
+      strategic: true
+  forums:
+    - id: platform-sync
+      name: Platform Sync
+      kind: group
+      agenda: { destination: agendas, path: "Syncs/Platform.md" }
+      calendar_match: { title_regex: "^Platform Sync" }
+  calendar:
+    classify:
+      - { match: { title_regex: "^Deep Work" }, kind: focus }
+      - { match: { title_regex: "\\bPTO\\b" }, kind: out_of_office }
+      - { match: { property: { transparency: transparent } }, kind: informational }

@@ -1,0 +1,7 @@
+# A Markdown task list whose lines carry inline fields (key:: value).
+destinations:
+  backlog:
+    adapter: markdown_tasks
+    visibility: private
+    section: "## Inbox"
+    line_template: "- [ ] {title} [source:: {source}]{?due} [due:: {due}]{/due}{?est} [est:: {est|duration}]{/est}"

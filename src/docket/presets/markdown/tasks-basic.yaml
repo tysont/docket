@@ -1,0 +1,8 @@
+# A Markdown task list: one checkbox line per task, appended under a heading.
+# The workspace sets the file path.
+destinations:
+  backlog:
+    adapter: markdown_tasks
+    visibility: private
+    section: "## Inbox"
+    line_template: "- [ ] {title}{?due} (due {due}){/due}"

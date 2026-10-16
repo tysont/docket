@@ -1,0 +1,8 @@
+# A small finding option set: add a task, watch, or dismiss.
+decisions:
+  option_sets:
+    basic:
+      finding:
+        - { id: task, action: task.add, label: "Add a task: {title|truncate:60}" }
+        - { id: watch, action: watch, label: "Watch for new activity" }
+        - { id: dismiss, action: dismiss, label: "Dismiss" }

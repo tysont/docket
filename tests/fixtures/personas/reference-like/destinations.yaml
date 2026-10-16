@@ -1,0 +1,6 @@
+destinations:
+  backlog:
+    path: Backlog.md
+  agendas:
+    adapter: markdown_agenda
+    path: Syncs

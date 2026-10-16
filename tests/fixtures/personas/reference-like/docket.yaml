@@ -1,0 +1,32 @@
+# Reference-like persona: a people manager with chat, mail and a Markdown backlog.
+# All names, handles and data are invented.
+version: 1
+includes: [profile.yaml, sources.yaml, destinations.yaml]
+presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic]
+
+workflows:
+  daily:
+    description: Evening collection, morning decisions.
+    stages: [collect, assess, merge, review, decide, plan, approve, apply, close]
+    sources: [chat, mail, transcripts]
+    pause_before: decide
+    refresh_on_resume: [chat, mail]
+    review: { pool: 40 }
+    questions: { kinds: [finding], bursts: 1, budget: 15 }
+    options: basic
+  triage:
+    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    sources: [chat, mail]
+    questions: { kinds: [finding], budget: 8 }
+    options: basic
+
+decisions:
+  templates:
+    finding_prompt: "[{source}] {title|truncate:90}{?from} (from {from}){/from}"
+
+signals:
+  scoring: { floor: 50 }
+
+tasks:
+  assess: { max_items: 10 }
+  review: { max_items: 12 }

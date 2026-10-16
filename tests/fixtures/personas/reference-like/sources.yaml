@@ -1,0 +1,26 @@
+sources:
+  chat:
+    kind: files
+    path: data/chat.jsonl
+    volatile: true
+    mapping:
+      id: "$.name"
+      unit: "$.space"
+      text: "$.text"
+      title: "$.text"
+      from: "$.sender.displayName"
+      at: "$.createTime"
+  mail:
+    kind: files
+    path: data/mail.jsonl
+    volatile: true
+    mapping:
+      id: "$.messageId"
+      title: "$.subject"
+      text: "$.snippet"
+      from: "$.from"
+      at: "$.date"
+  transcripts:
+    kind: mcp_stdio
+    description: Meeting transcripts; the transport arrives in a later milestone.
+    transport: { server: notes-gateway }
