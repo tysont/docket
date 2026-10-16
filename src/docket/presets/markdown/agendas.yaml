@@ -12,3 +12,10 @@ destinations:
     line_template: "- {title}"
     redact:
       people: false
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: workspace
+  scaffold:
+    destinations:
+      agendas: { path: agendas }

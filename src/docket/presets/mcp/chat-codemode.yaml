@@ -67,3 +67,12 @@ source:
         sender.displayName: { missing: { reading: "use sender.name", use: sender.name, record: false } }
   mapping: { id: "$.name", text: "$.text", title: "$.text", from: "$.sender.displayName", at: "$.createTime",
              from.handle: "$.sender.name", thread: "$.thread.name" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      chat: { transport: gateway, params: { spaces_tool: list_spaces, messages_tool: list_messages } }
+    transports:
+      gateway: { kind: codemode, command: [path/to/mcp-gateway], tool: execute_code }

@@ -15,6 +15,36 @@ def _step_next(step: Any) -> tuple[list[str], str] | None:
     return None
 
 
+def step_brief(rc: Any, step: Any) -> dict[str, Any]:
+    """The next step of a mutation response (AE-08): its kind, counts and the next command,
+    never the whole burst. ``docket next`` returns the step itself."""
+    k = step.kind
+    out: dict[str, Any] = {"kind": k, "stage": getattr(step, "stage", None)}
+    nxt = Command.of(rc.argv("next"))
+    if k == "run":
+        out.update(command=step.command.model_dump(), why=step.why)
+        nxt = step.command
+    elif k == "ask":
+        out.update(counts={"questions": len(step.questions)}, question_ids=[q.id for q in step.questions])
+    elif k == "dispatch":
+        out.update(counts={"tasks": len(step.tasks)})
+    elif k == "wait":
+        out.update(reason=step.reason, command=step.command.model_dump() if step.command else None)
+    else:
+        out.update(status=step.summary.get("status"))
+    out["next"] = nxt.model_dump()
+    return out
+
+
+def brief_text(brief: dict[str, Any]) -> str:
+    k = brief["kind"]
+    what = {"ask": lambda: f"ask {brief['counts']['questions']} question(s)",
+            "dispatch": lambda: f"dispatch {brief['counts']['tasks']} task(s)",
+            "wait": lambda: f"wait ({brief['reason']})", "run": lambda: f"run {brief['stage']}",
+            "done": lambda: f"done ({brief.get('status')})"}[k]()
+    return f"next: {what}: {brief['next']['shell']}"
+
+
 def step_summary(step: Any) -> str:
     k = step.kind
     if k == "run":
@@ -24,17 +54,23 @@ def step_summary(step: Any) -> str:
     if k == "ask":
         lines = [f"ask {len(step.questions)} question(s) ({step.stage}):"]
         for q in step.questions[:20]:
-            opts = ", ".join(f"{o.position}={o.id}" for o in q.options)
+            opts = ", ".join(f"{i}={o.id}" for i, o in enumerate(q.options, 1))
             lines.append(f"  {q.id}: {q.prompt} [{opts}]")
+        if len(step.questions) > 20:
+            lines.append(f"  ... {len(step.questions) - 20} more")
+        lines += [f"answer: {step.answer.shell}", f"details: {step.show.shell}"]
         return "\n".join(lines)
     if k == "wait":
         return f"wait ({step.reason}): {step.instructions}"
     return "done: " + ", ".join(f"{a}={b}" for a, b in step.summary.items() if b is not None)
 
 
-@command("next", "Return the single next step for the run: run, dispatch, ask, wait or done.", run=True,
+@command("next", "Return the single next step for the run: run, dispatch, ask, wait or done. An ask step is "
+                 "compact: option ids and labels, one answer template and a show template per step.", run=True,
+         args=[Arg("--full", "Ask steps: give every option its own answer command and every question its "
+                             "evidence, defaults and refused options.", action="store_true")],
          effects=["renews the lease heartbeat when this session holds it; nothing else"],
-         examples=["docket next --json"])
+         examples=["docket next --json", "docket next --full --json"])
 def cmd_next(ctx: Any, ns: Any) -> Result:
     from docket.engine.next import compute_step
     from docket.store import lease
@@ -55,7 +91,7 @@ def cmd_next(ctx: Any, ns: Any) -> Result:
                       next=(cmd, "start a run") if cmd else None)
     rc = ctx.run_context()
     tok = ctx.token(rc, create=False)
-    step = compute_step(rc, token=tok)
+    step = compute_step(rc, token=tok, full=bool(ns.full))
     if rc.run.header.status == "open":
         lease.heartbeat(store.db, rc.run.id, tok)
     return Result({"run": rc.run.id, "step": step.model_dump(), "stages": rc.stage_report()},

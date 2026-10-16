@@ -47,7 +47,15 @@ def _inspect(rc: RunContext, drift: list[dict[str, Any]]) -> list[Command]:
     return out
 
 
-def compute_step(rc: RunContext, *, token: str | None = None) -> Any:
+def compute_step(rc: RunContext, *, token: str | None = None, full: bool = False) -> Any:
+    """The next step. An ask step is compact (AE-08) unless ``full``."""
+    step = _compute(rc, token)
+    if getattr(step, "kind", None) == "ask" and not full:
+        return step.compact()
+    return step
+
+
+def _compute(rc: RunContext, token: str | None) -> Any:
     r = rc.run
     if r.header.status == "sealed":
         return DoneStep(summary=summary(rc))

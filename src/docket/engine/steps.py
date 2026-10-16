@@ -49,6 +49,7 @@ class DispatchStep(BaseModel):
 
 
 class AskOption(BaseModel):
+    """An option with its own concrete answer command (``docket next --full``)."""
     id: str
     label: str
     position: int
@@ -56,21 +57,52 @@ class AskOption(BaseModel):
     answer: Command
 
 
+class AskChoice(BaseModel):
+    """An option in a compact ask step: answer it with the step's template."""
+    id: str
+    label: str
+
+
 class AskQuestion(BaseModel):
     id: str
     kind: str
     prompt: str
-    options: list[AskOption]
+    options: list[Union[AskOption, AskChoice]]
     details: dict[str, Any] = {}
 
 
+# The two placeholders of an ask step's templates. Every other word of a template is concrete.
+QUESTION, OPTION = "{question}", "{option}"
+# Details a compact question keeps: what answering needs (the approve digest and diff, the
+# overrides an option requires, the previous answer of a re-asked question). The rest
+# (evidence, defaults, refused options, notes) is in ``docket ask show <id>``.
+COMPACT_DETAILS = ("digest", "diff_path", "counts", "requires", "previous")
+
+
 class AskStep(BaseModel):
+    """Questions to ask the operator. ``answer`` is the command template: replace
+    ``{question}`` with a question id and ``{option}`` with one of its option ids.
+    ``show`` prints one question's evidence, defaults and refused options."""
     kind: Literal["ask"] = "ask"
     stage: str
     questions: list[AskQuestion]
-    answer: str
+    answer: Command
+    show: Command
+    full: bool = False
     burst: int = 1
     why: str
+
+    def compact(self) -> "AskStep":
+        qs = []
+        for q in self.questions:
+            details = {k: v for k, v in q.details.items() if k in COMPACT_DETAILS}
+            if isinstance(q.details.get("operations"), int):  # the approve question's operation count
+                details["operations"] = q.details["operations"]
+            if isinstance(details.get("previous"), dict):
+                details["previous"] = {"option": details["previous"].get("option")}
+            qs.append(AskQuestion(id=q.id, kind=q.kind, prompt=q.prompt, details=details,
+                                  options=[AskChoice(id=o.id, label=o.label) for o in q.options]))
+        return self.model_copy(update={"questions": qs, "full": False})
 
 
 class WaitStep(BaseModel):

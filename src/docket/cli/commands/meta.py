@@ -18,7 +18,7 @@ def schemas() -> dict[str, Any]:
     from docket.apply import receipts  # noqa: F401
     from docket.cli.envelope import Envelope, ErrorBody, UnexpectedRow
     from docket.config import models as cm
-    from docket.decide.answers import Answer
+    from docket.decide.answers import Answer, answers_file_schema
     from docket.engine.stages import StageStatus
     from docket.engine.steps import Step, StepEnvelopeData
     from docket.items.records import Record
@@ -35,7 +35,7 @@ def schemas() -> dict[str, Any]:
         "config": cm.DocketConfig, "profile": cm.Profile, "workflow": cm.Workflow, "source": cm.Source,
         "destination": cm.Destination, "decisions": cm.Decisions, "option": cm.OptionConfig,
         "run-header": RunHeader, "record": Record,
-        "answer": Answer, "plan": Plan, "operation": Operation,
+        "answer": Answer, "answers-file": answers_file_schema(), "plan": Plan, "operation": Operation,
     }
 
 
@@ -83,6 +83,17 @@ def cmd_schema(ctx: Any, ns: Any) -> Result:
     return Result({"name": ns.name, "schema": sch}, json.dumps(sch, indent=2))
 
 
+def _topic_extra(group: str) -> tuple[dict[str, Any], list[str]]:
+    """Reference tables a command group carries in its help: sources list their mapping keys."""
+    if group != "source":
+        return {}, []
+    from docket.config.source_models import FIELDS_DOC, FIELDS_KEY, MAPPING_KEY_DOCS
+    keys = {**MAPPING_KEY_DOCS, FIELDS_KEY: FIELDS_DOC}
+    lines = ["", "mapping keys: (sources.<id>.mapping: key -> '$.path'; docket schema config for the schema)"]
+    lines += [f"  {k:<16} {v}" for k, v in keys.items()]
+    return {"mapping_keys": keys}, lines
+
+
 @command("help", "Describe commands, or list error codes with 'help errors'.", workspace=False,
          args=[Arg("topic", "A command name (words), or 'errors'.", nargs="*")],
          examples=["docket help --json", "docket help run start --json", "docket help errors --json"])
@@ -92,6 +103,8 @@ def cmd_help(ctx: Any, ns: Any) -> Result:
         rows = catalog.as_rows()
         text = "\n".join(f"{r['code']:<28} {r['kind']:<10} exit {r['exit']:<3} {r['description']}" for r in rows)
         return Result({"errors": rows, "exit_codes": catalog.KINDS}, text)
+    if topic == ["sources"]:
+        topic = ["source"]
     if topic:
         name = " ".join(topic)
         cmd = REGISTRY.get(name)
@@ -99,7 +112,9 @@ def cmd_help(ctx: Any, ns: Any) -> Result:
             group = sorted(n for n in REGISTRY if n.split(" ")[0] == topic[0])
             if group:
                 descs = [REGISTRY[n].describe() for n in group]
-                return Result({"commands": descs}, "\n".join(f"docket {d['name']:<18} {d['summary']}" for d in descs))
+                extra, more = _topic_extra(topic[0])
+                return Result({"commands": descs, **extra},
+                              "\n".join([f"docket {d['name']:<18} {d['summary']}" for d in descs] + more))
             from docket.config.loader import closest
             raise InputError("input.unknown_command", f"No command {name!r}.", hint="docket help",
                              details={"suggestion": closest(name, list(REGISTRY))})
@@ -110,7 +125,12 @@ def cmd_help(ctx: Any, ns: Any) -> Result:
         lines += ["", "effects: " + "; ".join(d["effects"])]
         if d["examples"]:
             lines += ["examples:"] + [f"  {e}" for e in d["examples"]]
-        return Result({"command": d}, "\n".join(lines))
+        for flag, spec in (d.get("inputs") or {}).items():
+            import json
+            lines += ["", f"{flag} input ({spec['description']}; docket schema {spec['schema']}):",
+                      "  " + json.dumps(spec["example"])]
+        extra, more = _topic_extra(topic[0])
+        return Result({"command": d, **extra}, "\n".join(lines + more))
     descs = [REGISTRY[n].describe() for n in sorted(REGISTRY)]
     text = ["docket: agent-driven triage and planning. Loop on 'docket next --json'.", "", "commands:"]
     text += [f"  {d['name']:<18} {d['summary']}" for d in descs]

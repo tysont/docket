@@ -9,3 +9,10 @@ destinations:
     notes_template: "{note}"
     redact:
       people: true
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: workspace
+  scaffold:
+    destinations:
+      calendar: { path: calendar.ics }

@@ -19,3 +19,6 @@ destinations:
     quality:
       imperative: { deny: [fyi, note, maybe, consider], default_verb: "Follow up on" }
       max_length: 200
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset: { scope: workspace }

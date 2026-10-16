@@ -9,8 +9,9 @@ It loops on ``docket next --json`` and uses only fields from the step:
   review: verdict ask with an argument against; any other kind: the example
   row of the task's prompt for every item, with identity copied and evidence
   quoted from the item) and call the task's ``submit`` argv;
-- ``ask``: answer each question with its first option's argv (the approve
-  question's ``yes`` argv carries the plan digest);
+- ``ask``: answer each question with its first option, filling the step's
+  answer template (its only placeholders are ``{question}`` and ``{option}``;
+  the approve step's template already carries the plan digest);
 - ``wait``: when the reason is ``paused`` and resuming is allowed, call the
   step's ``command`` (the documented resume command); otherwise stop;
 - ``done``: stop.
@@ -28,6 +29,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from docket.cli import main
+
+
+QUESTION, OPTION = "{question}", "{option}"
+
+
+def fill_template(argv: list[str], question: str, option: str) -> list[str]:
+    """An ask step's answer (or show) template with the two documented placeholders filled."""
+    return [question if a == QUESTION else option if a == OPTION else a for a in argv]
 
 
 @dataclass
@@ -82,7 +91,9 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
               resume_paused: bool = True, max_steps: int = 200,
               choose: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
               stop_at: Callable[[dict[str, Any]], bool] | None = None,
-              repeat_commands: bool = False) -> LoopResult:
+              repeat_commands: bool = False, full: bool = False) -> LoopResult:
+    """Loop on ``docket next``; with ``full`` it asks for ``docket next --full`` (every option's
+    command and the question details), which tests that inspect details use."""
     environ = dict(os.environ if env is None else env)
     workdir = str(cwd or workspace)
     res = LoopResult(final={})
@@ -105,7 +116,7 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
         return env_out
 
     for _ in range(max_steps):
-        nxt = call(["next", "--workspace", str(workspace)])
+        nxt = call(["next", "--workspace", str(workspace), *(["--full"] if full else [])])
         if not nxt["ok"]:
             res.final = {"kind": "error", "error": nxt["error"]}
             return res
@@ -127,7 +138,7 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
         elif kind == "ask":
             for q in step["questions"]:
                 opt = choose(q) if choose else q["options"][0]
-                call(opt["answer"]["argv"])
+                call(fill_template(step["answer"]["argv"], q["id"], opt["id"]))
         elif kind == "wait":
             if resume_paused and step["reason"] == "paused" and step.get("command"):
                 call(step["command"]["argv"])

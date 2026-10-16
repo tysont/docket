@@ -27,7 +27,7 @@ def test_agent_loop_reaches_done(persona, cli, pinned_now, name, workflow):
     assert {"run", "dispatch", "ask", "done"} <= {s["kind"] for s in res.steps}
     assert os.path.isfile(summary["journal"])
     # every command the agent ran came from a step; nothing was templated
-    assert all("<" not in a for argv in res.calls for a in argv)
+    assert all("<" not in a and "{" not in a for argv in res.calls for a in argv)
 
 
 def test_reference_daily_pauses_reviews_and_writes_backlog(persona, cli, pinned_now):
@@ -100,7 +100,8 @@ def test_answer_overrides_echo_and_preview(persona, cli, pinned_now):
     assert ans["overrides"]["est"] == 90 and ans["est_normalized"] == "1h30m"
     assert ans["overrides"]["when"] == "2026-10-22 13:00-17:00"
     assert env["data"]["preview"]["line"].startswith("TODO Call the customer back | queue=")
-    assert env["data"]["preview"]["line"].endswith("| due=2026-10-19")
+    # the fixture's line writes when and est back, so the block stays in its window on the next run
+    assert env["data"]["preview"]["line"].endswith("| when=2026-10-22 13:00-17:00 | est=1h30m | due=2026-10-19")
     code, env = cli("ask", "answer", q["id"], "e", "--workspace", str(ws))
     assert code == 0 and env["data"]["answer"]["option"] == "escalate"
     code, env = cli("ask", "answer", q["id"], "nope", "--workspace", str(ws))

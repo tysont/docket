@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 TransportKind = Literal["exec_jsonl", "http_json", "mcp_stdio", "mcp_http", "codemode", "files", "replay"]
@@ -17,6 +17,51 @@ CursorModel = Literal["snapshot", "incremental", "units", "id-scan", "cadence"]
 Capability = Literal["read", "discover", "resolve", "context"]
 FieldType = Literal["str", "int", "float", "number", "bool", "timestamp", "list", "dict", "any"]
 EndSignal = Literal["token_absent", "flag", "short_page", "empty_page", "past_interval"]
+
+
+# Every key a source's ``mapping`` may name, with what it maps (TD §7.1, docket.items.mapping).
+# ``fields.<name>`` keys are free-form and read by rules as ``field: { name: ... }``.
+MAPPING_KEY_DOCS: dict[str, str] = {
+    "id": "The record's id; item identity derives from it.",
+    "title": "The item's one-line title.",
+    "text": "The item's body text.",
+    "from": "The sender as templates render it (a name or an address).",
+    "at": "The record's timestamp (ISO 8601).",
+    "url": "A link back to the record.",
+    "unit": "The unit the record belongs to (a space, channel, queue or project).",
+    "from.handle": "The sender's handle, resolved through profile handles (default: from).",
+    "from.display": "The sender's display name.",
+    "thread": "The thread key; records sharing one merge (default: the item id).",
+    "to": "Handles addressed (a string or a list).",
+    "cc": "Handles copied (a string or a list).",
+    "mentions": "Handles mentioned (a string or a list).",
+}
+FIELDS_KEY, FIELDS_PATTERN = "fields.<name>", r"^fields\..+$"
+FIELDS_DOC = "A custom field; rules read it as field: { name: <name> }."
+# Words people reach for, mapped to the key that holds them (an unknown key's suggestion).
+MAPPING_SYNONYMS = {
+    "body": "text", "content": "text", "description": "text", "message": "text", "snippet": "text",
+    "summary": "title", "subject": "title", "name": "title", "headline": "title",
+    "author": "from", "sender": "from", "user": "from", "requester": "from", "email": "from",
+    "date": "at", "time": "at", "timestamp": "at", "created": "at", "created_at": "at", "updated": "at",
+    "updated_at": "at", "ts": "at", "link": "url", "href": "url", "permalink": "url", "key": "id",
+    "channel": "unit", "space": "unit", "queue": "unit", "project": "unit", "handle": "from.handle",
+    "display": "from.display", "display_name": "from.display", "recipients": "to", "mention": "mentions",
+}
+
+
+def mapping_key_suggestion(key: str) -> str | None:
+    """The valid mapping key closest to an unknown one: a custom-field typo, a synonym, then spelling."""
+    import difflib
+    k = str(key)
+    low = k.lower()
+    for prefix in ("field.", "fields_", "field_", "fields:", "field:"):
+        if low.startswith(prefix) and len(k) > len(prefix):
+            return "fields." + k[len(prefix):]
+    if low in MAPPING_SYNONYMS:
+        return MAPPING_SYNONYMS[low]
+    m = difflib.get_close_matches(low, list(MAPPING_KEY_DOCS), n=1, cutoff=0.6)
+    return m[0] if m else None
 
 
 class Strict(BaseModel):
@@ -191,7 +236,11 @@ class Source(Strict):
     resolve: ResolveConfig | None = None
     volatile: bool = False
     required: bool = False
-    mapping: dict[str, str] = {}
+    mapping: dict[str, str] = Field(default_factory=dict, json_schema_extra={
+        "description": "Item field -> '$.path' in the record. Keys: " + ", ".join(MAPPING_KEY_DOCS)
+                       + ", and fields.<name> for custom fields.",
+        "propertyNames": {"anyOf": [{"enum": list(MAPPING_KEY_DOCS)}, {"pattern": FIELDS_PATTERN}]},
+    })
 
 
 # --- signals.units (TD §6.9) -----------------------------------------------------

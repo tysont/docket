@@ -18,7 +18,8 @@ def start(cli, ws, workflow="week-plan", now=REF_NOW):
 
 
 def ask(ws):
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask")
+    """The ask step with every detail (``docket next --full``): these tests inspect evidence and defaults."""
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask", full=True)
     assert res.failures == [], res.failures
     assert res.final["kind"] == "ask", res.final
     return res.final
@@ -221,7 +222,7 @@ def test_undo_and_merge_with(persona, cli):
     code, env = cli("ask", "undo", qa, "--workspace", str(ws))
     assert code == 0 and env["data"]["removed"] == [qa, qb]
     step = env["data"]["step"]
-    assert step["kind"] == "ask" and sorted(q["id"] for q in step["questions"]) == sorted([qa, qb])
+    assert step["kind"] == "ask" and sorted(step["question_ids"]) == sorted([qa, qb])  # a brief, not the burst
     assert answer(cli, ws, qa, "task", "--merge-with", qb)[0] == 0
     code, env = cli("ask", "undo", qb, "--workspace", str(ws))
     assert code == 0 and env["data"]["removed"] == [qb]

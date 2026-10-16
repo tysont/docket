@@ -370,6 +370,11 @@ def load(root: Path) -> Loaded:
             except YamlFileError as e:
                 issues.append(e.issue)
                 continue
+            if preset_mod.scope_of(lay.data) == "source":
+                issues.append(_issue_at("config.preset_scope",
+                                        f"preset {pid!r} is a source preset: name it in sources.<id>.extends, "
+                                        "not in top-level presets", ("presets", i), org))
+                continue
             for fp in preset_mod.FORBIDDEN:
                 cur: Any = lay.data
                 for k in fp:
@@ -379,6 +384,7 @@ def load(root: Path) -> Loaded:
                                             f"preset {pid!r} defines {dotted(fp)}, which only a workspace may define",
                                             fp, lay.origins.get(fp)))
             lay.data.pop("presets", None)
+            lay.data.pop(preset_mod.META_KEY, None)
             layered = merge_layers(layered, lay, issues)
             preset_ids.append(pid)
     layered = merge_layers(layered, ws, issues)

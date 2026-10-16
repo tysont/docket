@@ -22,7 +22,7 @@ from docket.config.loader import (
     Issue, Layered, Loaded, Path_, YamlFileError, _sub_origins, closest, dotted, load_yaml, merge_layers, origin_for,
 )
 from docket.config.models import MAPPING_KEYS, SOURCE_KINDS
-from docket.config.source_models import UnitSignals
+from docket.config.source_models import UnitSignals, mapping_key_suggestion
 
 FILES_PRESET = "files/jsonl"
 _CRED_KEY = re.compile(r"(token|secret|password|passwd|api[_-]?key|credential|bearer|authorization|cookie)", re.I)
@@ -78,8 +78,9 @@ def apply_extends(layered: Layered, issues: list[Issue]) -> Layered:
             issues.append(e.issue)
             continue
         tmpl = lay.data.get("source")
-        if not isinstance(tmpl, dict):
-            issues.append(Issue("config.unknown_preset", f"preset {pid!r} is not a source preset (it has no 'source:')",
+        if not isinstance(tmpl, dict) or preset_mod.scope_of(lay.data) != "source":
+            issues.append(Issue("config.preset_scope", f"preset {pid!r} is a workspace preset: list it in top-level "
+                                "presets, not in sources.<id>.extends",
                                 path=dotted(base + ("extends",)), file=org.file if org else None,
                                 line=org.line if org else None))
             continue
@@ -242,8 +243,10 @@ def check(loaded: Loaded) -> list[Issue]:
         for key, val in _items(src.get("mapping")):
             mp = base + ("mapping", key)
             if key not in MAPPING_KEYS and not str(key).startswith("fields."):
-                out.append(_issue(loaded, "config.bad_mapping", f"unknown mapping key {key!r}", mp, 3,
-                                  suggestion=closest(key, list(MAPPING_KEYS))))
+                out.append(_issue(loaded, "config.bad_mapping",
+                                  f"unknown mapping key {key!r}; valid keys are {', '.join(MAPPING_KEYS)} and "
+                                  f"fields.<name> (docket help source)", mp, 3,
+                                  suggestion=mapping_key_suggestion(key)))
             if not (isinstance(val, str) and val.startswith("$.") and len(val) > 2):
                 out.append(_issue(loaded, "config.bad_mapping", f"mapping {key!r} must be a path like '$.field'", mp, 3))
         kind = source_kind(src, transports)

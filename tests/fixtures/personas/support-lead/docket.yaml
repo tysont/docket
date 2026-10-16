@@ -95,6 +95,9 @@ sources:
     transport: metrics-api
     params: { path: /api/queue-stats }
   kb:
+    # Fails by design: its auth check is the test stub docket-stub-auth (tests/fixtures/bin, first on
+    # PATH in the tests) in its expired-token mode. Workspace-wide docket doctor reports it; only the
+    # isolation workflow reads kb, so docket doctor --workflow shift passes.
     extends: exec/jsonl-source
     description: Knowledge base changes behind a token that has expired.
     transport: kb-bridge
@@ -127,7 +130,8 @@ destinations:
     adapter: markdown_tasks
     path: worklog/todo.md
     section: "## Today"
-    line_template: "TODO {title|truncate:70} | queue={fields.queue} | prio={fields.priority}{?due} | due={due}{/due}"
+    # when and est are written back, so a block placed with --when (or sized with --est) stays put on the next run.
+    line_template: "TODO {title|truncate:70} | queue={fields.queue} | prio={fields.priority}{?when} | when={when}{/when}{?est} | est={est|duration}{/est}{?due} | due={due}{/due}"
     grammar: { open: "TODO ", done: ["DONE "], fields: delimited, separator: " | ", assign: "=" }
     carry_field: carried
     quality:

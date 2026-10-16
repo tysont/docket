@@ -6,3 +6,6 @@ destinations:
     visibility: private
     section: "## Inbox"
     line_template: "- [ ] {title}{?due} (due {due}){/due}"
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset: { scope: workspace }

@@ -13,3 +13,6 @@ decisions:
         - { id: done, action: done, label: "Already handled" }
         - { id: watch, action: watch, label: "Watch for new activity" }
         - { id: dismiss, action: dismiss, label: "Dismiss" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset: { scope: workspace }

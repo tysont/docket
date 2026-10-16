@@ -47,6 +47,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "config.duplicate_section": ("config", False, "A top-level section is defined in two workspace files."),
     "config.include_missing": ("config", False, "An included file does not exist."),
     "config.unknown_preset": ("config", False, "The workspace extends a preset that is not shipped."),
+    "config.preset_scope": ("config", False, "A source preset is listed in top-level presets, or a workspace preset in sources.<id>.extends."),
     "config.preset_forbidden": ("config", False, "A preset defines a section only a workspace may define."),
     "config.bad_template": ("config", False, "A template does not parse or names a field its context lacks."),
     "config.bad_regex": ("config", False, "A regular expression does not compile."),

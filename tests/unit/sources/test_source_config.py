@@ -130,3 +130,51 @@ def test_persona_sources_use_presets_and_recorded_transports(persona, cli, name)
     rows = {r["id"]: r for r in env["data"]["sources"]}
     assert {r["kind"] for r in rows.values()} >= {"replay"}
     assert any(r["extends"] and r["extends"].startswith("exec/") for r in rows.values())
+
+
+# --- mapping keys are discoverable (AE-04) ------------------------------------------------------
+
+
+def _find_mapping(schema):
+    """The ``mapping`` property of the source definition in the config schema."""
+    for name, d in (schema.get("$defs") or {}).items():
+        if name == "Source":
+            return d["properties"]["mapping"]
+    raise AssertionError("no Source definition in the config schema")
+
+
+def test_schema_config_enumerates_the_mapping_keys(cli):
+    from docket.config.models import MAPPING_KEYS
+    code, env = cli("schema", "config")
+    assert code == 0
+    mapping = _find_mapping(env["data"]["schema"])
+    names = mapping["propertyNames"]["anyOf"]
+    assert next(n["enum"] for n in names if "enum" in n) == list(MAPPING_KEYS)
+    assert any(n.get("pattern") == r"^fields\..+$" for n in names)
+
+
+@pytest.mark.parametrize("topic", [["source"], ["sources"], ["source", "test"]])
+def test_help_for_sources_lists_the_mapping_keys(cli, topic):
+    from docket.config.models import MAPPING_KEYS
+    code, env = cli("help", *topic)
+    assert code == 0, env
+    keys = env["data"]["mapping_keys"]
+    assert list(keys) == [*MAPPING_KEYS, "fields.<name>"] and all(keys.values())
+    code, text = cli("help", *topic, json_out=False)
+    assert "mapping keys:" in text and "fields.<name>" in text
+
+
+@pytest.mark.parametrize("bad,expected", [("titel", "title"), ("body", "text"), ("author", "from"),
+                                          ("created", "at"), ("field.queue", "fields.queue"),
+                                          ("link", "url")])
+def test_an_unknown_mapping_key_suggests_the_closest_valid_key(tmp_path, bad, expected):
+    _, issues = issues_of(tmp_path, f"""\
+        sources:
+          feed:
+            kind: files
+            path: feed.jsonl
+            mapping: {{ id: "$.id", {bad}: "$.x" }}
+        """)
+    found = [i for i in issues if i.code == "config.bad_mapping"]
+    assert len(found) == 1 and found[0].suggestion == expected, [i.as_dict() for i in issues]
+    assert "fields.<name>" in found[0].message and "title" in found[0].message

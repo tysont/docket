@@ -35,7 +35,7 @@ from docket.config import contexts
 from docket.config.defaults import DEFAULT_SECTION, DEFAULT_TASK_LINE
 from docket.config.digest import digest, pretty_json
 from docket.engine.steps import (
-    AskOption, AskQuestion, AskStep, Command, DispatchStep, RunStep, WaitStep,
+    OPTION, QUESTION, AskOption, AskQuestion, AskStep, Command, DispatchStep, RunStep, WaitStep,
 )
 from docket.store.paths import read_json, write_atomic
 from docket.text import templates
@@ -362,28 +362,33 @@ class DecideStage(BaseStage):
                            expect="decide/resolutions.json with one resolution per reference", timeout_s=120)
         pending = [q for q in ev.extra["questions"] if q["id"] not in ev.extra["answers"]]
         reasked = sum(1 for q in pending if q.get("previous"))
-        why = (f"{len(pending)} question(s) need the operator's answer; ask them, then record each answer with its "
-               f"option's command")
+        why = f"{len(pending)} question(s) need the operator's answer; ask them, then record each answer"
         if reasked:
             why += f" ({reasked} re-asked because their item changed; each shows its previous answer)"
         return ask_step(run, self.name, pending, why=why)
 
 
 def ask_step(run: "RunContext", stage: str, questions: list[dict[str, Any]], why: str,
-             extra_args: dict[str, list[str]] | None = None) -> AskStep:
+             extra_args: list[str] | None = None) -> AskStep:
+    """The full ask step; ``docket next`` shows its compact form unless ``--full`` is given."""
     out = []
+    extra = list(extra_args or [])
     for q in questions:
         opts = []
         for i, o in enumerate(q["options"], 1):
-            argv = run.argv("ask", "answer", q["id"], o["id"], *((extra_args or {}).get(o["id"], [])))
+            argv = run.argv("ask", "answer", q["id"], o["id"], *extra)
             opts.append(AskOption(id=o["id"], label=o["label"], position=i, action=o.get("action"),
                                   answer=Command.of(argv)))
         details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "counts",
                                                         "block_key", "task_id", "evidence", "refused", "notes",
                                                         "previous", "requires", "defaults") and v not in (None, [], {})}
         out.append(AskQuestion(id=q["id"], kind=q["kind"], prompt=q["prompt"], options=opts, details=details))
-    pattern = " ".join(run.argv("ask", "answer", "<question-id>", "<option>"))
-    return AskStep(stage=stage, questions=out, answer=pattern, why=why)
+    template = Command.of(run.argv("ask", "answer", QUESTION, OPTION, *extra))
+    show = Command.of(run.argv("ask", "show", QUESTION))
+    why = (f"{why}. Answer each with the answer command: replace {QUESTION} with the question id and {OPTION} "
+           f"with one of that question's option ids; every other word is concrete. For a question's evidence, "
+           f"defaults and refused options run the show command (docket ask show {QUESTION}), or docket next --full")
+    return AskStep(stage=stage, questions=out, answer=template, show=show, full=True, why=why)
 
 
 # --- plan ------------------------------------------------------------------
@@ -526,7 +531,7 @@ class ApproveStage(BaseStage):
                             command=Command.of(run.argv("ask", "answer", "approve", "yes", "--digest", q["digest"])))
         return ask_step(run, self.name, [q],
                         why="Show the operator the plan diff and record approval bound to the plan digest",
-                        extra_args={"yes": ["--digest", q["digest"]], "no": ["--digest", q["digest"]]})
+                        extra_args=["--digest", q["digest"]])
 
 
 # --- apply -----------------------------------------------------------------

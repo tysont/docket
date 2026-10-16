@@ -49,6 +49,7 @@ class Command:
     mutating: bool = False
     workspace: bool = True
     run: bool = False
+    inputs: dict[str, dict[str, Any]] = field(default_factory=dict)  # flag -> {schema, description, example}
 
     def common(self) -> list[Arg]:
         out = [Arg("--json", "Print the JSON envelope.", action="store_true")]
@@ -69,6 +70,7 @@ class Command:
             "name": self.name, "summary": self.summary, "mutating": self.mutating,
             "arguments": [a.describe() for a in self.all_args()],
             "effects": self.effects or ["none (read-only)"], "examples": self.examples,
+            **({"inputs": self.inputs} if self.inputs else {}),
         }
 
     def parser(self) -> argparse.ArgumentParser:
@@ -106,10 +108,11 @@ REGISTRY: dict[str, Command] = {}
 
 def command(name: str, summary: str, *, args: list[Arg] | None = None, effects: list[str] | None = None,
             examples: list[str] | None = None, mutating: bool = False, workspace: bool = True,
-            run: bool = False) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+            run: bool = False, inputs: dict[str, dict[str, Any]] | None = None,
+            ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         REGISTRY[name] = Command(name, summary, fn, args or [], effects or [], examples or [],
-                                 mutating, workspace, run)
+                                 mutating, workspace, run, inputs or {})
         return fn
     return deco
 

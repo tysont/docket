@@ -50,6 +50,47 @@ class Answer(BaseModel):
     previous: dict[str, Any] | None = None
 
 
+class AnswerRow(BaseModel):
+    """One row of an ``ask answer --file`` document: a question, an option and any overrides.
+
+    ``question_id`` is accepted as an alias of ``question`` (and ``id``, for rows copied from
+    ``docket ask list``). Overrides take the same forms as the command's flags."""
+    question: str | None = None
+    question_id: str | None = None
+    option: str | int
+    due: str | None = None
+    est: str | int | float | None = None
+    when: str | None = None
+    title: str | None = None
+    action: str | None = None
+    links: list[str] | str | None = None
+    area: str | None = None
+    forum: str | None = None
+    merge_with: list[str] | str | None = None
+    note: str | None = None
+    digest: str | None = None
+
+
+class AnswersList(BaseModel):
+    answers: list[AnswerRow]
+
+
+ANSWERS_FILE_FORMS = "a list of rows, {\"answers\": [rows]}, or an object keyed by question id"
+ANSWERS_FILE_EXAMPLE: dict[str, Any] = {"answers": [
+    {"question": "q_0123456789abcdef", "option": "task", "due": "monday", "est": "60m"},
+    {"question_id": "q_fedcba9876543210", "option": "watch", "note": "check again next week"},
+    {"question": "approve", "option": "yes", "digest": "<the plan digest from the approve step>"},
+]}
+
+
+def answers_file_schema() -> Any:
+    """The ``answers-file`` schema: every form ``ask answer --file`` accepts."""
+    from typing import Union
+
+    from pydantic import TypeAdapter
+    return TypeAdapter(Union[AnswersList, list[AnswerRow], dict[str, Union[AnswerRow, str]]])
+
+
 # --- normalization ---------------------------------------------------------------------
 
 

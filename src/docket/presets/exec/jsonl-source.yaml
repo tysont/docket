@@ -36,3 +36,12 @@ source:
       required: { id: str }
       optional: { name: str, type: str, members: int }
   mapping: { id: "$.id", title: "$.title", text: "$.text", at: "$.at" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      feed: { transport: feed-program }
+    transports:
+      feed-program: { kind: exec_jsonl, command: [path/to/feed-program] }

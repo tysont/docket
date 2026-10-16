@@ -24,7 +24,7 @@ MARKER = "(planned by docket: {key})"
 RUN2 = "2026-10-16T07:00:00+01:00"  # the same Friday in Lisbon, before the work window opens
 
 
-def setup(ws: Path, *, line_template: str | None = None) -> Path:
+def setup(ws: Path) -> Path:
     cfg = ws / "docket.yaml"
     text = cfg.read_text()
     text = text.replace("destinations:\n  worklog:\n",
@@ -32,8 +32,6 @@ def setup(ws: Path, *, line_template: str | None = None) -> Path:
                         f"  shift-calendar:\n    adapter: calendar_file\n    path: cal.ics\n"
                         f"    calendar: work\n    marker: \"{MARKER}\"\n"
                         "  worklog:\n", 1)
-    if line_template is not None:
-        text = re.sub(r'(?m)^    line_template: ".*"$', f'    line_template: "{line_template}"', text, count=1)
     text += ("\nplanning:\n  workflows: [shift]\n"
              "  calendar: { provider: destination, destination: shift-calendar, calendar: work }\n"
              "  tasks: { destination: worklog }\n")
@@ -90,9 +88,9 @@ def test_a_delimited_store_keeps_run_one_blocks_on_run_two(persona, cli, pinned_
 
 
 def test_a_windowed_block_is_kept_on_run_two(persona, cli, pinned_now):
+    """The fixture's own line template carries ``| when=`` and ``| est=``; no override is needed."""
     ws = persona("support-lead")
-    ics = setup(ws, line_template="TODO {title|truncate:70} | queue={fields.queue} | prio={fields.priority}"
-                                  "{?when} | when={when}{/when}{?est} | est={est|duration}{/est}{?due} | due={due}{/due}")
+    ics = setup(ws)
     code, env = cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
     assert code == 0, env
     run1 = env["data"]["run"]
@@ -104,7 +102,7 @@ def test_a_windowed_block_is_kept_on_run_two(persona, cli, pinned_now):
     res = run_agent(ws, choose=lambda q: next(o for o in q["options"] if o["id"] == "watch")
                     if q.get("kind") == "finding" else q["options"][0])
     assert res.failures == [] and res.final["kind"] == "done", (res.failures, res.final)
-    assert "| when=2026-10-19 15:00-17:00" in (ws / "worklog" / "todo.md").read_text()
+    assert "| when=2026-10-19 15:00-17:00 | est=1h" in (ws / "worklog" / "todo.md").read_text()
     created1 = [o for o in plan_ops(ws, run1) if o.get("verb") == "create"]
     assert len(created1) == 1 and created1[0]["start"].startswith("2026-10-19T15:00"), created1
     key = created1[0]["key"]

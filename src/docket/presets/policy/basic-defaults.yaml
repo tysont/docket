@@ -6,3 +6,6 @@ planning:
     min_block: 30m
     max_block: 2h
     default_lead_days: 3
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset: { scope: workspace }

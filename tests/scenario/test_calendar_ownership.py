@@ -71,7 +71,7 @@ def test_blocks_applied_by_run_one_are_owned_by_run_two(persona, cli, pinned_now
     run2 = env["data"]["run"]
     seen: list[dict] = []
     res2 = run_agent(ws, choose=lambda q: (seen.append(q), next(
-        (o for o in q["options"] if o["id"] == "not_done"), q["options"][0]))[1])
+        (o for o in q["options"] if o["id"] == "not_done"), q["options"][0]))[1], full=True)
     assert res2.failures == [] and res2.final["kind"] == "done", res2.final
     reconcile = [q for q in seen if q["kind"] == "reconcile"]
     assert reconcile, "run 2 asks about the elapsed blocks run 1 placed"

@@ -14,3 +14,10 @@ source:
     next: "$.next"
     end: "$.end"
     end_when: [flag]
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      items: { path: data/items.jsonl }

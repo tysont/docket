@@ -129,3 +129,52 @@ def test_invalid_config_and_a_newer_database_fail(persona, cli):
     assert code == 5 and c["config"]["status"] == "fail" and c["config"]["fix"]
     assert c["state.db"]["status"] == "fail" and "999" in c["state.db"]["fix"]
     assert c["transports"]["status"] == "skip"
+
+
+# --- scoping to a workflow (AE-03: a failure the workflow never meets does not block it) ------------
+
+
+HOOKS = ("\nhooks:\n  isolation-only:\n    command: [no-such-program-xyz]\n    events: [after_close]\n"
+         "    workflows: [isolation]\n")
+
+
+def test_doctor_workflow_checks_only_that_workflows_sources_destinations_and_hooks(persona, cli):
+    ws = persona("support-lead")
+    cfg = ws / "docket.yaml"
+    cfg.write_text(cfg.read_text() + HOOKS)
+    code, env = cli("doctor", "--workflow", "shift", "--workspace", str(ws))
+    assert code == 0, env  # kb (expired token) and the hook belong to isolation only
+    c = checks(env)
+    assert "auth.kb" not in c and "hook.isolation-only.command" not in c
+    assert {"transport.pager-bridge", "dest.worklog.location", "config", "state.root"} <= set(c)
+    assert not any(k.startswith(("transport.kb-bridge", "transport.metrics-api", "transport.history-bridge"))
+                   for k in c)
+    assert env["data"]["workflow"] == "shift" and all("shift" in r["workflows"] for r in env["data"]["checks"])
+    code, env = cli("doctor", "--workflow", "isolation", "--workspace", str(ws))
+    c = checks(env)
+    assert code == 5 and c["auth.kb"]["status"] == "fail" and c["hook.isolation-only.command"]["status"] == "fail"
+
+
+def test_doctor_without_a_workflow_reports_which_workflows_each_check_affects(persona, cli):
+    ws = persona("support-lead")
+    code, env = cli("doctor", "--workspace", str(ws))
+    assert code == 5
+    c = checks(env)
+    assert c["auth.kb"]["workflows"] == ["isolation"]
+    assert c["config"]["workflows"] == ["isolation", "shift"]
+    assert c["transport.pager-bridge"]["workflows"] == ["isolation", "shift"]
+    assert c["dest.worklog.location"]["workflows"] == ["isolation", "shift"]
+    by = env["error"]["details"]["workflows"]
+    assert by["shift"]["fail"] == 0 and by["isolation"]["fail"] >= 1
+    assert "affects workflow(s) isolation" in env["error"]["message"]
+    code, _ = cli("doctor", "--workspace", str(ws), json_out=False)
+    assert "affects workflow(s) isolation" in cli.last_stderr and "docket doctor --workflow shift" in cli.last_stderr
+    code, text = cli("doctor", "--workflow", "shift", "--workspace", str(ws), json_out=False)
+    assert code == 0 and "workflow shift: ok" in text
+
+
+def test_doctor_names_the_closest_workflow(persona, cli):
+    ws = persona("support-lead")
+    code, env = cli("doctor", "--workflow", "shfit", "--workspace", str(ws))
+    assert code == 2 and env["error"]["code"] == "input.unknown_workflow"
+    assert env["error"]["details"]["suggestion"] == "shift"

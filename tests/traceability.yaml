@@ -11,6 +11,8 @@ FR-SRC-01:
   - tests/unit/sources/test_source_config.py::test_persona_sources_use_presets_and_recorded_transports
   - tests/unit/sources/test_source_config.py::test_extends_merges_the_preset_under_the_instance_with_origins
   - tests/unit/sources/test_source_config.py::test_a_files_source_extends_files_jsonl_by_default
+  - tests/unit/sources/test_source_config.py::test_schema_config_enumerates_the_mapping_keys
+  - tests/unit/sources/test_source_config.py::test_an_unknown_mapping_key_suggests_the_closest_valid_key
 FR-SRC-02:
   - tests/unit/sources/test_cursor_models.py::test_snapshot_complete_only_when_paging_reached_the_end
   - tests/unit/sources/test_cursor_models.py::test_incremental_proves_coverage_and_proposes_the_last_order_key
@@ -28,6 +30,8 @@ FR-SRC-04:
   - tests/unit/sources/test_source_config.py::test_extends_merges_the_preset_under_the_instance_with_origins
   - tests/unit/config/test_config.py::test_preset_may_not_define_people
   - tests/litmus/test_no_literals.py::test_no_denylist_literals_in_src
+  - tests/unit/config/test_presets_init.py::test_every_preset_declares_its_scope_and_list_and_show_report_it
+  - tests/unit/config/test_presets_init.py::test_a_workspace_preset_in_extends_is_a_scope_error
 FR-SRC-05:
   - tests/unit/shapes/test_unexpected.py::test_shapes_reach_envelope_run_file_db_and_report
   - tests/scenario/test_task_scenarios.py::test_evidence_is_checked_against_the_latest_generation_of_a_record
@@ -143,6 +147,7 @@ FR-DEC-06:
 FR-DEC-07:
   - tests/scenario/test_decisions_scenario.py::test_verify_questions_come_from_resolve
   - tests/scenario/test_decisions_scenario.py::test_batch_answers_from_a_file_are_all_or_nothing
+  - tests/scenario/test_ask_output.py::test_answers_file_accepts_question_id_and_names_the_schema_when_a_row_has_neither
 FR-DEC-08:
   - tests/scenario/test_decisions_scenario.py::test_every_override_is_echoed_normalized_and_reaches_the_line
   - tests/scenario/test_decisions_scenario.py::test_structured_answers_that_forced_hand_edits_are_one_command_each
@@ -165,6 +170,7 @@ FR-ACT-04:
   - tests/unit/destinations/test_calendar.py::test_unowned_targets_are_refused
   - tests/unit/destinations/test_markdown.py::test_a_line_edited_after_preview_is_refused_with_the_current_text
   - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
+  - tests/scenario/test_task_store_identity.py::test_a_delimited_store_keeps_run_one_blocks_on_run_two
 FR-ACT-05:
   deferred: "IP §5: sending is deferred to after v1; v1 creates drafts only and refuses policy.send."
   tests:
@@ -194,6 +200,8 @@ FR-PLN-03:
 FR-PLN-04:
   - tests/unit/plan/test_plan_scheduler.py::test_window_over_an_out_of_office_event_places_the_block_on_it
   - tests/scenario/test_planning_scenario.py::test_week_plan_schedules_over_the_flight_keeps_releases_and_mirrors
+  - tests/scenario/test_task_store_identity.py::test_a_windowed_block_is_kept_on_run_two
+  - tests/scenario/test_task_store_identity.py::test_the_inline_fields_preset_line_carries_the_window
 FR-PLN-05:
   - tests/unit/plan/test_plan_properties.py::test_every_built_block_passes_check
   - tests/unit/plan/test_plan_properties.py::test_every_unschedulable_claim_is_confirmed_by_search
@@ -201,6 +209,8 @@ FR-PLN-06:
   - tests/unit/plan/test_plan_properties.py::test_every_owned_input_block_gets_exactly_one_operation
   - tests/unit/plan/test_plan_scheduler.py::test_keep_update_move_and_release_existing_blocks
   - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
+  - tests/scenario/test_task_store_identity.py::test_a_delimited_store_keeps_run_one_blocks_on_run_two
+  - tests/scenario/test_task_store_identity.py::test_a_windowed_block_is_kept_on_run_two
 FR-PLN-07:
   - tests/unit/plan/test_plan_mirrors.py::test_create_keep_move_release
   - tests/unit/plan/test_plan_mirrors.py::test_a_deleted_hold_is_not_recreated
@@ -257,11 +267,14 @@ FR-ROB-06:
   - tests/unit/engine/test_doctor.py::test_a_hanging_auth_check_is_reported_as_interactive_or_hung
   - tests/unit/engine/test_doctor.py::test_exec_destination_permission_status_and_missing_programs
   - tests/unit/engine/test_doctor.py::test_doctor_writes_nothing_and_names_the_fix
+  - tests/unit/engine/test_doctor.py::test_doctor_workflow_checks_only_that_workflows_sources_destinations_and_hooks
+  - tests/unit/engine/test_doctor.py::test_doctor_without_a_workflow_reports_which_workflows_each_check_affects
 
 # --- agent experience ----------------------------------------------------------------------------------------
 AE-01:
   - tests/scenario/test_agent_loop.py::test_agent_loop_reaches_done
   - tests/scenario/test_agent_loop.py::test_a_fresh_agent_with_only_help_completes_a_fixture_run
+  - tests/scenario/test_ask_output.py::test_ask_step_is_compact_with_one_concrete_template
 AE-02:
   - tests/contract/test_envelope.py::test_ok_envelope_shape
   - tests/contract/test_envelope.py::test_human_output_has_summary_and_next
@@ -269,10 +282,18 @@ AE-03:
   - tests/contract/test_envelope.py::test_every_kind_has_an_exit_code_and_catalog_is_consistent
   - tests/contract/test_envelope.py::test_every_error_code_raised_in_src_is_cataloged
   - tests/contract/test_raise_discipline.py::test_every_error_construction_in_src_uses_a_catalogued_code
+  - tests/unit/sources/test_source_config.py::test_an_unknown_mapping_key_suggests_the_closest_valid_key
+  - tests/unit/engine/test_doctor.py::test_doctor_names_the_closest_workflow
+  - tests/unit/config/test_presets_init.py::test_a_source_preset_in_top_level_presets_names_the_scope_and_the_fix
 AE-04:
   - tests/contract/test_envelope.py::test_schema_list_prints_every_model
   - tests/contract/test_envelope.py::test_help_json_describes_every_command
   - tests/unit/config/test_config.py::test_config_explain_cli
+  - tests/scenario/test_ask_output.py::test_answers_file_schema_and_help_example
+  - tests/unit/sources/test_source_config.py::test_schema_config_enumerates_the_mapping_keys
+  - tests/unit/sources/test_source_config.py::test_help_for_sources_lists_the_mapping_keys
+  - tests/unit/config/test_presets_init.py::test_every_preset_declares_its_scope_and_list_and_show_report_it
+  - tests/unit/config/test_presets_init.py::test_every_preset_description_is_a_complete_sentence
 AE-05:
   - tests/contract/test_envelope.py::test_no_command_reads_process_environment_home
   - tests/unit/config/test_config.py::test_workspace_discovery
@@ -284,13 +305,17 @@ AE-06:
 AE-07:
   - tests/scenario/test_task_scenarios.py::test_dispatch_guidance_concurrency_inline_and_exact_commands
   - tests/scenario/test_agent_loop.py::test_agent_loop_reaches_done
+  - tests/scenario/test_ask_output.py::test_ask_step_is_compact_with_one_concrete_template
 AE-08:
   - tests/scenario/test_task_scenarios.py::test_dispatch_guidance_concurrency_inline_and_exact_commands
+  - tests/scenario/test_ask_output.py::test_an_ask_step_with_15_questions_is_under_12_kb
+  - tests/scenario/test_ask_output.py::test_answer_response_is_the_answer_its_preview_and_a_brief_of_the_next_step
 AE-09:
   - tests/unit/decide/test_options.py::test_resolves
   - tests/unit/decide/test_answers.py::test_forgiving_resolution
   - tests/unit/text/test_dates.py::test_dates
   - tests/unit/text/test_durations.py::test_durations
+  - tests/scenario/test_ask_output.py::test_answers_file_accepts_question_id_and_names_the_schema_when_a_row_has_neither
 AE-10:
   - tests/perf/test_next_speed.py::test_next_is_fast_warm
   - tests/perf/test_process_count.py::test_subprocess_launches_stay_constant_from_50_to_500_items
@@ -302,12 +327,18 @@ AE-11:
 CFG-01:
   - tests/unit/config/test_config.py::test_includes_and_duplicate_section
   - tests/unit/config/test_config.py::test_personas_validate
+  - tests/unit/config/test_presets_init.py::test_init_with_each_shipped_preset_writes_a_valid_workspace
+  - tests/unit/config/test_presets_init.py::test_init_with_the_reported_mix_lists_only_workspace_presets
+  - tests/unit/config/test_presets_init.py::test_init_with_every_preset_at_once_is_valid
 CFG-02:
   - tests/unit/config/test_config.py::test_unknown_key_bad_reference_bad_template_all_reported
   - tests/unit/config/test_config.py::test_yaml_syntax_error_has_position
+  - tests/unit/config/test_presets_init.py::test_init_refuses_to_write_an_invalid_workspace
+  - tests/unit/config/test_presets_init.py::test_a_source_preset_in_top_level_presets_names_the_scope_and_the_fix
 CFG-03:
   - tests/unit/config/test_config.py::test_presets_merge_extend_remove_and_origins
   - tests/unit/config/test_config.py::test_preset_may_not_define_people
+  - tests/unit/config/test_presets_init.py::test_every_preset_declares_its_scope_and_list_and_show_report_it
 CFG-04:
   - tests/scenario/test_agent_loop.py::test_triage_workflow_and_sandbox_write_nothing_live
   - tests/scenario/test_agent_loop.py::test_reference_daily_pauses_reviews_and_writes_backlog
@@ -316,6 +347,7 @@ CFG-05:
   - tests/unit/text/test_templates.py::test_render_table
   - tests/unit/text/test_templates.py::test_rendering_is_total
   - tests/unit/text/test_templates.py::test_filter_set_is_closed
+  - tests/scenario/test_task_store_identity.py::test_a_windowed_block_is_kept_on_run_two
 CFG-06:
   - tests/unit/config/test_config.py::test_digest_ignores_file_split_and_partials_move_per_section
   - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_declared_stages

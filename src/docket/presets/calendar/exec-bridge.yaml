@@ -13,3 +13,10 @@ destinations:
     redact:
       people: true
       figures: ['\$\d[\d,.]*[kKmMbB]?']
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: workspace
+  scaffold:
+    destinations:
+      calendar: { program: [path/to/calendar-bridge], calendar: work }

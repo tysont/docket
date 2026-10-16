@@ -206,7 +206,7 @@ class Rehearsal:
                         return
             elif k == "ask":
                 for q in step["questions"]:
-                    if not self.answer(q, stage):
+                    if not self.answer(q, stage, step["answer"]["argv"]):
                         self.log.stop = {"kind": "refused", "stage": stage, "question": q["id"]}
                         return
             elif k == "wait":
@@ -229,7 +229,12 @@ class Rehearsal:
         hdr = json.loads((self.root / "runs" / self.run_id / "run.json").read_text(encoding="utf-8"))
         return hdr["clock"]["date"]
 
-    def answer(self, q: dict[str, Any], stage: str | None) -> bool:
+    def answer(self, q: dict[str, Any], stage: str | None, template: list[str]) -> bool:
+        from docket.engine.steps import OPTION, QUESTION
+
+        def argv(option: str) -> list[str]:  # the step's answer template, filled (AE-07)
+            return [q["id"] if a == QUESTION else option if a == OPTION else a for a in template]
+
         opts = q["options"]
         if self.mode == "file" and q["id"] in self.file_rows:
             row = {"question": q["id"], **self.file_rows[q["id"]]}
@@ -249,7 +254,7 @@ class Rehearsal:
                                                      for i, o in enumerate(opts) if o not in rec]
         failures = []
         for o, why in order:
-            res = self.call(o["answer"]["argv"], stage=stage, record_failure=False)
+            res = self.call(argv(o["id"]), stage=stage, record_failure=False)
             if res["ok"]:
                 self.log.answers.append({"question": q["id"], "kind": q["kind"], "option": o["id"], "source": why,
                                          "stage": stage, "skipped": [f["option"] for f in failures]})

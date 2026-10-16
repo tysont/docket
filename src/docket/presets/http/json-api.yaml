@@ -20,3 +20,12 @@ source:
       required: { id: any, updated_at: timestamp }
       optional: { title: str, body: str, author: str, url: str }
   mapping: { id: "$.id", title: "$.title", text: "$.body", from: "$.author", at: "$.updated_at", url: "$.url" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      api: { transport: api, params: { path: /api/items } }
+    transports:
+      api: { kind: http_json, url: "https://api.example.com" }

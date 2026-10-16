@@ -18,7 +18,14 @@ Network: remote endpoints are reported as configured, never contacted, unless
 ``probe`` is set; a localhost endpoint gets a TCP connect. Every failed check
 names its fix.
 
-A check is ``{"id", "area", "subject", "status": ok|warn|fail|skip, "detail", "fix"}``.
+Every check names the workflows it affects (``workflow_scope``): configuration
+and state affect all; a transport or an auth check affects the workflows that
+read its source; a destination affects the workflows that can write it (an
+option's destination or default, a signal route, reconcile and verify, planning,
+mirrors, the journal); a hook affects the workflows that select it. With
+``workflow`` set, doctor checks only that workflow's scope.
+
+A check is ``{"id", "area", "subject", "status": ok|warn|fail|skip, "detail", "fix", "workflows"}``.
 """
 from __future__ import annotations
 
@@ -28,7 +35,7 @@ import socket
 import sqlite3
 import subprocess
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -45,9 +52,87 @@ class Check:
     status: str            # ok | warn | fail | skip
     detail: str = ""
     fix: str | None = None
+    workflows: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+HOOK_EVENTS = ("after_collect", "after_apply", "after_close")
+_TASK_ACTIONS = ("task.add", "agenda.add", "message.draft")  # reconcile and verify options write these
+
+
+def _destinations_of(ws: Any, name: str, wf: Any) -> set[str]:
+    """The destinations a workflow can write or read for planning."""
+    from types import SimpleNamespace
+
+    from docket.config.models import ACTION_NEEDS_DESTINATION
+    from docket.decide.options import default_destination
+    cfg = ws.config
+    dests = cfg.destinations
+    if not any(st in wf.stages for st in ("plan", "apply", "close")):
+        return set()
+    shim = SimpleNamespace(ws=ws)
+    out: set[str] = set()
+
+    def add(action: str | None, named: str | None) -> None:
+        if named:
+            out.add(named)
+        elif action in ACTION_NEEDS_DESTINATION:
+            d = default_destination(shim, action, None)
+            if d:
+                out.add(d)
+    if "apply" in wf.stages:
+        from docket.decide.questions import DEFAULT_OPTION_SET
+        sets = cfg.decisions.option_sets
+        chosen = sets.get(wf.options or DEFAULT_OPTION_SET) or sets.get(DEFAULT_OPTION_SET) or {}
+        for opts in chosen.values():
+            for o in opts:
+                add(o.action, o.destination)
+        for rule in (cfg.signals.get("rules") or []) if isinstance(cfg.signals, dict) else []:
+            route = (rule.get("then") or {}).get("route") if isinstance(rule, dict) else None
+            if isinstance(route, str):
+                out.add(route)
+        if {"reconcile", "verify"} & set(wf.questions.kinds):
+            pt = cfg.planning.tasks.destination
+            out.add(pt) if pt else add("task.add", None)
+            for a in _TASK_ACTIONS:
+                add(a, None)
+    pl = cfg.planning
+    if pl.calendar is not None and "plan" in wf.stages and (pl.workflows is None or name in pl.workflows):
+        out.add(pl.calendar.destination)
+        out.add(pl.tasks.destination) if pl.tasks.destination else add("task.add", None)
+        for m in pl.mirrors:
+            out |= {m.from_, m.to}
+    if "close" in wf.stages:
+        j = wf.journal or cfg.journal.destination
+        if j:
+            out.add(j)
+    return {d for d in out if d in dests}
+
+
+def workflow_scope(ws: Any) -> dict[str, dict[str, set[str]]]:
+    """Per workflow: the sources, transports, destinations and hooks it depends on."""
+    cfg = ws.config
+    out: dict[str, dict[str, set[str]]] = {}
+    for name, wf in sorted(cfg.workflows.items()):
+        srcs = set(cfg.sources if wf.sources is None else wf.sources) & set(cfg.sources)
+        dests = _destinations_of(ws, name, wf)
+        trs = {cfg.sources[s].transport for s in srcs if cfg.sources[s].transport}
+        for d in dests:
+            pol = cfg.destinations[d].policy
+            tr = pol.get("transport") if isinstance(pol, dict) else None
+            if isinstance(tr, str):
+                trs.add(tr)
+        hooks: set[str] = set()
+        for ev in HOOK_EVENTS:
+            if ev in (wf.hooks or {}):
+                hooks |= {h for h in wf.hooks[ev] if h in cfg.hooks}
+            else:
+                hooks |= {h for h, hk in cfg.hooks.items()
+                          if ev in hk.events and (hk.workflows is None or name in hk.workflows)}
+        out[name] = {"sources": srcs, "transports": trs, "destinations": dests, "hooks": hooks}
+    return out
 
 
 def find_binary(cmd: str, *, root: Path, cwd: Path | None, env: Mapping[str, str]) -> str | None:
@@ -93,17 +178,31 @@ def _tcp(host: str, port: int, timeout: float = 2.0) -> str | None:
 
 
 class Doctor:
-    def __init__(self, *, root: Path | None, env: Mapping[str, str], probe: bool = False) -> None:
+    def __init__(self, *, root: Path | None, env: Mapping[str, str], probe: bool = False,
+                 workflow: str | None = None) -> None:
         self.root = root
         self.env = dict(env)
         self.probe = probe
+        self.workflow = workflow
         self.checks: list[Check] = []
         self.ws: Any = None
+        self.scope: dict[str, dict[str, set[str]]] = {}
+        self._affects: list[str] | None = None   # workflows the checks being added affect; None: all
 
     def add(self, *a: Any, **kw: Any) -> Check:
         c = Check(*a, **kw)
+        c.workflows = sorted(self.scope) if self._affects is None else list(self._affects)
         self.checks.append(c)
         return c
+
+    def affecting(self, kind: str, name: str) -> list[str]:
+        return [w for w, sc in self.scope.items() if name in sc[kind]]
+
+    def in_scope(self, kind: str, name: str) -> bool:
+        """Whether to check this subject: everything without a workflow, else that workflow's scope.
+        Sets which workflows the subject's checks report as affected."""
+        self._affects = self.affecting(kind, name)
+        return self.workflow is None or self.workflow in self._affects
 
     # --- runner -------------------------------------------------------------------
     def run(self) -> list[Check]:
@@ -117,10 +216,14 @@ class Doctor:
             for area in ("transports", "auth", "destinations", "hooks"):
                 self.add(f"{area}", area, "all", "skip", "configuration did not load", "docket config validate")
             return self.checks
+        self.scope = workflow_scope(self.ws)
+        for c in self.checks:  # configuration and state affect every workflow
+            c.workflows = sorted(self.scope)
         self.check_transports()
         self.check_auth()
         self.check_destinations()
         self.check_hooks()
+        self._affects = None
         return self.checks
 
     # --- 1. configuration ---------------------------------------------------------
@@ -196,6 +299,8 @@ class Doctor:
             if s.transport:
                 used.setdefault(s.transport, []).append(sid)
         for tid in sorted(cfg.transports):
+            if not self.in_scope("transports", tid):
+                continue
             t = cfg.transports[tid]
             users = used.get(tid)
             subject = f"transports.{tid} ({t.kind})"
@@ -263,7 +368,7 @@ class Doctor:
     # --- 4. auth checks ---------------------------------------------------------------
     def check_auth(self) -> None:
         for sid, s in sorted(self.ws.config.sources.items()):
-            if s.auth is None or not s.auth.check:
+            if s.auth is None or not s.auth.check or not self.in_scope("sources", sid):
                 continue
             argv = list(s.auth.check)
             subject = f"sources.{sid}.auth.check"
@@ -292,6 +397,8 @@ class Doctor:
     def check_destinations(self) -> None:
         from docket.config.models import DESTINATION_ADAPTERS
         for did, d in sorted(self.ws.config.destinations.items()):
+            if not self.in_scope("destinations", did):
+                continue
             subject = f"destinations.{did} ({d.adapter})"
             if d.adapter not in DESTINATION_ADAPTERS:
                 self.add(f"dest.{did}", "destinations", subject, "fail", "unknown adapter", "docket plugin list")
@@ -387,6 +494,8 @@ class Doctor:
     # --- 6. hooks -------------------------------------------------------------------------
     def check_hooks(self) -> None:
         for hid, h in sorted(self.ws.config.hooks.items()):
+            if not self.in_scope("hooks", hid):
+                continue
             cwd = (self.ws.root / h.cwd) if h.cwd else self.ws.root
             for label, argv in (("command", h.command), ("dry_run", h.dry_run)):
                 if not argv:
@@ -407,3 +516,8 @@ def summarize(checks: list[Check]) -> dict[str, int]:
     for c in checks:
         out[c.status] = out.get(c.status, 0) + 1
     return out
+
+
+def by_workflow(checks: list[Check], workflows: list[str]) -> dict[str, dict[str, int]]:
+    """Counts of the checks that affect each workflow."""
+    return {w: summarize([c for c in checks if w in c.workflows]) for w in workflows}

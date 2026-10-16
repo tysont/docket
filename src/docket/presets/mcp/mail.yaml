@@ -27,3 +27,12 @@ source:
       variations:
         subject: { missing: { reading: "use the snippet as the title", use: snippet, record: false } }
   mapping: { id: "$.id", title: "$.subject", text: "$.snippet", from: "$.from", at: "$.date" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      mail: { transport: mail-server, params: { search_tool: search_messages, query: "is:unread" } }
+    transports:
+      mail-server: { kind: mcp_stdio, command: [path/to/mail-mcp-server] }

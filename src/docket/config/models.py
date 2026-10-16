@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from docket.config.source_models import Source, TransportConfig  # noqa: F401  (sections owned there)
+from docket.config.source_models import MAPPING_KEY_DOCS, Source, TransportConfig  # noqa: F401  (sections owned there)
 from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
 from docket.config.close_models import Hook, JournalConfig  # M8: the journal and hooks sections (TD §13.5, §13.6)
 
@@ -50,8 +50,8 @@ IMPLEMENTED_ADAPTERS = frozenset(DESTINATION_ADAPTERS)
 ACTIONS = ("task.add", "agenda.add", "calendar.place", "message.draft", "now", "done", "watch", "dismiss")
 ACTION_NEEDS_DESTINATION = {"task.add", "agenda.add", "calendar.place", "message.draft"}
 WHEN_GUARDS = ("has_forum", "has_reply_channel", "has_deadline", "has_calendar", "source_is", "relation_is")
-MAPPING_KEYS = ("id", "title", "text", "from", "at", "url", "unit",
-                "from.handle", "from.display", "thread", "to", "cc", "mentions")  # M3 structure keys
+
+MAPPING_KEYS = tuple(MAPPING_KEY_DOCS)  # item fields, then the M3 structure keys
 
 
 class Strict(BaseModel):

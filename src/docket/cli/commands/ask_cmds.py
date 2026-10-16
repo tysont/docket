@@ -8,7 +8,8 @@ action preview its destination renders, and, when the answer names a day, how
 full that day already is (FR-DEC-08).
 
 A batch file is a list of rows, ``{"answers": [rows]}``, or an object keyed by
-question id whose values are an option or a row. A row::
+question id whose values are an option or a row (``docket schema answers-file``).
+A row names its question as ``question`` (or ``question_id``, or ``id``)::
 
     {"question": "q_...", "option": "task", "due": "monday", "est": "60m", "when": "...",
      "title": "...", "action": "...", "links": ["..."], "area": "...", "forum": "...",
@@ -22,11 +23,12 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from docket.cli.commands.run_cmds import _guard_mutable, _step_next, step_summary
+from docket.cli.commands.run_cmds import _guard_mutable, _step_next, brief_text, step_brief, step_summary
 from docket.cli.commands.stage_cmds import _compute, _not_ready
 from docket.cli.envelope import Result
 from docket.cli.errors import DocketError, InputError, IntegrityError, StateError
 from docket.cli.registry import Arg, command
+from docket.decide.answers import ANSWERS_FILE_EXAMPLE, ANSWERS_FILE_FORMS
 
 _KEYS = ("option", "action", "overrides", "digest", "destinations", "merged_into")
 
@@ -268,14 +270,19 @@ def _rows_from_file(ctx: Any, path: str) -> list[dict[str, Any]]:
     elif isinstance(data, list):
         for v in data:
             if not isinstance(v, dict):
-                raise InputError("input.bad_json", "Every answer row must be an object with question and option.")
+                raise InputError("input.bad_json", "Every answer row must be an object with question and option.",
+                                 hint="docket schema answers-file --json")
             rows.append(dict(v))
     else:
-        raise InputError("input.bad_json", "The answers file must be a list of rows or an object keyed by question.")
+        raise InputError("input.bad_json", "The answers file must be a list of rows or an object keyed by question.",
+                         hint="docket schema answers-file --json")
     for i, r in enumerate(rows):
-        qid = r.pop("question", None) or r.pop("id", None)
+        qid = r.pop("question", None) or r.pop("question_id", None) or r.pop("id", None)
+        r.pop("question_id", None)
+        r.pop("id", None)
         if not qid:
-            raise InputError("input.bad_json", f"Answer row {i + 1} names no question.", details={"row": i + 1})
+            raise InputError("input.bad_json", f"Answer row {i + 1} names no question (use question or question_id).",
+                             hint="docket schema answers-file --json", details={"row": i + 1, "keys": sorted(r)})
         r["question"] = str(qid)
     return rows
 
@@ -306,10 +313,11 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
                 "action_preview": r["preview"]}
     if _core(s.answers) == _core(s.original):
         step = _compute(ctx, rc)
+        brief = step_brief(rc, step)
         data = {"answers": [body(r) for r in rows]} if batch else body(rows[0])
-        return Result({**data, "changed": False, "step": step.model_dump()},
+        return Result({**data, "changed": False, "step": brief},
                       "\n".join(f"{r['q']['id']}: unchanged ({r['answer']['option']})" for r in rows)
-                      + f"\n{step_summary(step)}", next=_step_next(step))
+                      + f"\n{brief_text(brief)}", next=_step_next(step))
     _guard_mutable(rc)
     if rc.run.header.applied_plan:
         raise StateError("stage.post_apply_change", "Answers cannot change after apply wrote receipts.",
@@ -326,9 +334,10 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
     rc.invalidate()
     rc.materialize()
     step = _compute(ctx, rc)
+    brief = step_brief(rc, step)
     data = {"answers": [body(r) for r in rows]} if batch else body(rows[0])
-    return Result({**data, "changed": True, "step": step.model_dump()},
-                  "\n".join(_row_text(r) for r in rows) + f"\n{step_summary(step)}", next=_step_next(step))
+    return Result({**data, "changed": True, "step": brief},
+                  "\n".join(_row_text(r) for r in rows) + f"\n{brief_text(brief)}", next=_step_next(step))
 
 
 @command("ask answer", "Record an answer. Options resolve by id, label, leading words, position or destination; "
@@ -352,6 +361,8 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
                Arg("--digest", "Plan digest; required to approve."),
                Arg("--file", "Answer several questions from a JSON file (or - for stdin), all or nothing.")],
          effects=["writes answers.json"],
+         inputs={"--file": {"schema": "answers-file", "description": ANSWERS_FILE_FORMS,
+                            "example": ANSWERS_FILE_EXAMPLE}},
          examples=["docket ask answer q_9a1c task --due monday --est 60 --merge-with q_77b2 --note 'after the review' --json",
                    "docket ask answer q_41d0 block --when 'thu 13:00-17:00' --title 'Draft pricing memo' --json",
                    "docket ask answer r_dk_t_5f20 partly --est 30 --json",
@@ -401,8 +412,9 @@ def cmd_ask_undo(ctx: Any, ns: Any) -> Result:
     after, removed = without_answer(stored, ns.question_id)
     if not removed:
         step = _compute(ctx, rc)
-        return Result({"question_id": ns.question_id, "removed": [], "changed": False, "step": step.model_dump()},
-                      f"{ns.question_id} has no answer\n{step_summary(step)}", next=_step_next(step))
+        brief = step_brief(rc, step)
+        return Result({"question_id": ns.question_id, "removed": [], "changed": False, "step": brief},
+                      f"{ns.question_id} has no answer\n{brief_text(brief)}", next=_step_next(step))
     _guard_mutable(rc)
     if rc.run.header.applied_plan:
         raise StateError("stage.post_apply_change", "Answers cannot change after apply wrote receipts.",
@@ -414,8 +426,9 @@ def cmd_ask_undo(ctx: Any, ns: Any) -> Result:
     rc.run.write_answers(after)
     rc.invalidate()
     step = _compute(ctx, rc)
-    return Result({"question_id": ns.question_id, "removed": removed, "changed": True, "step": step.model_dump()},
-                  f"removed {', '.join(removed)}\n{step_summary(step)}", next=_step_next(step))
+    brief = step_brief(rc, step)
+    return Result({"question_id": ns.question_id, "removed": removed, "changed": True, "step": brief},
+                  f"removed {', '.join(removed)}\n{brief_text(brief)}", next=_step_next(step))
 
 
 @command("ask resolve", "Resolve the task references verification needs through their sources, before the burst.",
