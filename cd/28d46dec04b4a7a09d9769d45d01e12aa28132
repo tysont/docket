@@ -1,0 +1,193 @@
+.python-version
+  s_f5cd7978833346::t_8897f7b47de9b1 1
+pyproject.toml
+  s_2c17abe8ef85ff::t_c7ce89d5d6da66 1-35
+src/docket/__init__.py
+  s_2c17abe8ef85ff::t_0c652c4456b01a 1-3
+src/docket/__main__.py
+  s_2c17abe8ef85ff::t_830e0e5e035e88 1-3
+src/docket/apply/receipts.py
+  s_e68f56f016344f::t_0eb759c2bd306a 1-42
+src/docket/cli/__init__.py
+  s_0103e65d54e481::t_023610b5a72504 1-207
+src/docket/cli/catalog.py
+  s_0103e65d54e481::t_62d3cef8a911bd 1-93
+src/docket/cli/commands/config_cmds.py
+  s_0103e65d54e481::t_78968c26a4b9dd 1-123
+src/docket/cli/commands/meta.py
+  s_0103e65d54e481::t_b6bf123a9dd292 1-116
+src/docket/cli/commands/run_cmds.py
+  s_0103e65d54e481::t_75e97e4d87d4bb 1-189
+src/docket/cli/commands/shape_cmds.py
+  s_0103e65d54e481::t_e1997716db31f0 1-48
+src/docket/cli/commands/stage_cmds.py
+  s_0103e65d54e481::t_1a780752dc9eac 1-395
+src/docket/cli/context.py
+  s_0103e65d54e481::t_1a3d9b3744924c 1-105
+src/docket/cli/envelope.py
+  s_0103e65d54e481::t_3f1ab1e6f2aded 1-65
+src/docket/cli/errors.py
+  s_0103e65d54e481::t_a6586c1326885d 1-69
+src/docket/cli/registry.py
+  s_0103e65d54e481::t_04502a70389297 1-123
+src/docket/config/__init__.py
+  s_2c17abe8ef85ff::t_233a0ddd6fa4b6 1-97
+src/docket/config/contexts.py
+  s_0103e65d54e481::t_11bfe864428e58 1-38
+src/docket/config/defaults.py
+  s_0103e65d54e481::t_8035b63b7ef81f 1-32
+src/docket/config/digest.py
+  s_0103e65d54e481::t_c6edb9beb04e56 1-55
+src/docket/config/loader.py
+  s_0103e65d54e481::t_c82f20b2b6196d 1-395
+src/docket/config/models.py
+  s_0103e65d54e481::t_b95f7d206d7a35 1-258
+src/docket/config/presets.py
+  s_0103e65d54e481::t_f65421ab58b7a2 1-22
+src/docket/config/validate.py
+  s_e68f56f016344f::t_4179defe8a655a 1-374
+src/docket/decide/answers.py
+  s_2c17abe8ef85ff::t_b260eae3421f9e 1-14
+src/docket/decide/options.py
+  s_0103e65d54e481::t_45082495a42dbf 1-50
+src/docket/destinations/markdown_tasks.py
+  s_e68f56f016344f::t_30ea09ba433f21 1-95
+src/docket/engine/clock.py
+  s_0103e65d54e481::t_0fafc76818ad77 1-21
+src/docket/engine/context.py
+  s_0103e65d54e481::t_26a8735e685254 1-142
+src/docket/engine/next.py
+  s_e68f56f016344f::t_1bb7fb2f6906dc 1-67
+src/docket/engine/stages.py
+  s_2c17abe8ef85ff::t_0e57fc1f40e004 1-710
+src/docket/engine/steps.py
+  s_0103e65d54e481::t_3c4be861fc5e6e 1-98
+src/docket/items/mapping.py
+  s_e68f56f016344f::t_ee5e4e736514d6 1-61
+src/docket/items/records.py
+  s_2c17abe8ef85ff::t_db0baae8500394 1-19
+src/docket/plan/models.py
+  s_2c17abe8ef85ff::t_4ea47a7eacafe4 1-27
+src/docket/presets/markdown/tasks-basic.yaml
+  s_2c17abe8ef85ff::t_07a37a3ff73d7c 1-8
+src/docket/presets/markdown/tasks-inline-fields.yaml
+  s_2c17abe8ef85ff::t_41a8f58a072811 1-7
+src/docket/presets/options/basic.yaml
+  s_2c17abe8ef85ff::t_e67cbb4f88b9cf 1-8
+src/docket/presets/policy/basic-defaults.yaml
+  s_2c17abe8ef85ff::t_e82abe4f823343 1-8
+src/docket/shapes/unexpected.py
+  s_0103e65d54e481::t_5477e00d27da48 1-89
+src/docket/store/blobs.py
+  s_e68f56f016344f::t_513050d7a8dbac 1-32
+src/docket/store/db.py
+  s_e68f56f016344f::t_b5e99c88524cbd 1-103
+src/docket/store/lease.py
+  s_e68f56f016344f::t_1810e1b31650a0 1-123
+src/docket/store/paths.py
+  s_e68f56f016344f::t_dabac32d79b0e9 1-44
+src/docket/store/runs.py
+  s_2c17abe8ef85ff::t_dd005d700f632b 1-211
+src/docket/tasks/packs.py
+  s_e68f56f016344f::t_d9cf0488ec7401 1-55
+src/docket/tasks/submit.py
+  s_e68f56f016344f::t_2f756bcbb7b0f4 1-84
+src/docket/text/dates.py
+  s_0103e65d54e481::t_51c9508327742b 1-129
+src/docket/text/durations.py
+  s_0103e65d54e481::t_29e484166c6b29 1-79
+src/docket/text/templates.py
+  s_2c17abe8ef85ff::t_7a8375e78c245d 1-361
+src/docket/transports/files.py
+  s_e68f56f016344f::t_6979ed27ee3b83 1-29
+tests/agent_loop.py
+  s_2c17abe8ef85ff::t_80b5ca88c6323c 1-107
+tests/conftest.py
+  s_0103e65d54e481::t_7c65e1f9dc9cfd 1-116
+tests/contract/test_envelope.py
+  s_2c17abe8ef85ff::t_4aef976dfc68fb 1-179
+tests/contract/test_unexpected_calls.py
+  s_2c17abe8ef85ff::t_42afc2f5eaa3ca 1-27
+tests/fixtures/personas/reference-like/Backlog.md
+  s_2c17abe8ef85ff::t_c13858aa7c527a 1-7
+tests/fixtures/personas/reference-like/data/chat.jsonl
+  s_2c17abe8ef85ff::t_ed405a9b5528aa 1-24
+tests/fixtures/personas/reference-like/data/mail.jsonl
+  s_2c17abe8ef85ff::t_bd4562ac7c9b6a 1-14
+tests/fixtures/personas/reference-like/destinations.yaml
+  s_2c17abe8ef85ff::t_d45f09fbbd8c3f 1-6
+tests/fixtures/personas/reference-like/docket.yaml
+  s_2c17abe8ef85ff::t_6c6d08f6d9286d 1-32
+tests/fixtures/personas/reference-like/profile.yaml
+  s_2c17abe8ef85ff::t_616ef9c5c18edb 1-60
+tests/fixtures/personas/reference-like/sources.yaml
+  s_2c17abe8ef85ff::t_8e20e7838b0082 1-26
+tests/fixtures/personas/support-lead/data/tickets.jsonl
+  s_2c17abe8ef85ff::t_791ef61beec180 1-30
+tests/fixtures/personas/support-lead/docket.yaml
+  s_2c17abe8ef85ff::t_d0245fb52c1cf5 1-99
+tests/litmus/test_no_literals.py
+  s_2c17abe8ef85ff::t_3424851aee0312 1-155
+tests/perf/test_next_speed.py
+  s_0103e65d54e481::t_d5bbd57bc5f983 1-31
+tests/scenario/test_agent_loop.py
+  s_0103e65d54e481::t_429ff5f897312b 1-137
+tests/scenario/test_engine_properties.py
+  s_0103e65d54e481::t_9e8107d435ce5a 1-201
+tests/unit/config/test_config.py
+  s_2c17abe8ef85ff::t_cfdc16086731f4 1-249
+tests/unit/decide/test_options.py
+  s_2c17abe8ef85ff::t_a18c5b96d66617 1-38
+tests/unit/shapes/test_unexpected.py
+  s_2c17abe8ef85ff::t_c3ffc3b5981df2 1-62
+tests/unit/store/test_store.py
+  s_2c17abe8ef85ff::t_ca71dd534962d6 1-67
+tests/unit/text/test_dates.py
+  s_2c17abe8ef85ff::t_bbd782a7d3b757 1-50
+tests/unit/text/test_durations.py
+  s_2c17abe8ef85ff::t_94d7a61cf112e9 1-30
+tests/unit/text/test_templates.py
+  s_2c17abe8ef85ff::t_f045c7445ebb62 1-95
+uv.lock
+  s_2c17abe8ef85ff::t_d30b249f538199 1-417
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cd28d46dec04b4a7a09d9769d45d01e12aa28132",
+  "prompts": {},
+  "sessions": {
+    "s_0103e65d54e481": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a01d7ffeX7sZuP0t3Ey6qL",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_2c17abe8ef85ff": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ebdc0f070ffelWKgqhclh3mrq1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_e68f56f016344f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee09a7722ffe4ogi1jydZxnsJ4",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    },
+    "s_f5cd7978833346": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee0c1e75dffeukL1LRDyL5HMZM",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "tysont <1264862+tysont@users.noreply.github.com>"
+    }
+  }
+}
