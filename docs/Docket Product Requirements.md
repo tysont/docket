@@ -1,7 +1,7 @@
 # Docket: Product Requirements
 
-**Status:** Draft v0.1 for review
-**Date:** 2026-10-15
+**Status:** M0-M9 built
+**Date:** 2026-10-16
 **Scope:** this document is normative for *what* Docket must do and *for whom*. `Docket Technical Design.md` is normative for *how*. Where they disagree, this document wins on intent and the design is corrected.
 
 ---
@@ -260,7 +260,7 @@ These requirements carry the same weight as the functional ones.
 - **AE-04 (Must). Self-description.** `docket schema <name>` prints the JSON Schema for any input or output. `docket help <command> --json` returns the command's arguments, effects and examples. `docket config explain <path>` explains any setting and where its value came from.
 - **AE-05 (Must). No hidden state.** Commands take explicit identifiers. No command depends on an environment variable surviving between shell calls; the workspace and run resolve from the working directory or from Docket's own state.
 - **AE-06 (Must). Idempotent and safe to repeat.** Repeating a command after a crash or a timeout is always safe. Every mutating command supports `--dry-run`.
-- **AE-07 (Must). Concrete, not templated.** Dispatch steps carry the exact command and file paths for each task. Nothing requires the agent to substitute placeholders.
+- **AE-07 (Must). Concrete, with one ask exception.** Dispatch steps carry the exact command and file paths for each task. The only placeholders are `{question}` and `{option}` in the compact ask step's single `docket ask answer` template. `docket next --full` expands each option to an exact command.
 - **AE-08 (Must). Small outputs.** Long payloads (packs, prompts, plans) go to files whose paths the output returns. A command's stdout fits comfortably in an agent's context.
 - **AE-09 (Must). Forgiving input.** Answers accept a label, its leading words, a position or a destination name, case-insensitively; dates accept weekday names; durations accept `45`, `45m`, `1h`, `1.5h`. Every input is echoed back in normalized form.
 - **AE-10 (Should). Fast.** `docket next` and read-only commands answer in under 300 ms warm on the supported baseline environment. No command launches a process per item.
@@ -335,7 +335,7 @@ Everything marked Must, the Should items not deferred by the implementation plan
 
 1. The reference workspace lives in the operator's private configuration repository, outside the Docket repository.
 2. Is a native calendar bridge shipped with Docket, or is the existing bridge wrapped through the executable adapter protocol? This document assumes the latter for v1.
-3. Should sending be possible at all in v1, or deferred entirely? This document includes it behind policy and per-message approval.
+3. Sending is deferred until after v1. v1 creates drafts only.
 4. How much of the chat-space registry (classification of hundreds of spaces) belongs in v1?
 
 ---

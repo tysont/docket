@@ -1,7 +1,7 @@
 # Docket: Test Plan
 
-**Status:** Draft v0.1 for review
-**Date:** 2026-10-15
+**Status:** M0-M9 built
+**Date:** 2026-10-16
 **Scope:** how Docket is verified, from unit tests to the shadow period. TD refers to `Docket Technical Design.md`, IP to `Docket Implementation Plan.md`.
 
 ---
@@ -29,9 +29,9 @@ Every test obeys these, and `tests/conftest.py` enforces them with an autouse fi
 
 | Tier | Target | Contents | Budget |
 |---|---|---|---|
-| Smoke | `make test-smoke` | Unit tests of the touched package, litmus, envelope contract | 20 s |
-| Fast | `make test-fast` | All unit, contract and property tests; one scenario per persona | 90 s |
-| Full | `make test` | Everything, including all scenarios, crash injection, conformance, performance | 5 min |
+| Smoke | `make test-smoke` | Smoke-marked unit, contract, scenario and litmus tests | About 20 s |
+| Fast | `make test-fast` | All tests except those marked slow, with `pytest-xdist -n auto` | 30 s |
+| Full | `make test` | Every test, including performance and exhaustive shape variants, with `pytest-xdist -n auto` | About 30 s |
 | Rehearse | `make rehearse-fixtures` | Rehearsal of each persona fixture's recorded live-like run | 2 min |
 
 Run the cheapest tier that covers a change while iterating, `test-fast` before claiming anything works, and `test` before a commit to main.
@@ -159,7 +159,7 @@ Unit, property and scenario tests cannot see the shapes in tomorrow's live data.
 
 ## 9. Traceability
 
-`tests/traceability.yaml` maps every PRD requirement id to at least one test id. A test in the contract tier fails when a PRD requirement marked *Must*, or *Should* and not deferred in IP §5, has no mapped test, or a mapped test does not exist. Requirement ids are parsed from the PRD itself, so adding a requirement without a test fails the build.
+`tests/traceability.yaml` covers all 90 requirement ids parsed from the PRD. Every *Must* and every non-deferred *Should* maps to at least one existing test. FR-SRC-11 agent unit classification and FR-ACT-05 sending are deferred in IP §5. A contract test parses requirement ids from the PRD, checks the deferred set, and fails when a required mapping or mapped test is missing.
 
 ## 10. Performance tests
 

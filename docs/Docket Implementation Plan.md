@@ -1,10 +1,14 @@
 # Docket: Implementation Plan
 
-**Status:** Draft v0.1 for review
-**Date:** 2026-10-15
+**Status:** M0-M9 built; M10-M12 not started
+**Date:** 2026-10-16
 **Scope:** the order in which Docket is built, what each milestone must prove before the next starts, how the reference workflow moves from the predecessor to Docket, and which PRD *Should* items are deferred. Section numbers prefixed TD refer to `Docket Technical Design.md`; TP refers to `Docket Test Plan.md`.
 
 ---
+
+## Status
+
+M0 through M9 are built. M10 (reference workspace port), M11 (shadow period) and M12 (cutover) have not started because they run against the operator's live accounts and calendars.
 
 ## 1. Approach
 
@@ -140,6 +144,8 @@ M6 (destinations) and M7 (planning) depend on M1's interfaces only, and can run 
 Total: about 47 sessions of build plus the shadow week.
 
 ## 5. Deferred PRD items
+
+The PRD defines 90 requirements. Tests map every *Must* and every non-deferred *Should*. Two requirements remain deferred:
 
 | Item | Decision | Reason |
 |---|---|---|
