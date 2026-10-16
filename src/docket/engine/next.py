@@ -35,6 +35,18 @@ def summary(rc: RunContext) -> dict[str, Any]:
     return out
 
 
+def _inspect(rc: RunContext, drift: list[dict[str, Any]]) -> list[Command]:
+    out = [Command.of(rc.argv("run", "status"))]
+    if "plan" in rc.workflow.stages:
+        out.append(Command.of(rc.argv("plan", "diff")))
+    for d in drift:
+        for sec in STAGE_IMPLS[d["stage"]].config_sections:
+            if not sec.startswith("workflow."):
+                out.append(Command.of(["docket", "config", "explain", sec, "--workspace", str(rc.ws.root), "--json"]))
+                break
+    return out
+
+
 def compute_step(rc: RunContext, *, token: str | None = None) -> Any:
     r = rc.run
     if r.header.status == "sealed":
@@ -49,6 +61,17 @@ def compute_step(rc: RunContext, *, token: str | None = None) -> Any:
                                      f"Wait for it to finish, or take over with the steal command.",
                         resume_when="the other session's lease is released or goes stale",
                         command=Command.of(steal))
+    from docket.apply.boundary import unacknowledged
+    drift = unacknowledged(rc)
+    if drift:
+        what = "; ".join(f"{d['stage']}: {d['why']}" for d in drift)
+        return WaitStep(stage=drift[0]["stage"], reason="post_apply_change",
+                        instructions=f"Upstream changed after apply wrote receipts ({what}). The run does not go "
+                                     f"backward: inspect the change, then finish this run on its approved plan with "
+                                     f"the continue command (the change applies to the next run), or abandon it.",
+                        resume_when="the operator has inspected the change",
+                        command=Command.of(rc.argv("run", "continue")),
+                        inspect=_inspect(rc, drift))
     ev = rc.first_pending()
     if ev is None:
         return DoneStep(summary=summary(rc))

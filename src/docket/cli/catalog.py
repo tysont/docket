@@ -136,6 +136,11 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
                                    "(a row code in details.rows)."),
     "task.cross_field": ("input", False, "A result row breaks a cross-field rule of its kind, such as a kept item "
                          "without an owner (a row code in details.rows)."),
+    # --- M8 apply and close ---
+    "apply.stale_inputs": ("integrity", True, "A destination the plan touches changed since the plan was built; "
+                           "details.destinations names each change. Rebuild the plan and approve again."),
+    "hook.failed": ("external", True, "A hook under the fail policy exited non-zero, timed out or could not start; "
+                    "details carry its exit status and log path."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
 }

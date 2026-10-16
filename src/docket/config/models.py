@@ -1,8 +1,9 @@
 """Configuration models (TD §3.2).
 
 Every top-level section is a Pydantic model with ``extra="forbid"``. Sections
-whose full content belongs to later milestones (signals, journal, hooks,
-shapes) are typed as open maps for now; the top-level structure, ``profile``,
+whose full content belongs to later milestones (signals, shapes) are typed as
+open maps for now; ``journal`` and ``hooks`` are modelled in
+``docket.config.close_models``; the top-level structure, ``profile``,
 ``workflows``, ``sources``, ``transports``, ``decisions``, ``destinations``,
 ``planning`` and ``tasks`` are strict. ``sources``, ``transports`` and
 ``signals.units`` are modelled in ``docket.config.source_models``; ``tasks`` in
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from docket.config.source_models import Source, TransportConfig  # noqa: F401  (sections owned there)
 from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
+from docket.config.close_models import Hook, JournalConfig  # M8: the journal and hooks sections (TD §13.5, §13.6)
 
 STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close")
 StageName = Literal["collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close"]
@@ -388,8 +390,8 @@ class DocketConfig(Strict):
     decisions: Decisions = Decisions()
     destinations: dict[str, Destination] = {}
     planning: Planning = Planning()
-    journal: dict[str, Any] = {}
-    hooks: dict[str, Any] = {}
+    journal: JournalConfig = JournalConfig()
+    hooks: dict[str, Hook] = {}
     shapes: dict[str, Any] = Field(default_factory=dict)
 
 

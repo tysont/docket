@@ -11,8 +11,9 @@
    (must-surface first, then score, then id); the group unions evidence, sources,
    tags and reasons, and each member's trace records the merge.
 3. Group status, in order: ``dropped`` when every member was dismissed by a rule;
-   ``suppressed`` by a live disposition (``dismiss`` until a date, ``watch`` with no
-   activity since it was recorded, ``done``) or because the latest record is the
+   ``suppressed`` by a live disposition matched by topic or member id (``dismiss``
+   until a date; ``watch``, ``routed`` and ``now`` with no activity since it was
+   recorded; ``done``) or because the latest record is the
    operator's (``answered``); ``tracked`` when an open task in a task-store
    destination names one of the topic's references or its URL (routed to task
    verification, not a finding); ``dropped`` when an agent assessed it and kept
@@ -113,10 +114,14 @@ def _disposition(group_ids: set[str], latest: Any, rows: list[dict[str, Any]], r
             if until is None or run_date is None or run_date < str(until)[:10]:
                 return {**base, "reason": "disposition: dismiss" + (f" until {until}" if until else "")}
             continue
-        if dec == "watch":
+        if dec in ("watch", "routed", "now"):
+            # routed (written to a destination) and now (handled in the session) re-surface on new activity
             since = instant(row.get("recorded_at"))
             if since is None or latest is None or latest <= since:
-                return {**base, "reason": "disposition: watch, no new activity"}
+                routed = dec == "routed"
+                extra = f" to {row['destination']}" if routed and row.get("destination") else ""
+                route = {"destination": row.get("destination"), "op_id": row.get("op_id")} if routed else {}
+                return {**base, "reason": f"disposition: {dec}{extra}, no new activity", **route}
             continue
     return None
 

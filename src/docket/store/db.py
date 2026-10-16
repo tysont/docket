@@ -69,6 +69,18 @@ CREATE TABLE task_results (
   result TEXT NOT NULL, accepted_at TEXT NOT NULL
 );
 """),
+    # M8 apply and close: receipts for close steps and hooks, so a resumed close never repeats one
+    # (TD §13.6, FR-APP-06); dispositions carry the route and outcome they record (TD §13.7).
+    (8, """
+CREATE TABLE step_receipts (
+  run_id TEXT NOT NULL, step TEXT NOT NULL, outcome TEXT NOT NULL, json TEXT NOT NULL, recorded_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, step)
+);
+ALTER TABLE dispositions ADD COLUMN destination TEXT;
+ALTER TABLE dispositions ADD COLUMN op_id TEXT;
+ALTER TABLE dispositions ADD COLUMN outcome TEXT;
+CREATE INDEX ledgers_by_name ON ledgers (ledger, run_id)
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

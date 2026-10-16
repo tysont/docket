@@ -36,6 +36,8 @@ class RunHeader(BaseModel):
     status: str = "open"  # open | sealed | abandoned
     resumed: list[str] = []
     applied_plan: str | None = None
+    pinned: dict[str, str] = {}     # stage -> digest the applied plan was built from (TD §5.4)
+    drift_ack: str | None = None    # digest of the upstream drift the operator chose to finish on
 
 
 class Store:

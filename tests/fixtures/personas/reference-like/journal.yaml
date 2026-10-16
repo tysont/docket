@@ -1,0 +1,41 @@
+# The reference-like persona's journal, ledgers and journal destination (TD §13.5). All data is invented.
+journal:
+  title: "Daily journal {run.date} ({run.workflow})"
+  destination: daylog
+  approval_delay_note: "Approved {approval.delay} after the plan was built."
+  sections:
+    - heading: Sources
+      template: "{#sources}- {id}: {outcome} ({records} records)\n{/sources}"
+    - heading: Asked
+      template: "{#answers}- {title|truncate:80}: {option}{?note} ({note}){/note}\n{/answers}"
+    - heading: Written
+      template: "{#operations}- {destination}: {line} [{outcome}]\n{/operations}"
+      skip_empty: true
+    - heading: Not asked
+      template: "{#not_asked}- {title}\n{/not_asked}"
+    - heading: Dropped
+      template: "{#dropped}- {title|truncate:60}: {reason}\n{/dropped}"
+      skip_empty: true
+    - heading: Coverage
+      template: "{#coverage_notes}- {note}\n{/coverage_notes}"
+      skip_empty: true
+    - heading: Carried
+      template: "{#ledgers.carries}- {title} (watching since {since})\n{/ledgers.carries}"
+      skip_empty: true
+    - heading: Audit
+      template: "{ledgers.surfaced|count} item(s) surfaced across recent runs; {counts.applied} written today."
+    - heading: Unexpected shapes
+      template: "{#unexpected}- {area} / {detail}: {reading} (extend: {extend})\n{/unexpected}"
+      skip_empty: true
+  ledgers:
+    # Surfaced-items audit: every finding asked, by item, across runs.
+    surfaced:
+      from: findings
+      key: "{item_id}"
+      fields: { title: "{title}", source: "{source}", topic: "{topic}", score: "{score}" }
+    # Carries: topics the operator chose to keep watching, with the date they were carried from.
+    carries:
+      from: answers
+      where: { action: watch }
+      key: "{topic}"
+      fields: { title: "{title}", since: "{run.date}" }

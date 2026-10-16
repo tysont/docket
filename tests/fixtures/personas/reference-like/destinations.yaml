@@ -4,3 +4,6 @@ destinations:
   agendas:
     adapter: markdown_agenda
     path: Syncs
+  daylog:
+    adapter: journal
+    path: Daylog.md

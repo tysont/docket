@@ -3,3 +3,4 @@ from docket.cli.commands import plugin_cmds  # noqa: F401  (M6: plugin list, plu
 from docket.cli.commands import plan_cmds  # noqa: F401  (M7 planning commands)
 from docket.cli.commands import item_cmds  # noqa: F401  (M3: item why, item list, config test)
 from docket.cli.commands import task_cmds  # noqa: F401  (M4: task kinds, workspace task schemas)
+from docket.cli.commands import close_cmds  # noqa: F401  (M8: run continue)

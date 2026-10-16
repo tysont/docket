@@ -72,6 +72,8 @@ def advance(ctx: Any, stage: str) -> Result:
                          hint=" ".join(rc.argv("next")), details={"stages": list(rc.workflow.stages)})
     impl = STAGE_IMPLS[stage]
     ev = rc.eval(stage)
+    if ev.state == "current" and stage == "close" and rc.run.header.status == "open" and not ctx.dry_run:
+        _seal(ctx, rc)  # the close artifact was written but the run not sealed (a crash between the two)
     if ev.state == "current":
         step = _compute(ctx, rc)
         return Result({"stage": stage, "status": "current", "changed": False, "digest": ev.digest,
@@ -83,6 +85,19 @@ def advance(ctx: Any, stage: str) -> Result:
         raise _not_ready(rc, ctx, blocker, stage)
     if ev.reason in ("paused", "post_apply_change"):
         raise _not_ready(rc, ctx, ev, stage)
+    from docket.apply.boundary import unacknowledged
+    drift = unacknowledged(rc)
+    if drift:
+        cont = rc.argv("run", "continue")
+        raise StateError("stage.post_apply_change",
+                         "Upstream changed after apply wrote receipts: " +
+                         "; ".join(f"{d['stage']}: {d['why']}" for d in drift) +
+                         ". Inspect it, then finish on the approved plan with the continue command.",
+                         hint=" ".join(cont), next_command=cont, details={"drift": drift})
+    if ctx.dry_run and stage == "close":
+        from docket.close.run import preview_close
+        return Result({"dry_run": True, "stage": stage, "state": ev.state, "digest": ev.digest,
+                       "would": impl.expect, "preview": preview_close(rc)}, f"would run {stage}: {impl.expect}")
     if ctx.dry_run:
         return Result({"dry_run": True, "stage": stage, "state": ev.state, "digest": ev.digest,
                        "would": impl.expect}, f"would run {stage}: {impl.expect}")
@@ -92,9 +107,7 @@ def advance(ctx: Any, stage: str) -> Result:
     data = impl.execute(rc, ev, up)
     impl.finish(rc, ev, data)
     if stage == "close":
-        with rc.run.store.db:
-            rc.run.set_status("sealed")
-            rc.run.store.db.execute("DELETE FROM leases WHERE run_id=?", (rc.run.id,))
+        _seal(ctx, rc)
     rc.invalidate()
     issued = _auto_issue(rc)
     step = _compute(ctx, rc)
@@ -103,13 +116,22 @@ def advance(ctx: Any, stage: str) -> Result:
                   f"{stage} done\n{step_summary(step)}", next=_step_next(step))
 
 
+def _seal(ctx: Any, rc: Any) -> None:
+    with rc.run.store.db:
+        rc.run.set_status("sealed")
+        rc.run.store.db.execute("DELETE FROM leases WHERE run_id=?", (rc.run.id,))
+    rc.invalidate()
+
+
 _STAGE_EFFECT = {
     "collect": ["reads configured sources", "writes blobs, gen-<n> record indexes and the collect artifact",
                 "writes cursor proposals (applied at close)"],
     "merge": ["writes the merge artifact"],
     "plan": ["writes plan/<digest>/plan.json and diff.md and the plan artifact"],
     "apply": ["writes to destinations (sandbox twins in a --sandbox run)", "writes receipts"],
-    "close": ["advances cursors (not in a --sandbox run)", "writes dispositions and journal.md", "seals the run"],
+    "close": ["advances cursors (not in a --sandbox run)", "writes dispositions and ledgers",
+              "writes journal.md and the journal destination when configured", "runs after_close hooks",
+              "seals the run"],
 }
 
 
@@ -331,6 +353,9 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
     rc = ctx.run_context()
     match = next(((ev, q, a) for ev, q, a in _questions(rc) if q["id"] == ns.question_id), None)
     if match is None:
+        if ns.question_id == "approve" and "approve" in rc.workflow.stages and not rc.run.header.applied_plan:
+            from docket.apply.approve import check_unreachable
+            check_unreachable(rc, dry_run=ctx.dry_run)  # a plan stale because a destination changed (TD §13.2)
         blocker = rc.first_pending()
         if blocker is not None and blocker.name not in ("decide", "approve") and \
                 any(s in rc.workflow.stages for s in ("decide", "approve")):
@@ -357,16 +382,8 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
     answer: dict[str, Any] = {"option": opt["id"], "action": opt.get("action"), "overrides": overrides,
                               "input": ns.option}
     if q["kind"] == "approve":
-        if not ns.digest:
-            raise InputError("input.missing_digest", "Approving a plan requires --digest with the plan digest.",
-                             hint=" ".join(rc.argv("ask", "answer", "approve", opt["id"], "--digest", q["digest"])))
-        if ns.digest != q["digest"]:
-            raise IntegrityError("approve.digest_mismatch",
-                                 "The digest does not match the current plan; the plan changed since it was shown.",
-                                 hint=" ".join(rc.argv("next")),
-                                 details={"expected": q["digest"], "received": ns.digest, "diff_path": q.get("diff_path")},
-                                 next_command=rc.argv("next"))
-        answer["digest"] = ns.digest
+        from docket.apply.approve import bind
+        answer = bind(rc, q, opt["id"], ns.digest, answer, dry_run=ctx.dry_run)  # TD §13.1, §13.2
     echo = dict(answer)
     if "est" in overrides:
         echo["est_normalized"] = format_duration(overrides["est"])
@@ -376,8 +393,9 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
         item = next((it for it in (rc.upstream("decide").output or {}).get("items", []) if it["id"] == q["item_id"]), None)
         if item is not None:
             preview = STAGE_IMPLS["plan"].build_op(rc, q["id"], item, opt, overrides) if "plan" in rc.workflow.stages else None
-    stored = {k: current.get(k) for k in ("option", "action", "overrides", "digest")} if current else None
-    if stored is not None and stored == {k: answer.get(k) for k in ("option", "action", "overrides", "digest")}:
+    keys = ("option", "action", "overrides", "digest", "destinations")
+    stored = {k: current.get(k) for k in keys} if current else None
+    if stored is not None and stored == {k: answer.get(k) for k in keys}:
         step = _compute(ctx, rc)
         return Result({"question_id": q["id"], "answer": echo, "preview": preview, "changed": False,
                        "step": step.model_dump()},
@@ -393,6 +411,9 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
     answers = rc.run.answers()
     answers[q["id"]] = answer
     rc.run.write_answers(answers)
+    if q["kind"] == "approve" and opt["id"] == "yes":
+        from docket.apply.approve import record
+        record(rc, answer["digest"], answer)
     rc.invalidate()
     rc.materialize()
     step = _compute(ctx, rc)

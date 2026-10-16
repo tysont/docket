@@ -80,6 +80,7 @@ class WaitStep(BaseModel):
     instructions: str
     resume_when: str | None = None
     command: Command | None = None
+    inspect: list[Command] = []     # read-only commands that show the cause (post_apply_change)
 
 
 class DoneStep(BaseModel):
