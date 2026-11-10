@@ -29,8 +29,9 @@ class Rooms:
     """Units with a last-activity time and messages. Records every request."""
     kind, id, info = "scripted", "t", {}
 
-    def __init__(self, units: dict[str, tuple[str | None, list[str]]]):
+    def __init__(self, units: dict[str, tuple[str | None, list[str]]], *, cut_above: int | None = None):
         self.units = units  # id -> (last activity, message timestamps)
+        self.cut_above = cut_above  # a discovery page above this many units comes back cut, with a note
         self.requests: list[dict] = []
 
     async def open(self):
@@ -51,6 +52,9 @@ class Rooms:
             nxt = start + len(chunk)
             rows = [{"id": i, "name": i.upper(), **({"active": self.units[i][0]} if self.units[i][0] else {})}
                     for i in chunk]
+            if self.cut_above is not None and size > self.cut_above:
+                whole = json.dumps({"units": rows, "next": None})
+                return Response(body=(whole[:len(whole) // 2] + "\n--- TRUNCATED ---\nResponse was too long").encode())
             return Response(body=json.dumps({"units": rows, "next": str(nxt) if nxt < len(ids) else None}).encode())
         after = a.get("after")
         rows = [{"id": f"{a['unit']}-{n}", "ts": ts} for n, ts in enumerate(self.units[a["unit"]][1])
@@ -138,6 +142,24 @@ def test_discovery_asks_for_its_own_page_size():
     server = Rooms({f"u{i}": QUIET for i in range(5)})
     collect(source(), server, durable)
     assert all("size" not in p["args"] for p in server.requests if p["op"] == "discover")  # the system's default
+
+
+def test_discovery_steps_down_from_a_cut_page_and_still_lists_every_unit():
+    server = Rooms({f"u{i:02d}": QUIET for i in range(12)}, cut_above=5)
+    cfg = source(page_size=16)
+    cfg.paging.too_large = ["truncat"]
+    res, shapes = collect(cfg, server, {f"u{i:02d}": (None, YESTERDAY) for i in range(12)})
+    sizes = [p["args"]["size"] for p in server.requests if p["op"] == "discover"]
+    assert sizes[:3] == [16, 8, 4] and set(sizes[2:]) == {4}
+    assert len(res.discovered) == 12 and shapes == []
+
+
+def test_a_discovery_page_that_is_cut_at_the_smallest_size_fails_the_source_with_that_reason():
+    server = Rooms({f"u{i:02d}": QUIET for i in range(12)}, cut_above=0)  # even one unit is too much
+    cfg = source(page_size=4)
+    cfg.paging.too_large = ["truncat"]
+    res, _ = collect(cfg, server)
+    assert res.outcome.status == "failed" and res.outcome.cause["code"] == "source.truncated"
 
 
 def test_a_sample_stops_reading_units_once_it_has_enough_and_starts_with_the_most_active():

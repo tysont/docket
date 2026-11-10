@@ -72,6 +72,7 @@ class Outcome:
     page_size: int | None = None
     tombstones: int = 0
     failed_records: int = 0
+    retries: int = 0                    # requests repeated after a transient failure
 
     def as_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v not in (None, 0) or k in ("status", "entries")}

@@ -299,6 +299,8 @@ def check(loaded: Loaded) -> list[Issue]:
                 out.append(_issue(loaded, "config.missing_key", f"source {sid!r} with cursor model {eff} needs "
                                   f"request.{w}", base + ("request",), 3))
         pg = src.get("paging") if isinstance(src.get("paging"), dict) else {}
+        for i, rx in enumerate(_get(src, "retry", "transient") or []):
+            _regex(loaded, rx, base + ("retry", "transient", i), out)
         for pth, rx_list in (("paging", pg.get("too_large")), ("resolve", _get(src, "resolve", "patterns"))):
             for i, rx in enumerate(rx_list or [] if isinstance(rx_list, list) else []):
                 _regex(loaded, rx, base + (pth, "too_large" if pth == "paging" else "patterns", i), out)

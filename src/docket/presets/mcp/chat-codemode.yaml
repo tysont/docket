@@ -69,6 +69,10 @@ source:
         size_arg: "{params.size_arg}"
         after_arg: "{params.after_arg}"
         token_arg: "{params.token_arg}"
+  # A gateway in front of a chat system drops a call now and then. These messages mean
+  # "ask again", from the gateway's own timeout or a stream that ended.
+  retry:
+    transient: ["timed out", "timeout", "stream ended", "connection (reset|closed|lost)", "temporar", "try again"]
   discover:
     kind: space
     entries: "$.spaces"

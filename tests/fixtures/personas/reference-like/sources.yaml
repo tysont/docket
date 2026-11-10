@@ -45,6 +45,7 @@ sources:
     description: Service status changes.
     transport: status-api
     params: { path: /v1/changes }
+    retry: { wait_s: 0 }   # it fails every time; do not make the tests wait between repeats
   wiki:
     extends: exec/jsonl-source
     description: Wiki page changes behind single sign-on.

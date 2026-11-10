@@ -49,6 +49,8 @@ class McpTransport(ABC):
         self._failure: Failure | None = None
         self._lock = asyncio.Lock()
         self._opened = False
+        self._session = 0                 # counts reopens, so concurrent failures share one
+        self._reopen_lock = asyncio.Lock()
 
     @abstractmethod
     def _connect(self) -> Any:
@@ -98,17 +100,46 @@ class McpTransport(ABC):
             return Response(error=f)
         if self._client is None:
             return Response(error=Failure("unavailable", "MCP session is closed"))
+        session = self._session
         try:
             result = await asyncio.wait_for(self._client.call_tool(tool, args), self.timeout_s)
         except asyncio.TimeoutError:
             return Response(error=Failure("timeout", f"{tool} timed out after {self.timeout_s:g}s", retryable=True))
         except Exception as e:
-            return Response(error=self._auth_failure() or Failure("error", self.secrets.mask(raw_message(e))))
+            auth = self._auth_failure()
+            if auth is not None:
+                return Response(error=auth)
+            # The call raised instead of answering: the session is gone. Reopen it once and repeat.
+            reopened = await self._reopen(session)
+            if reopened is not None or self._client is None:
+                return Response(error=reopened or Failure("error", self.secrets.mask(raw_message(e)), retryable=True))
+            try:
+                result = await asyncio.wait_for(self._client.call_tool(tool, args), self.timeout_s)
+            except asyncio.TimeoutError:
+                return Response(error=Failure("timeout", f"{tool} timed out after {self.timeout_s:g}s", retryable=True))
+            except Exception as e2:
+                return Response(error=self._auth_failure()
+                                or Failure("error", self.secrets.mask(raw_message(e2)), retryable=True))
         body = result_body(result)
         if getattr(result, "is_error", None) or getattr(result, "isError", None):
             return Response(error=Failure("error", self.secrets.mask(body.decode("utf-8", "replace"))))
         truncated = self.max_response_bytes is not None and len(body) > self.max_response_bytes
         return Response(body=body, truncated=truncated)
+
+    async def _reopen(self, session: int) -> Failure | None:
+        """Replace the session a failed call used. Calls that failed on the same session
+        share one reopen; the rest find it already replaced."""
+        async with self._reopen_lock:
+            if self._session != session:
+                return self._failure
+            await self.close()
+            self._ready = asyncio.Event()
+            self._stop = asyncio.Event()
+            self._failure = None
+            self._client = None
+            self._opened = False
+            self._session += 1
+            return await self.open()
 
     async def request(self, req: Request) -> Response:
         tool = req.payload.get("tool")

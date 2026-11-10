@@ -94,6 +94,7 @@ class DeclarativeSource:
         self.checker = ContractChecker(sid, cfg.contract, extend_base=base, secrets=secrets)
         self.budget = Budget(cfg.budget.max_pages, cfg.budget.max_seconds)
         self.params = dict(cfg.params if params is None else params)
+        self.retries = 0
 
     # --- helpers ---------------------------------------------------------------
     def context(self, unit: Unit | None, cursor: Cursor | None, **extra: Any) -> dict[str, Any]:
@@ -111,8 +112,27 @@ class DeclarativeSource:
         return ctx
 
     async def send(self, payload: dict[str, Any]) -> Response:
-        async with self.limits.global_sem, self.limits.transport_sem:
-            return await self.transport.request(Request(payload))
+        """One request, repeated while it fails for a passing reason (TD §6.6)."""
+        rc = self.cfg.retry
+        attempt = 0
+        while True:
+            async with self.limits.global_sem, self.limits.transport_sem:
+                resp = await self.transport.request(Request(payload))
+            if resp.error is None or attempt >= rc.attempts or not self._transient(resp.error):
+                return resp
+            if getattr(self.transport, "kind", None) == "replay":
+                return resp  # a recording answers the same way every time
+            self.retries += 1
+            if rc.wait_s > 0:
+                await asyncio.sleep(rc.wait_s * (2 ** attempt))
+            attempt += 1
+
+    def _transient(self, f: Any) -> bool:
+        if f.kind in ("too_large", "protocol", "no_recording") or f.status in (401, 403):
+            return False
+        if any(re.search(rx, f.message, re.I) for rx in self.cfg.paging.too_large):
+            return False  # a truncation: the pager steps down from it
+        return bool(f.retryable) or any(re.search(rx, f.message, re.I) for rx in self.cfg.retry.transient)
 
     def _too_large(self, resp: Response, body: Any) -> bool:
         if resp.truncated:
@@ -178,11 +198,21 @@ class DeclarativeSource:
             return [Unit(ALL_UNITS)]
         units: dict[str, Unit] = {}
         token: str | None = None
-        for number in range(1, 101):
+        size = dc.page_size
+        for number in range(1, 1001):
             payload = render(req.payload(), self.context(None, None, page={"token": token, "number": number,
-                                                                           "size": dc.page_size}))
+                                                                           "size": size}))
             resp = await self.send(payload)
             self.budget.pages += 1
+            cut = resp.error is None and not resp.truncated and self._cut_short(resp)
+            if cut or self._too_large(resp, None):
+                # A page of units over the system's cap: halve it and ask for the same page again.
+                if not size or size <= 1:
+                    why = "discovery page cut short" + (f" at the minimum page size {size}" if size else
+                                                        "; set discover.page_size so it can be reduced")
+                    return Outcome("failed", cause={"code": "source.truncated", "message": why})
+                size = max(1, size // 2)
+                continue
             if resp.error is not None:
                 status = "unavailable" if resp.error.kind == "unavailable" else "failed"
                 return Outcome(status, cause=failure_cause(resp.error),

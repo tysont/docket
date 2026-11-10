@@ -224,6 +224,14 @@ class BudgetConfig(Strict):
     min_page_size: int | None = None
 
 
+class RetryConfig(Strict):
+    """Repeat a request that failed for a passing reason (TD §6.6). A failure the transport
+    marks retryable is transient; so is one whose message matches a ``transient`` pattern."""
+    attempts: int = 2                       # repeats after the first try; 0 turns repeating off
+    wait_s: float = 1.0                     # before the first repeat; doubles each time
+    transient: list[str] = []               # regexes over the failure message
+
+
 class ResolveConfig(Strict):
     patterns: list[str] = []
     fields: dict[str, str] = {}             # state, last_activity, last_actor, title -> paths
@@ -242,6 +250,7 @@ class Source(Strict):
     request: RequestPlan | None = None
     paging: PagingConfig = PagingConfig()
     discover: DiscoverConfig | None = None
+    retry: RetryConfig = RetryConfig()
     contract: dict[str, ContractKind] = {}
     auth: AuthConfig | None = None
     budget: BudgetConfig = BudgetConfig()

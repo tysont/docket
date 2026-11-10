@@ -135,6 +135,7 @@ async def _read_one(src: DeclarativeSource, sid: str, cfg: SourceConfig, *, star
         if model == "units":
             found = await src.discover()
             if isinstance(found, Outcome):
+                found.retries = src.retries
                 res.outcome = found
                 return res
             res.discovered = found
@@ -190,6 +191,7 @@ async def _read_one(src: DeclarativeSource, sid: str, cfg: SourceConfig, *, star
         res.units.append(r)
     res.units.sort(key=lambda x: x.unit.id)
     res.outcome = aggregate(res.units) if model != "id-scan" or res.units else Outcome("empty")
+    res.outcome.retries = src.retries
     if unread:
         res.outcome.status = "partial"
         res.outcome.reason = f"sample limit {entry_limit} reached; {unread} unit(s) not read"

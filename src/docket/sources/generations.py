@@ -78,7 +78,7 @@ def _outcome_row(res: "SourceResult", cfg: Any) -> dict[str, Any]:
         v = getattr(o, k)
         if v is not None:
             row[k] = v
-    for k in ("pages", "stepdowns", "tombstones", "failed_records"):
+    for k in ("pages", "stepdowns", "tombstones", "failed_records", "retries"):
         if getattr(o, k):
             row[k] = getattr(o, k)
     if res.quiet:

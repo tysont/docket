@@ -93,6 +93,7 @@ sources:
     extends: http/json-api
     description: Queue metrics API, failing in the recording.
     transport: metrics-api
+    retry: { wait_s: 0 }   # it fails every time; do not make the tests wait between repeats
     params: { path: /api/queue-stats }
   kb:
     # Fails by design: its auth check is the test stub docket-stub-auth (tests/fixtures/bin, first on
