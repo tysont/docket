@@ -94,3 +94,20 @@ def test_with_text_rewrites_only_the_text():
 def test_unknown_grammar_style_is_rejected():
     with pytest.raises(ValueError):
         Grammar.from_config({"fields": "yaml"})
+
+
+def test_a_bracket_field_may_have_no_key():
+    """Some task lists write one field with no name, for example the due date as
+    ``[:: 2026-10-16]``. It parses as the field named "" and renders as it was."""
+    g = Grammar()
+    line = "- [ ] Send the plan to the team. [thread](https://chat.example.org/t/1) [:: 2026-10-16] [area:: Platform] [est:: 30m]"
+    t = g.parse(line)
+    assert t.fields == [("", "2026-10-16"), ("area", "Platform"), ("est", "30m")]
+    assert t.text == "Send the plan to the team. [thread](https://chat.example.org/t/1)"
+    assert t.get("") == "2026-10-16" and g.render(t) == line
+    assert g.set_field(line, "", "2026-10-20") == line.replace("2026-10-16", "2026-10-20")
+    assert g.set_field("- [ ] Send the plan.", "", "2026-10-20") == "- [ ] Send the plan. [:: 2026-10-20]"
+    assert g.render(g.new("Call the vendor", [("", "2026-11-01"), ("est", "15m")])) == \
+        "- [ ] Call the vendor [:: 2026-11-01] [est:: 15m]"
+    # a wiki link and a markdown link are text, never a field
+    assert g.parse("- [ ] Read [[Plan]] [x](https://e.example/a)").fields == []

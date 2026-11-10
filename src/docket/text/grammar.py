@@ -7,7 +7,7 @@ A task line is ``<indent><status marker><text><fields>``:
   checkbox, any other single-character state (``- [-]``, ``- [>]``) parses with
   status ``other`` and is never rewritten;
 - fields are a trailing run in one of three styles: ``bracket``
-  (``[key:: value]``), ``inline`` (``key:: value``) or ``delimited``
+  (``[key:: value]``, where the key may be empty: ``[:: value]``), ``inline`` (``key:: value``) or ``delimited``
   (``<separator>key<assign>value``, for example `` | queue=tier1``);
 - links (Markdown ``[label](url)``, wiki ``[[target]]``, bare URLs, and field
   values that are URLs) and tags (``#word``) are read from the text.
@@ -26,7 +26,8 @@ from typing import Any
 
 STYLES = ("bracket", "inline", "delimited")
 _KEY = r"[A-Za-z_][A-Za-z0-9_-]*"
-_BRACKET_FIELD = re.compile(r" ?\[(" + _KEY + r"):: ([^\]]*)\]$")
+# The key may be empty: ``[:: 2026-10-16]`` is the field named "".
+_BRACKET_FIELD = re.compile(r" ?\[((?:" + _KEY + r")?):: ([^\]]*)\]$")
 _INLINE_START = re.compile(r"(?:^|\s)(" + _KEY + r"):: ")
 _MD_LINK = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
 _WIKI = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
