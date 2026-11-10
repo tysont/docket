@@ -123,6 +123,19 @@ class DeclarativeSource:
             return any(re.search(rx, resp.error.message, re.I) for rx in self.cfg.paging.too_large)
         return bool(self.cfg.paging.truncated and _truthy(lookup(body, self.cfg.paging.truncated)))
 
+    def _cut_short(self, resp: Response) -> bool:
+        """A body that is not JSON and whose text matches a ``too_large`` pattern: a gateway
+        with a response cap cut it and appended a note, without reporting an error."""
+        if not self.cfg.paging.too_large:
+            return False
+        text = resp.body.decode("utf-8", "replace")
+        try:
+            json.loads(text)
+            return False
+        except ValueError:
+            tail = text[-2000:]  # the note follows the cut; message text earlier in the body is not searched
+            return any(re.search(rx, tail, re.I) for rx in self.cfg.paging.too_large)
+
     def _parse(self, resp: Response) -> tuple[Any, dict[str, Any] | None]:
         try:
             return json.loads(resp.body.decode("utf-8")), None
@@ -315,9 +328,10 @@ class UnitReader:
             src.budget.pages += 1
             body: Any = None
             bad: dict[str, Any] | None = None
-            if resp.error is None and not resp.truncated:
+            cut = resp.error is None and not resp.truncated and src._cut_short(resp)
+            if resp.error is None and not resp.truncated and not cut:
                 body, bad = src._parse(resp)
-            if src._too_large(resp, body):
+            if cut or src._too_large(resp, body):
                 if size <= min_size:
                     st.status, st.position = "partial", position
                     st.reason = f"truncated at the minimum page size {min_size}"

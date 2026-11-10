@@ -441,7 +441,7 @@ Coverage is computed from what was read, never from counts the server claims. Th
 
 ### 6.5 Paging and step-down
 
-The pager requests `page_size` rows. On a truncation signal (a contract-declared marker, a response over the transport's size cap, or a transport error the contract classifies as `too_large`), it halves `page_size` and retries the same position, down to `min_page_size`. Below that, the unit is `partial` with its retry position. Budgets (`max_pages`, `max_seconds`) end collection as `partial`, never as `failed` (FR-SRC-08).
+The pager requests `page_size` rows. On a truncation signal (a contract-declared marker, a response over the transport's size cap, a transport error the contract classifies as `too_large`, or a body that is not JSON and ends with text matching a `too_large` pattern, which is how a gateway with a response cap reports a cut body), it halves `page_size` and retries the same position, down to `min_page_size`. Below that, the unit is `partial` with its retry position. Budgets (`max_pages`, `max_seconds`) end collection as `partial`, never as `failed` (FR-SRC-08).
 
 ### 6.6 Outcomes and isolation
 

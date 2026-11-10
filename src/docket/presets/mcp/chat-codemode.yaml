@@ -14,7 +14,8 @@ source:
     token_arg: pageToken
   request:
     # A gateway hands a tool result back as a parsed object, as JSON text, or as MCP content
-    # (text blocks, bare or under "content"). read() takes any of them.
+    # (text blocks, bare or under "content"). read() takes any of them. An argument with no
+    # value is left out of the call, because a tool with a strict schema refuses null.
     discover:
       script: |
         async () => {
@@ -23,7 +24,8 @@ source:
             if (Array.isArray(r)) r = r.map(b => (b && typeof b.text === "string") ? b.text : "").join("");
             return (typeof r === "string" ? JSON.parse(r) : r) ?? {};
           };
-          const v = read(await codemode[{{tool}}]({ [{{token_arg}}]: {{token}} }));
+          const given = (a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== null && x !== undefined));
+          const v = read(await codemode[{{tool}}](given({ [{{token_arg}}]: {{token}} })));
           const spaces = (v.spaces ?? []).map(s => ({
             name: s.name ?? null, displayName: s.displayName ?? null,
             spaceType: s.spaceType ?? null,
@@ -39,9 +41,10 @@ source:
             if (Array.isArray(r)) r = r.map(b => (b && typeof b.text === "string") ? b.text : "").join("");
             return (typeof r === "string" ? JSON.parse(r) : r) ?? {};
           };
-          const v = read(await codemode[{{tool}}]({
+          const given = (a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== null && x !== undefined));
+          const v = read(await codemode[{{tool}}](given({
             [{{space_arg}}]: {{space}}, [{{after_arg}}]: {{after}},
-            [{{size_arg}}]: {{page_size}}, [{{token_arg}}]: {{token}} }));
+            [{{size_arg}}]: {{page_size}}, [{{token_arg}}]: {{token}} })));
           const messages = (v.messages ?? []).map(m => ({
             name: m.name ?? null, createTime: m.createTime ?? null, text: String(m.text ?? "").slice(0, 2000),
             sender: { name: m.sender?.name ?? null, displayName: m.sender?.displayName ?? null },

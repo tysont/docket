@@ -30,8 +30,10 @@ class Server:
     ``max_rows`` declares pages above it too large; ``fail_at`` fails that request number."""
     kind, id, info = "scripted", "t", {}
 
-    def __init__(self, rows=ROWS, *, short=False, max_rows=None, fail_at=None, end_flag=False, empty_end=False):
+    def __init__(self, rows=ROWS, *, short=False, max_rows=None, fail_at=None, end_flag=False, empty_end=False,
+                 cut_marker=None):
         self.rows, self.short, self.max_rows, self.fail_at = rows, short, max_rows, fail_at
+        self.cut_marker = cut_marker  # a gateway that cuts an oversized body and appends this text, with no error
         self.end_flag, self.empty_end = end_flag, empty_end
         self.requests: list[dict] = []
 
@@ -44,6 +46,9 @@ class Server:
             return Response(status=500, error=Failure("status", "HTTP 500: disk quota exceeded on node 4", 500))
         a = req.payload.get("args", {})
         size = int(a.get("size") or 100)
+        if self.max_rows is not None and size > self.max_rows and self.cut_marker is not None:
+            whole = json.dumps({"items": self.rows[:size], "next": None})
+            return Response(body=(whole[:len(whole) // 2] + self.cut_marker).encode())
         if self.max_rows is not None and size > self.max_rows:
             return Response(error=Failure("error", f"result of {size} rows is too large for the gateway"))
         after = a.get("after")
@@ -141,6 +146,25 @@ def test_step_down_on_truncation_retries_the_same_position():
     assert ids(pages) == [x["id"] for x in ROWS]
     assert [q["args"]["size"] for q in server.requests[:3]] == [4, 2, 1]
     assert "token" not in server.requests[0]["args"] and "token" not in server.requests[2]["args"]
+
+
+def test_a_body_cut_short_with_a_marker_steps_down_like_an_error():
+    """A gateway with a response cap may answer 200 with the body cut and a note appended.
+    The body is then not JSON; when its text matches a too_large pattern that is a
+    truncation to step down from, not a contract failure."""
+    server = Server(max_rows=2, cut_marker="\n\n--- TRUNCATED ---\nResponse was ~7,546 tokens.")
+    cfg = source(paging={"page_size": 8, "min_page_size": 1, "too_large": ["truncat"]})
+    r, pages, shapes = read(cfg, server)
+    assert r.outcome.status == "read" and r.outcome.stepdowns == 2 and r.outcome.page_size == 2
+    assert ids(pages) == [x["id"] for x in ROWS] and shapes == []
+
+
+def test_a_body_that_is_not_json_and_matches_no_pattern_is_still_a_contract_failure():
+    server = Server(max_rows=2, cut_marker=" <html>gateway error page</html>")
+    cfg = source(paging={"page_size": 8, "min_page_size": 1, "too_large": ["truncat"]})
+    r, pages, shapes = read(cfg, server)
+    assert r.outcome.status == "failed" and r.outcome.cause["code"] == "source.contract.not_json"
+    assert r.outcome.stepdowns == 0 and len(shapes) == 1
 
 
 def test_truncated_at_min_page_size_is_partial_with_its_retry_position():

@@ -64,7 +64,7 @@ def test_chat_discover_projects_spaces_from_every_result_wrapping(wrapping):
     src = _load()
     got = run(src["request"]["discover"]["script"], {"tool": "rooms_list", "token": None, "token_arg": "cursor"},
               wrapping, {"rooms_list": SPACES})
-    assert got["calls"] == [["rooms_list", {"cursor": None}]]
+    assert got["calls"] == [["rooms_list", {}]]  # an absent value is left out: a strict tool schema refuses null
     assert got["out"] == {"nextPageToken": "p2", "spaces": [
         {"name": "spaces/room-1", "displayName": "Platform", "spaceType": "SPACE", "memberCount": 41},
         {"name": "spaces/dm-1", "displayName": None, "spaceType": "DIRECT_MESSAGE", "memberCount": 2}]}
@@ -82,6 +82,17 @@ def test_chat_read_calls_the_tool_with_the_workspace_argument_names(wrapping):
     assert m["name"] == "spaces/room-1/messages/m1" and len(m["text"]) == 2000 and "cardsV2" not in m
     assert m["sender"] == {"name": "users/2002", "displayName": "Kim Osei"}
     assert got["out"]["nextPageToken"] is None and got["out"]["truncated"] is False
+
+
+def test_chat_requests_leave_out_arguments_that_have_no_value_and_pass_those_that_do():
+    src = _load()
+    got = run(src["request"]["discover"]["script"], {"tool": "rooms_list", "token": "p2", "token_arg": "cursor"},
+              "object", {"rooms_list": SPACES})
+    assert got["calls"] == [["rooms_list", {"cursor": "p2"}]]
+    first = {"tool": "posts_list", "space": "spaces/room-1", "after": None, "page_size": 25, "token": None,
+             "space_arg": "parent", "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken"}
+    got = run(src["request"]["read"]["script"], first, "object", {"posts_list": MESSAGES})
+    assert got["calls"] == [["posts_list", {"parent": "spaces/room-1", "pageSize": 25}]]
 
 
 def test_the_preset_defaults_name_arguments_and_the_request_plan_passes_them():
