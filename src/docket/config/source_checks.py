@@ -50,12 +50,17 @@ def _preset_id(ref: str) -> str:
     return ref[len("preset:"):] if ref.startswith("preset:") else ref
 
 
-def apply_extends(layered: Layered, issues: list[Issue]) -> Layered:
+def apply_extends(layered: Layered, issues: list[Issue], done: set[str] | None = None) -> Layered:
+    """Merge each source's preset underneath it. ``done`` collects the sources handled, and
+    a source already in it is left alone: the loader calls this on the workspace's own files
+    first, while a list still holds its ``{extend}`` or ``{remove}`` form and can edit the
+    preset's list, then on the merged configuration for sources a workspace preset defines."""
     sources = layered.data.get("sources")
     if not isinstance(sources, dict):
         return layered
+    done = set() if done is None else done
     for sid, src in list(sources.items()):
-        if not isinstance(src, dict):
+        if not isinstance(src, dict) or sid in done:
             continue
         ref = src.get("extends")
         if ref is None and src.get("kind") == "files" and src.get("path") and not src.get("transport"):
@@ -94,6 +99,7 @@ def apply_extends(layered: Layered, issues: list[Issue]) -> Layered:
         layered.origins.update(_sub_origins(merged.origins, base))
         if src.get("extends") is None:
             sources[sid]["extends"] = pid
+        done.add(sid)
     return layered
 
 

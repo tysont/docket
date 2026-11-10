@@ -178,3 +178,30 @@ def test_an_unknown_mapping_key_suggests_the_closest_valid_key(tmp_path, bad, ex
     found = [i for i in issues if i.code == "config.bad_mapping"]
     assert len(found) == 1 and found[0].suggestion == expected, [i.as_dict() for i in issues]
     assert "fields.<name>" in found[0].message and "title" in found[0].message
+
+
+def test_a_list_inherited_through_extends_can_be_extended_and_trimmed(tmp_path):
+    """``{extend: [...]}`` and ``{remove: [...]}`` edit the list the source preset ships.
+    They used to be resolved against nothing, before the preset was merged underneath, so
+    extending a preset's list silently replaced it."""
+    ws, issues = issues_of(tmp_path, """\
+        transports:
+          gw: { kind: codemode, command: [gateway-bin], tool: run_code }
+        sources:
+          chat:
+            extends: mcp/chat-codemode
+            transport: gw
+            params: { spaces_tool: list_rooms, messages_tool: list_posts }
+            retry: { transient: { extend: ["quota exceeded"] } }
+            paging: { too_large: { remove: ["too large"] } }
+          plain:
+            extends: mcp/chat-codemode
+            transport: gw
+            params: { spaces_tool: list_rooms, messages_tool: list_posts }
+        """)
+    assert issues == []
+    shipped = ws.config.sources["plain"].retry.transient
+    assert len(shipped) > 1 and ws.config.sources["chat"].retry.transient == [*shipped, "quota exceeded"]
+    assert ws.config.sources["chat"].paging.too_large == ["truncat"]
+    assert explain(ws, "sources.chat.retry.transient[0]")["origin"].startswith("preset:mcp/chat-codemode@")
+    assert explain(ws, f"sources.chat.retry.transient[{len(shipped)}]")["origin"].startswith("workspace:docket.yaml:")

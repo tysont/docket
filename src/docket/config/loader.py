@@ -387,9 +387,11 @@ def load(root: Path) -> Loaded:
             lay.data.pop(preset_mod.META_KEY, None)
             layered = merge_layers(layered, lay, issues)
             preset_ids.append(pid)
-    layered = merge_layers(layered, ws, issues)
     from docket.config.source_checks import apply_extends  # source presets (TD §6.1)
-    layered = apply_extends(layered, issues)
+    extended: set[str] = set()
+    ws = apply_extends(ws, issues, extended)  # first, so a list form in a source edits its preset's list
+    layered = merge_layers(layered, ws, issues)
+    layered = apply_extends(layered, issues, extended)
     return Loaded(root, layered.data, layered.origins, files, preset_ids, issues)
 
 
