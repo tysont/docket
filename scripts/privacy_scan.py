@@ -8,7 +8,11 @@ Checks, in order:
      unless --no-denylist is given.
   2. Generic patterns: email addresses outside reserved example domains,
      credential-shaped tokens, private keys, and absolute home directories.
-  3. Commit metadata (author and committer emails) for a revision range.
+  3. Commit metadata (author and committer emails) for a revision range. A
+     commit email must be a reserved or no-reply address, or one the
+     maintainer listed outside the repository: $DOCKET_COMMIT_EMAILS (comma
+     separated), else ~/.config/docket/commit-emails.txt (one per line). The
+     list applies to commit metadata only, never to file contents.
 
 Exit status 0 when clean, 1 when anything is found. Findings print as
 file:line: rule, with the matched text masked so the scan output itself
@@ -80,7 +84,20 @@ def scan_text(label: str, text: str, deny: list[re.Pattern], findings: list[str]
             findings.append(f"{label}:{n}: home path '{mask(m.group(0))}'")
 
 
-def scan_commits(root: Path, rev_range: str, deny: list[re.Pattern], findings: list[str]) -> None:
+def commit_emails(env: dict[str, str] | None = None, home: Path | None = None) -> set[str]:
+    """Addresses the maintainer publishes commits under, read from outside the repository."""
+    env = os.environ if env is None else env
+    raw = env.get("DOCKET_COMMIT_EMAILS")
+    if raw is None:
+        path = (home or Path.home()) / ".config/docket/commit-emails.txt"
+        raw = path.read_text(encoding="utf-8") if path.is_file() else ""
+    lines = [part.split("#", 1)[0].strip().lower() for part in re.split(r"[,\n]", raw)]
+    return {e for e in lines if e}
+
+
+def scan_commits(root: Path, rev_range: str, deny: list[re.Pattern], findings: list[str],
+                 allowed: set[str] | None = None) -> None:
+    allowed = commit_emails() if allowed is None else allowed
     fmt = "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e"
     out = subprocess.run(
         ["git", "log", f"--format={fmt}", rev_range], cwd=root,
@@ -95,7 +112,7 @@ def scan_commits(root: Path, rev_range: str, deny: list[re.Pattern], findings: l
             continue
         sha, an, ae, cn, ce, body = (rec.split("\x1f") + [""] * 6)[:6]
         for who, email in (("author", ae), ("committer", ce)):
-            if not ALLOWED_EMAIL.search(email):
+            if not ALLOWED_EMAIL.search(email) and email.lower() not in allowed:
                 findings.append(f"commit {sha[:8]}: {who} email '{mask(email)}'")
         scan_text(f"commit {sha[:8]} metadata", "\n".join([an, cn, body]), deny, findings)
 
