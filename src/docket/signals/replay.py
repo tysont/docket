@@ -93,7 +93,8 @@ def stored_agent_rows(run: Any) -> dict[str, dict[str, Any]]:
         for r in rows:
             if isinstance(r, dict) and r.get("id"):
                 out[str(r["id"])] = {"keep": bool(r.get("keep")), "score": int(r.get("score") or 0),
-                                     **({"topic": r["topic"]} if r.get("topic") else {})}
+                                     **({"topic": r["topic"]} if r.get("topic") else {}),
+                                     **({"kind": r["kind"]} if r.get("kind") else {})}
     return out
 
 

@@ -124,14 +124,16 @@ def inputs_for(ws: Any, store: Any, run: Any, items: list[dict[str, Any]], agent
 
 def agent_rows(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Accepted assess rows as the assess stage's output carries them (``keep``, ``score``,
-    and ``assess.topic`` when the task kind supplies one)."""
+    and the assessment's ``topic`` and ``kind`` when the task supplies them)."""
     out = {}
     for it in items:
         if "keep" in it or "score" in it:
             row = {"keep": bool(it.get("keep")), "score": int(it.get("score") or 0)}
-            topic = (it.get("assess") or {}).get("topic") if isinstance(it.get("assess"), dict) else None
-            if topic:
-                row["topic"] = topic
+            assess = next((it[k] for k in ("assessment", "assess") if isinstance(it.get(k), dict)), {})
+            if assess.get("topic"):
+                row["topic"] = assess["topic"]
+            if assess.get("kind"):
+                row["kind"] = assess["kind"]  # merge reads it: a kept commitment keeps a topic open
             out[it["id"]] = row
     return out
 

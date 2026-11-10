@@ -300,7 +300,7 @@ class ReviewStage(DelegatedStage):
 class MergeStage(BaseStage):
     """M3: rules, scores, merge by topic, suppression and coverage (``docket.signals``)."""
     name = "merge"
-    schema_version = 2  # 2: conversation topics; an open commitment is not an answer
+    schema_version = 3  # 2: conversation topics. 3: an open commitment is not an answer
     config_sections = ("profile", "signals", "destinations")
     command = ("merge",)
     expect = "the merge artifact: topics with scores, statuses, traces and coverage notes"
