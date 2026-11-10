@@ -127,12 +127,26 @@ def processed_ids(db: sqlite3.Connection, source: str) -> set[str]:
 
 def write_proposal(db: sqlite3.Connection, run_id: str, source: str, unit: str, position: str | None,
                    coverage_end: str | None, *, generation: int, model: str, complete: bool) -> bool:
-    """Record proven coverage; within a run a proposal only moves forward. Returns whether it changed."""
+    """Record proven coverage; within a run a proposal only moves forward. Returns whether it changed.
+
+    A unit read and found empty has no position, but the read proved coverage to
+    ``coverage_end``. That is kept too, so the next run starts where this one ended and can
+    tell the unit was read (TD §6.4).
+    """
+    row = db.execute("SELECT position, coverage_end, complete FROM cursor_proposals WHERE run_id=? AND source=? "
+                     "AND unit=?", (run_id, source, unit)).fetchone()
     if position is None:
-        return False
-    row = db.execute("SELECT position, complete FROM cursor_proposals WHERE run_id=? AND source=? AND unit=?",
-                     (run_id, source, unit)).fetchone()
-    if row is not None:
+        if coverage_end is None or not complete:
+            return False
+        if row is not None and not is_ahead(coverage_end, row["coverage_end"]):
+            return False
+        kept = row["position"] if row is not None else None  # a position already proposed stays
+        db.execute("INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end, "
+                   "generation, model, complete) VALUES (?,?,?,?,?,?,?,?)",
+                   (run_id, source, unit, kept, coverage_end, generation, model,
+                    int(row["complete"]) if row is not None and kept is not None else 1))
+        return True
+    if row is not None and row["position"] is not None:
         same = compare(position, row["position"]) == 0
         if not (is_ahead(position, row["position"]) or (same and complete and not row["complete"])):
             return False
@@ -154,8 +168,18 @@ def apply_proposals(db: sqlite3.Connection, run_id: str) -> dict[str, list[Any]]
                        (src, unit, run_id))
             advanced.add(src)
             continue
-        cur = db.execute("SELECT position FROM cursors WHERE source=? AND unit=?", (src, unit)).fetchone()
+        cur = db.execute("SELECT position, coverage_end FROM cursors WHERE source=? AND unit=?", (src, unit)).fetchone()
         cur_pos = cur["position"] if cur else None
+        if p["position"] is None:
+            # Coverage only: the unit was read and held nothing new. Extend the coverage; keep the position.
+            if cur is None:
+                db.execute("INSERT INTO cursors (source, unit, position, coverage_end, updated_run) VALUES (?,?,?,?,?)",
+                           (src, unit, None, p["coverage_end"], run_id))
+            elif is_ahead(p["coverage_end"], cur["coverage_end"]):
+                db.execute("UPDATE cursors SET coverage_end=?, updated_run=? WHERE source=? AND unit=?",
+                           (p["coverage_end"], run_id, src, unit))
+            advanced.add(src)
+            continue
         if cur_pos is not None and is_behind(p["position"], cur_pos):
             row = {"source": src, "unit": unit, "proposed": p["position"], "durable": cur_pos}
             regressions.append(row)

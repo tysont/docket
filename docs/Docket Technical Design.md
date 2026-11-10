@@ -437,7 +437,7 @@ Transport instances are declared once under `transports:` and shared by sources 
 
 The ordering key, page token field and "no more" signal are contract fields in the preset, so a server that pages by token, by offset or by time window is configuration (FR-SRC-02).
 
-Coverage is computed from what was read, never from counts the server claims. The rule `returned == read` that failed in the predecessor does not exist here: a page with fewer rows than requested is complete if the contract's end-of-data signal says so, and otherwise the next page is requested.
+Coverage is computed from what was read, never from counts the server claims. The rule `returned == read` that failed in the predecessor does not exist here: a page with fewer rows than requested is complete if the contract's end-of-data signal says so, and otherwise the next page is requested. A unit read and found empty has no position, but the read proved coverage to the run's instant. That coverage is kept as a cursor with no position, so the next run starts where this one ended, where it would otherwise start again from the lookback and miss anything older, and so the quiet-unit rule (§6.9) can tell the unit was read. Coverage only moves forward and never erases a position.
 
 ### 6.5 Paging and step-down
 

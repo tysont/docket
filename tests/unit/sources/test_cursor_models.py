@@ -274,3 +274,31 @@ def test_a_plan_that_ignores_the_continuation_cannot_loop():
     r, pages, shapes = read(cfg, server)
     assert r.outcome.status == "partial" and len(server.requests) == 1
     assert [s.area for s in shapes] == ["source.paging"]
+
+
+def test_a_unit_read_and_found_empty_keeps_its_proven_coverage(tmp_path):
+    """A unit that has never held a record has no position, but reading it proved coverage
+    to the run's instant. Without that row the next run cannot tell it was read: it starts
+    again from the lookback, missing anything older, and a quiet unit is read every run."""
+    later = "2026-10-16T18:00:00+00:00"
+    db = open_db(tmp_path / "d.db")
+    db.row_factory = sqlite3.Row
+    with db:
+        db.execute("INSERT INTO cursors (source, unit, position, coverage_end, updated_run) VALUES "
+                   "('feed','held','2026-10-15T05:00:00+00:00','2026-10-15T06:00:00+00:00','old')")
+        assert write_proposal(db, "r1", "feed", "empty", None, INSTANT, generation=0, model="units", complete=True)
+        assert not write_proposal(db, "r1", "feed", "partial", None, INSTANT, generation=0, model="units",
+                                  complete=False)                       # coverage not proven: nothing to keep
+        assert not write_proposal(db, "r1", "feed", "nothing", None, None, generation=0, model="units", complete=True)
+        assert write_proposal(db, "r1", "feed", "empty", None, later, generation=1, model="units", complete=True)
+        assert not write_proposal(db, "r1", "feed", "empty", None, INSTANT, generation=2, model="units",
+                                  complete=True)                        # coverage only moves forward
+        assert write_proposal(db, "r1", "feed", "empty2", None, INSTANT, generation=0, model="units", complete=True)
+        assert write_proposal(db, "r1", "feed", "empty2", "2026-10-16T09:00:00+00:00", later, generation=1,
+                              model="units", complete=True)             # a record arrived: a position replaces none
+        assert write_proposal(db, "r1", "feed", "held", None, later, generation=0, model="units", complete=True)
+        apply_proposals(db, "r1")
+    rows = {r["unit"]: (r["position"], r["coverage_end"]) for r in db.execute("SELECT * FROM cursors")}
+    assert rows == {"empty": (None, later), "empty2": ("2026-10-16T09:00:00+00:00", later),
+                    "held": ("2026-10-15T05:00:00+00:00", later)}       # the durable position is never erased
+    db.close()
