@@ -13,6 +13,9 @@ source:
     after_arg: after
     token_arg: pageToken
     spaces_size_arg: ""       # the spaces tool's page-size argument, when discover.page_size is set
+    # A template for the item's url. {space} and {thread} are the last segments of the
+    # space and thread names. Empty: items carry no link.
+    link: ""
   request:
     # A gateway hands a tool result back as a parsed object, as JSON text, or as MCP content
     # (text blocks, bare or under "content"). read() takes any of them. An argument with no
@@ -53,10 +56,17 @@ source:
           const v = read(await codemode[{{tool}}](given({
             [{{space_arg}}]: {{space}}, [{{after_arg}}]: {{after}},
             [{{size_arg}}]: {{page_size}}, [{{token_arg}}]: {{token}} })));
+          const last = (n) => String(n ?? "").split("/").pop();
+          const template = {{link}} || "";
+          const link = (m) => template
+            ? template.replace("{space}", last({{space}})).replace("{thread}", last(m.thread?.name)) : null;
           const messages = (v.messages ?? []).map(m => ({
             name: m.name ?? null, createTime: m.createTime ?? null, text: String(m.text ?? "").slice(0, 2000),
-            sender: { name: m.sender?.name ?? null, displayName: m.sender?.displayName ?? null },
-            thread: { name: m.thread?.name ?? null } }));
+            sender: { name: m.sender?.name ?? null, displayName: m.sender?.displayName ?? null,
+                      type: m.sender?.type ?? null },
+            thread: { name: m.thread?.name ?? null },
+            mentions: (m.annotations ?? []).map(a => a?.userMention?.user?.name).filter(Boolean),
+            url: link(m) }));
           return JSON.stringify({ messages, nextPageToken: v.nextPageToken ?? null, truncated: v.truncated ?? false });
         }
       args:
@@ -69,6 +79,7 @@ source:
         size_arg: "{params.size_arg}"
         after_arg: "{params.after_arg}"
         token_arg: "{params.token_arg}"
+        link: "{params.link}"
   # A gateway in front of a chat system drops a call now and then. These messages mean
   # "ask again", from the gateway's own timeout or a stream that ended.
   retry:
@@ -101,11 +112,13 @@ source:
         spaceType: { unknown: { reading: "treat as a group space", value: ROOM, extend: "preset mcp/chat-codemode: contract.space.enums.spaceType" } }
     message:
       required: { name: str, createTime: timestamp }
-      optional: { text: str, sender.displayName: str, sender.name: str, thread.name: str }
+      optional: { text: str, sender.displayName: str, sender.name: str, sender.type: str, thread.name: str,
+                  mentions: list, url: str }
       variations:
         sender.displayName: { missing: { reading: "use sender.name", use: sender.name, record: false } }
   mapping: { id: "$.name", text: "$.text", title: "$.text", from: "$.sender.displayName", at: "$.createTime",
-             from.handle: "$.sender.name", thread: "$.thread.name" }
+             from.handle: "$.sender.name", thread: "$.thread.name", url: "$.url", mentions: "$.mentions",
+             fields.sender_type: "$.sender.type" }
 
 # Metadata (never merged): scope, and the placeholders docket init writes.
 preset:

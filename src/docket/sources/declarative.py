@@ -240,6 +240,8 @@ class DeclarativeSource:
                                reading="use the unit id as its name", extend=f"sources.{self.id}.discover.name")
                     name = str(uid)
                 utype = lookup(checked.view, dc.type) if dc.type else None
+                if dc.types is not None and (None if utype is None else str(utype)) not in dc.types:
+                    continue  # another source's kind of unit
                 members = lookup(checked.view, dc.members) if dc.members else None
                 active = lookup(checked.view, dc.active) if dc.active else None
                 units[str(uid)] = Unit(str(uid), str(name), None if utype is None else str(utype),

@@ -179,6 +179,7 @@ class DiscoverConfig(Strict):
     name: str | None = "$.name"
     type: str | None = "$.type"
     members: str | None = None
+    types: list[str] | None = None          # keep only units of these types; others are not this source's
     page_size: int | None = None            # units per discovery page ({page.size}); None: the system's default
     # Last activity of a unit. A unit with no activity after the place its cursor starts is
     # not read, provided it was really read within verify_every; None there trusts it always.

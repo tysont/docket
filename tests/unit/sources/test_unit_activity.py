@@ -50,8 +50,8 @@ class Rooms:
             start = int(a.get("token") or 0)
             chunk = ids[start:start + size]
             nxt = start + len(chunk)
-            rows = [{"id": i, "name": i.upper(), **({"active": self.units[i][0]} if self.units[i][0] else {})}
-                    for i in chunk]
+            rows = [{"id": i, "name": i.upper(), "type": "direct" if i.startswith("dm") else "room",
+                     **({"active": self.units[i][0]} if self.units[i][0] else {})} for i in chunk]
             if self.cut_above is not None and size > self.cut_above:
                 whole = json.dumps({"units": rows, "next": None})
                 return Response(body=(whole[:len(whole) // 2] + "\n--- TRUNCATED ---\nResponse was too long").encode())
@@ -70,7 +70,7 @@ def source(**discover):
         "transport": "t", "cursor": {"model": "units", "lookback": "1d"},
         "request": {"discover": {"op": "discover", "args": {"token": "{page.token}", "size": "{page.size}"}},
                     "read": {"op": "read", "args": {"unit": "{unit.id}", "after": "{cursor.start}"}}},
-        "discover": {"entries": "$.units", "next": "$.next", "id": "$.id", "name": "$.name", "type": None,
+        "discover": {"entries": "$.units", "next": "$.next", "id": "$.id", "name": "$.name", "type": "$.type",
                      "active": "$.active", **discover},
         "paging": {"entries": "$.items", "next": "$.next", "order_key": "$.ts"},
         "contract": {"entry": {"required": {"id": "str", "ts": "timestamp"}}}})
@@ -175,6 +175,20 @@ def test_a_named_unit_is_read_even_when_quiet():
     durable = {"quiet": ("2026-10-10T09:00:00+00:00", YESTERDAY)}
     collect(source(), server, durable, only_unit="quiet")
     assert server.read_units() == ["quiet"]
+
+
+def test_a_source_can_take_only_the_units_of_some_types():
+    """Two sources over one system: rooms in one, direct conversations in the other."""
+    units = {"dm-kim": BUSY, "dm-sam": BUSY, "ops": BUSY}
+    server = Rooms(units)
+    res, shapes = collect(source(types=["direct"]), server)
+    assert [u.id for u in res.discovered] == ["dm-kim", "dm-sam"] and server.read_units() == ["dm-kim", "dm-sam"]
+    server = Rooms(units)
+    res, shapes = collect(source(types=["room"]), server)
+    assert [u.id for u in res.discovered] == ["ops"] and shapes == []
+    server = Rooms(units)
+    res, _ = collect(source(), server)
+    assert len(res.discovered) == 3  # no filter: every unit
 
 
 def test_verify_every_must_be_a_duration(tmp_path):

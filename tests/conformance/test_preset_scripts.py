@@ -27,7 +27,12 @@ SPACES = {"spaces": [
 MESSAGES = {"messages": [
     {"name": "spaces/room-1/messages/m1", "createTime": "2026-10-15T07:00:00Z", "text": "x" * 3000,
      "sender": {"name": "users/2002", "displayName": "Kim Osei", "type": "HUMAN"},
-     "thread": {"name": "spaces/room-1/threads/t1"}, "cardsV2": [{"cardId": "c"}]},
+     "thread": {"name": "spaces/room-1/threads/t1"}, "cardsV2": [{"cardId": "c"}],
+     "annotations": [
+         {"type": "USER_MENTION", "startIndex": 0, "length": 4,
+          "userMention": {"user": {"name": "users/1001", "displayName": "Dana Reyes", "type": "HUMAN"}, "type": "MENTION"}},
+         {"type": "RICH_LINK", "richLinkMetadata": {"uri": "https://docs.example.org/x"}},
+         {"type": "USER_MENTION", "userMention": {"user": {"name": "users/3003"}}}]},
 ]}
 
 HARNESS = """
@@ -82,7 +87,9 @@ def test_chat_read_calls_the_tool_with_the_workspace_argument_names(wrapping):
                                             "maxResults": 25, "cursor": "t9"}]]
     (m,) = got["out"]["messages"]
     assert m["name"] == "spaces/room-1/messages/m1" and len(m["text"]) == 2000 and "cardsV2" not in m
-    assert m["sender"] == {"name": "users/2002", "displayName": "Kim Osei"}
+    assert m["sender"] == {"name": "users/2002", "displayName": "Kim Osei", "type": "HUMAN"}
+    assert m["mentions"] == ["users/1001", "users/3003"]  # people mentioned, by handle; other annotations ignored
+    assert m["url"] is None                                # no link template configured
     assert got["out"]["nextPageToken"] is None and got["out"]["truncated"] is False
 
 
@@ -103,11 +110,35 @@ def test_chat_requests_leave_out_arguments_that_have_no_value_and_pass_those_tha
     assert got["calls"] == [["posts_list", {"parent": "spaces/room-1", "pageSize": 25}]]
 
 
+READ = {"tool": "posts_list", "space": "spaces/room-1", "after": None, "page_size": 25, "token": None,
+        "space_arg": "parent", "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken"}
+
+
+@pytest.mark.parametrize("template,want", [
+    ("https://chat.example.org/room/{space}/{thread}", "https://chat.example.org/room/room-1/t1"),
+    ("https://chat.example.org/dm/{space}", "https://chat.example.org/dm/room-1"),
+    ("", None),
+])
+def test_chat_read_builds_a_link_back_from_the_workspace_template(template, want):
+    src = _load()
+    got = run(src["request"]["read"]["script"], {**READ, "link": template}, "object", {"posts_list": MESSAGES})
+    assert got["out"]["messages"][0]["url"] == want
+
+
+def test_the_chat_mapping_carries_link_mentions_and_sender_type():
+    src = _load()
+    assert src["mapping"]["url"] == "$.url" and src["mapping"]["mentions"] == "$.mentions"
+    assert src["mapping"]["fields.sender_type"] == "$.sender.type"
+    args = src["request"]["read"]["args"]
+    assert args["link"] == "{params.link}" and src["params"]["link"] == ""
+
+
 def test_the_preset_defaults_name_arguments_and_the_request_plan_passes_them():
     src = _load()
-    assert src["params"] == {"spaces_tool": None, "messages_tool": None, "space_arg": "parent",
-                             "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken",
-                             "spaces_size_arg": ""}
+    names = {k: v for k, v in src["params"].items() if k.endswith("_arg") or k.endswith("_tool")}
+    assert names == {"spaces_tool": None, "messages_tool": None, "space_arg": "parent",
+                     "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken",
+                     "spaces_size_arg": ""}
     read_args = src["request"]["read"]["args"]
     assert read_args["space_arg"] == "{params.space_arg}" and read_args["token_arg"] == "{params.token_arg}"
     assert src["request"]["discover"]["args"]["token_arg"] == "{params.token_arg}"
