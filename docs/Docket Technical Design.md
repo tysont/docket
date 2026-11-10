@@ -605,6 +605,8 @@ A workspace may define a further kind by declaring its input selection, output f
 
 `tasks/packs.py` builds packs deterministically: items sorted by score descending then id, batched to `budget.max_items` and `budget.max_bytes` per pack. Must-surface items are placed first and never dropped; if they alone exceed a pack budget, the pack exceeds it and records an unexpected shape `pack.over_budget` (FR-TSK-05). Each pack contains everything the task needs: item fields, evidence lines with line ids, unit context, relevant profile excerpts (people named, topics matched) and the vocabulary. Its digest is the task input digest.
 
+Items that share a source, unit and thread are one conversation. A pack keeps a conversation together with its items oldest first, each row carries its `thread`, and a pack boundary falls between conversations whenever one fits; a conversation longer than a pack spans packs in order. Conversations rank by their strongest item, must-surface first and then score. The assess instructions tell the task to read a conversation before judging its items, because a reply may answer or close what an earlier item asked.
+
 ### 9.3 Prompts
 
 `tasks/prompts.py` renders `prompt.md` from four parts:

@@ -3,7 +3,8 @@
 A pack holds everything its task needs and nothing else: each item's fields
 and evidence lines with line ids, the context of the units the items came
 from, the profile excerpts the items touch (people named, topics matched) and
-the vocabulary. Items sort must-surface first, then by score descending, then
+the vocabulary. Conversations (items sharing a thread) stay together, oldest item first.
+They sort must-surface first, then by score descending, then
 by id, and batch to the kind's ``max_items`` and ``max_bytes``. A must-surface
 item is never dropped or trimmed: when it alone exceeds the byte budget, its
 pack exceeds the budget and records the unexpected shape ``pack.over_budget``.
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from docket.config.models import DocketConfig
     from docket.tasks.kinds import TaskKind
 
-ITEM_FIELDS = ("id", "source", "unit", "title", "from", "at", "url")
+ITEM_FIELDS = ("id", "source", "unit", "thread", "title", "from", "at", "url")
 PROPOSAL_FIELDS = ("kind", "owner", "ask", "evidence", "deadline", "topic")
 
 
@@ -281,21 +282,36 @@ def _vocabulary(kind: "TaskKind", ctx: PackContext) -> dict[str, list[str]]:
 
 def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext) -> list[dict[str, Any]]:
     """Packs for ``items`` (already selected for the kind), in a deterministic order."""
-    rows = sorted(items, key=lambda it: (not must_surface(it), -score_of(it), str(it.get("id"))))
+    # A conversation is the items sharing a source, unit and thread; an item with no thread
+    # is its own. Conversations rank by their strongest item (must-surface, then score), and
+    # inside one the items run oldest first, so a task reads each exchange whole and in order.
+    convs: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for it in items:
+        thread = it.get("thread")
+        key = (str(it.get("source") or ""), str(it.get("unit") or ""), str(thread)) if thread else \
+            ("", "", str(it.get("id")))
+        convs.setdefault(key, []).append(it)
+    ordered = sorted(convs.items(), key=lambda kv: (not any(must_surface(i) for i in kv[1]),
+                                                    -max(score_of(i) for i in kv[1]), kv[0][2], kv[0]))
     groups: list[list[dict[str, Any]]] = []
     cur: list[dict[str, Any]] = []
     cur_bytes = 0
-    for it in rows:
-        view = item_view(kind, it)
-        n = _size(view)
-        if n > kind.max_bytes and not view["must_surface"]:
-            view = _trim(view, kind.max_bytes)
-            n = _size(view)
-        if cur and (len(cur) >= kind.max_items or cur_bytes + n > kind.max_bytes):
-            groups.append(cur)
+    for _, members in ordered:
+        members = sorted(members, key=lambda it: (str(it.get("at") or ""), str(it.get("id"))))
+        if cur and len(cur) + len(members) > kind.max_items:
+            groups.append(cur)  # break between conversations, not inside one
             cur, cur_bytes = [], 0
-        cur.append(view)
-        cur_bytes += n
+        for it in members:
+            view = item_view(kind, it)
+            n = _size(view)
+            if n > kind.max_bytes and not view["must_surface"]:
+                view = _trim(view, kind.max_bytes)
+                n = _size(view)
+            if cur and (len(cur) >= kind.max_items or cur_bytes + n > kind.max_bytes):
+                groups.append(cur)
+                cur, cur_bytes = [], 0
+            cur.append(view)
+            cur_bytes += n
     if cur:
         groups.append(cur)
     packs = []

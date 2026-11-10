@@ -433,7 +433,8 @@ You assess items collected for {me.name}, the operator. For each item in the pac
 
 - Keep an item when it asks the operator for something, records a commitment the operator or someone they are responsible for made, needs a decision from them, or signals a risk they should act on.
 - Do not keep an item that only informs, that someone else has already handled, or whose only work would be recovering missing context.
-- Judge each item from its own lines, its unit and the profile excerpts in the pack. Do not assume facts the pack does not contain.
+- Items that share a `thread` are one conversation, listed oldest first. Read the conversation, then judge each item in that light: a reply may answer, hand off or close what an earlier item asked.
+- Judge from the pack alone: the items' lines, their units and the profile excerpts. Do not assume facts the pack does not contain.
 - Score from 0 to 100 by how much the item deserves the operator's attention today. A kept item usually scores above 50.
 - Write the ask as one imperative line that names the action and its object.
 - Quote evidence word for word from the item's lines and copy each quote's line id. Never paraphrase, shorten inside a quote, or translate."""

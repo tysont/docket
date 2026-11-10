@@ -154,3 +154,47 @@ def test_item_lines_fall_back_to_text_when_evidence_is_provenance():
     it = {"title": "Refund not received", "text": "Customer report: details in the thread.",
           "evidence": [{"item_id": "abc", "source": "tickets", "record_id": "r_1"}]}
     assert item_lines(it) == [{"line": "L1", "text": "Customer report: details in the thread."}]
+
+
+def _msg(n, thread, at, **kw):
+    it = item(n, **kw)
+    it["thread"], it["at"], it["unit"] = thread, at, "spaces/room-1"
+    return it
+
+
+def test_a_conversation_stays_together_in_time_order_and_is_not_split_across_packs():
+    """A message judged without the messages around it is a fragment. Items sharing a
+    thread sit together, oldest first, the row names the thread, and a pack boundary
+    falls between conversations when it can."""
+    cfg = persona_config("reference-like")
+    kind = _kind(max_items=4)
+    items = [_msg(1, "t-a", "2026-10-15T09:02:00Z"), _msg(2, "t-b", "2026-10-15T08:00:00Z"),
+             _msg(3, "t-a", "2026-10-15T09:00:00Z"), _msg(4, "t-b", "2026-10-15T08:05:00Z"),
+             _msg(5, "t-a", "2026-10-15T09:01:00Z"), _msg(6, "t-c", "2026-10-15T07:00:00Z"),
+             _msg(7, "t-b", "2026-10-15T08:10:00Z")]
+    random.Random(3).shuffle(items)
+    packs = packs_for(kind, items, cfg)
+    got = [[(it["thread"], it["id"]) for it in p["items"]] for p in packs]
+    assert got == [[("t-a", "item003"), ("t-a", "item005"), ("t-a", "item001")],
+                   [("t-b", "item002"), ("t-b", "item004"), ("t-b", "item007"), ("t-c", "item006")]]
+
+
+def test_a_conversation_ranks_by_its_strongest_item_and_one_longer_than_a_pack_spans_packs_in_order():
+    cfg = persona_config("reference-like")
+    kind = _kind(max_items=3)
+    weak = [_msg(i, "t-weak", f"2026-10-15T09:0{i}:00Z", score=10) for i in range(2)]
+    strong = [_msg(10 + i, "t-strong", f"2026-10-15T08:0{i}:00Z", score=5) for i in range(5)]
+    strong[4]["score"] = 90                                   # the last reply carries the weight
+    asked = [_msg(30, "t-asked", "2026-10-15T07:00:00Z", score=0, must_surface=True)]
+    packs = packs_for(kind, weak + strong + asked, cfg)
+    order = [it["id"] for p in packs for it in p["items"]]
+    assert order == ["item030", "item010", "item011", "item012", "item013", "item014", "item000", "item001"]
+    assert [len(p["items"]) for p in packs] == [1, 3, 2, 2]
+
+
+def test_an_item_without_a_thread_is_its_own_conversation():
+    cfg = persona_config("reference-like")
+    items = [item(i, score=i * 5) for i in range(3)]
+    packs = packs_for(_kind(max_items=10), items, cfg)
+    assert [it["id"] for it in packs[0]["items"]] == ["item002", "item001", "item000"]
+    assert all(it["thread"] == "" for it in packs[0]["items"])
