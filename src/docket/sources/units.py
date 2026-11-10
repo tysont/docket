@@ -23,8 +23,42 @@ def unit_rules(ws: Any) -> list[UnitRule]:
     return UnitSignals.model_validate(raw).rules if raw else []
 
 
-def matches(rule: UnitRule, sid: str, unit: Unit) -> bool:
+def _mentions(want: Any, unit: Unit, ws: Any) -> bool:
+    """Whether the unit's name mentions the profile vocabulary a rule asks for."""
+    if ws is None:
+        return False
+    from docket.items.identity import ProfileIndex
+    idx = getattr(ws, "_unit_profile_index", None)
+    if idx is None:
+        idx = ProfileIndex(ws.config.profile)
+        try:
+            ws._unit_profile_index = idx  # one index per loaded workspace, not per unit
+        except AttributeError:
+            pass
+    found = idx.mentions(unit.name or "")
+    if want.topics is not None:
+        hit = found["topics"]
+        if want.topics == "owned":
+            hit = [t for t in hit if idx.topics[t].owned]
+        elif want.topics != "any":
+            hit = [t for t in hit if t in want.topics]
+        if not hit:
+            return False
+    if want.entities is not None:
+        hit = found["entities"]
+        if want.entities in ("strategic", "protected"):
+            hit = [e for e in hit if getattr(idx.entities[e], want.entities)]
+        elif want.entities != "any":
+            hit = [e for e in hit if e in want.entities]
+        if not hit:
+            return False
+    return True
+
+
+def matches(rule: UnitRule, sid: str, unit: Unit, ws: Any = None) -> bool:
     m = rule.match
+    if m.mentions is not None and not _mentions(m.mentions, unit, ws):
+        return False
     if m.source and m.source != sid:
         return False
     if m.name_regex and not re.search(m.name_regex, unit.name or ""):
@@ -40,12 +74,13 @@ def matches(rule: UnitRule, sid: str, unit: Unit) -> bool:
     return True
 
 
-def classify(rules: list[UnitRule], sid: str, unit: Unit) -> tuple[dict[str, Any], list[str]]:
-    """Return ({kind, class, tier}, ids of the rules that set them)."""
+def classify(rules: list[UnitRule], sid: str, unit: Unit, ws: Any = None) -> tuple[dict[str, Any], list[str]]:
+    """Return ({kind, class, tier}, ids of the rules that set them). ``ws`` gives rules that
+    use the profile's vocabulary their profile; without it such a rule does not match."""
     got: dict[str, Any] = {}
     used: list[str] = []
     for i, rule in enumerate(rules):
-        if not matches(rule, sid, unit):
+        if not matches(rule, sid, unit, ws):
             continue
         took = False
         for k, v in rule.set.items():
@@ -63,7 +98,7 @@ def upsert_units(db: sqlite3.Connection, ws: Any, sid: str, units: list[Unit], s
     for u in units:
         if u.id == ALL_UNITS:
             continue
-        got, used = classify(rules, sid, u)
+        got, used = classify(rules, sid, u, ws)
         prev = db.execute("SELECT * FROM units WHERE source=? AND unit_id=?", (sid, u.id)).fetchone()
         kind = got.get("kind", u.type)
         cls = got.get("class")

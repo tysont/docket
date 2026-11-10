@@ -221,6 +221,16 @@ def check(loaded: Loaded) -> list[Issue]:
                                   "which is not defined", base + ("source",), 2, suggestion=closest(s, list(sources))))
             for key in ("name_regex", "id_regex"):
                 _regex(loaded, _get(rule, "match", key), base + (key,), out)
+            for sect in ("topics", "entities"):
+                want = _get(rule, "match", "mentions", sect)
+                if isinstance(want, list):
+                    known = [r.get("id") for r in _get(d, "profile", sect) or [] if isinstance(r, dict)]
+                    for j, ref in enumerate(want):
+                        if ref not in known:
+                            out.append(_issue(loaded, "config.bad_reference",
+                                              f"{dotted(base + ('mentions', sect))} names {ref!r}, which is not in "
+                                              f"profile.{sect}", base + ("mentions", sect), 2,
+                                              suggestion=closest(str(ref), [str(k) for k in known])))
 
     # pass 3: semantics
     _secret_literals(loaded, transports, ("transports",), out)

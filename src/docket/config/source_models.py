@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 TransportKind = Literal["exec_jsonl", "http_json", "mcp_stdio", "mcp_http", "codemode", "files", "replay"]
@@ -267,6 +267,27 @@ class Source(Strict):
 # --- signals.units (TD §6.9) -----------------------------------------------------
 
 
+class UnitMentions(Strict):
+    """The unit's name mentions profile vocabulary (TD §6.9). ``topics``: ``any``, ``owned``
+    or topic ids. ``entities``: ``any``, ``strategic``, ``protected`` or entity ids."""
+    topics: str | list[str] | None = None
+    entities: str | list[str] | None = None
+
+    @field_validator("topics")
+    @classmethod
+    def _topics(cls, v: Any) -> Any:
+        if isinstance(v, str) and v not in ("any", "owned"):
+            raise ValueError("expected any, owned or a list of topic ids")
+        return v
+
+    @field_validator("entities")
+    @classmethod
+    def _entities(cls, v: Any) -> Any:
+        if isinstance(v, str) and v not in ("any", "strategic", "protected"):
+            raise ValueError("expected any, strategic, protected or a list of entity ids")
+        return v
+
+
 class UnitMatch(Strict):
     source: str | None = None
     name_regex: str | None = None
@@ -274,6 +295,7 @@ class UnitMatch(Strict):
     type: list[str] | None = None
     members_min: int | None = None
     members_max: int | None = None
+    mentions: UnitMentions | None = None
 
 
 class UnitRule(Strict):
