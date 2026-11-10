@@ -168,7 +168,17 @@ def item_view(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
         "score": it.get("score"), "fields": it.get("fields") or {}, "forum": forum or {},
         "area": area_for(rc, it), "topic": it.get("topic") or "", "ask": a.get("ask") or "",
         "owner": a.get("owner") or "", "kind": a.get("kind") or "", "deadline": deadline_of(it) or "",
+        "quote": _first_quote(a),
     }
+
+
+def _first_quote(assessment: dict[str, Any]) -> str:
+    """The first words the assess task quoted as evidence: what made the item a finding."""
+    for e in assessment.get("evidence") or []:
+        q = e.get("quote") if isinstance(e, dict) else e
+        if isinstance(q, str) and q.strip():
+            return q.strip()
+    return ""
 
 
 # --- guards ------------------------------------------------------------------------------------

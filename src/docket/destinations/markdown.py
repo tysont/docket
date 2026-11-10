@@ -33,6 +33,12 @@ DEFAULT_JOURNAL_HEADING = "## {run.date} {run.id}"
 _LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s")
 
 
+
+def one_line(text: str) -> str:
+    """Collapse every whitespace run, line breaks included, to one space; keep the indent."""
+    indent = text[: len(text) - len(text.lstrip(" \t"))]
+    return indent + " ".join(text.split())
+
 class MarkdownBase(BaseDestination):
     def __init__(self, dest_id: str, cfg: Any, denv: DestEnv, *, io: FileIO | None = None, twin: bool = False) -> None:
         super().__init__(dest_id, cfg, denv, twin=twin)
@@ -220,6 +226,7 @@ class MarkdownTasks(MarkdownBase):
         prov = {"question_id": action.question_id, "item_id": action.item_id, "depends_on": action.depends_on or None}
         if action.kind == "task.add":
             line = templates.render(self.cfg.line_template or DEFAULT_TASK_LINE, ctx)
+            line = one_line(line)  # a message has line breaks; a task line cannot
             line = quality_mod.check_line(self.cfg.quality, self.grammar, line, ctx, dest_id=self.id, fix=fix)
             line = self.shared_text(line, "line_template")
             anchor = self.anchor_for(ctx)

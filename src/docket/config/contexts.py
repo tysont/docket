@@ -11,9 +11,9 @@ from docket.text.templates import FieldSet
 _ITEM = ["item_id", "source", "unit", "title", "text", "from", "at", "url", "score", "fields.*"]
 
 # M5 decisions: item fields every decision template may also read (TD §10.2).
-_DECIDE = ["area", "topic", "ask", "owner", "kind", "deadline"]
+_DECIDE = ["area", "topic", "ask", "owner", "kind", "deadline", "quote"]
 TASK_LINE = FieldSet(_ITEM + ["question_id", "due", "est", "when", "note", "area", "run.id", "run.date",
-                              "action", "links[]", "forum.name", "forum.id", "ask", "owner", "kind", "topic"])
+                              "action", "links[]", "forum.name", "forum.id", "ask", "owner", "kind", "topic", "quote"])
 OPTION_LABEL = FieldSet(_ITEM + _DECIDE + ["due", "est", "when", "forum.name", "forum.id"])
 FINDING_PROMPT = FieldSet(_ITEM + _DECIDE + ["forum.name", "forum.id"])
 _BLOCK = ["block.key", "block.title", "block.start", "block.end", "block.day", "block.minutes",

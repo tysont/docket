@@ -36,3 +36,19 @@ def test_unknown(text):
     with pytest.raises(DocketError) as ei:
         resolve_option(text, OPTS)
     assert ei.value.code == "input.unknown_option"
+
+
+def test_the_item_view_carries_the_words_the_assess_task_quoted():
+    """A task line or a card can show the sentence that made the item a finding, which is
+    rarely the first sentence of the message."""
+    from types import SimpleNamespace
+    from docket.decide.options import item_view
+    from tests.task_helpers import persona_config
+    rc = SimpleNamespace(ws=SimpleNamespace(config=persona_config("reference-like")))
+    it = {"id": "i1", "source": "chat", "title": "@all a long preamble", "text": "@all a long preamble\nWho owns this?",
+          "assessment": {"ask": "Name the owner", "evidence": [{"line": "L2", "quote": "Who owns this?"},
+                                                               {"line": "L1", "quote": "@all a long preamble"}]}}
+    v = item_view(rc, it)
+    assert v["quote"] == "Who owns this?" and v["ask"] == "Name the owner"
+    assert item_view(rc, {"id": "i2", "source": "chat", "title": "t"})["quote"] == ""
+    assert item_view(rc, {"id": "i3", "source": "chat", "assessment": {"evidence": ["plain words"]}})["quote"] == "plain words"

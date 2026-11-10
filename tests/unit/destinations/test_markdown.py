@@ -262,3 +262,15 @@ def test_required_fields_are_written_under_the_names_the_task_list_uses(tmp_path
     d2 = tasks(tmp_path, line_template="- [ ] {action} [:: 2026-11-01]",
                quality={"require": ["due"], "defaults": {"due": "+3d"}, "fields": {"due": ""}})
     assert preview(d2, add("Ship it", action="Ship it"))[0].line == "- [ ] Ship it [:: 2026-11-01]"
+
+
+def test_a_task_line_is_one_line_whatever_the_text_holds(tmp_path):
+    """A message has line breaks; a task line cannot. Whitespace runs in the rendered line,
+    line breaks included, become one space."""
+    d = tasks(tmp_path, line_template='- [ ] {action}. {from} wrote: "{text|truncate:60}" [thread]({url})')
+    [op] = preview(d, add("x", action="Reply to Kim", url="https://t.example/1", **{"from": "Kim Osei"},
+                          text="@Sam @Ola\n\nStarting a new thread   about capacity.\r\nHere is the analysis"))
+    assert op.line == ('- [ ] Reply to Kim. Kim Osei wrote: "@Sam @Ola Starting a new thread about capacity. Here is…" '
+                       "[thread](https://t.example/1)")
+    assert d.apply(op).outcome == "applied"
+    assert (tmp_path / "tasks.md").read_text().count(op.line) == 1
