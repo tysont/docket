@@ -512,7 +512,7 @@ mapping:
 
 ### 7.3 Merge
 
-`merge` groups items by topic id, keeps the strongest assessment, unions evidence and sources, and records each merge in the item's trace. Suppression runs here: a topic with a live disposition (`dismiss` until a date, `watch` with no new activity, `done`) is suppressed with the disposition as its reason; a topic whose latest record is from the operator is marked `answered`; a topic already present in the task store (matched by its references) is marked `tracked` and routed to task verification rather than a finding (FR-SIG-07).
+`merge` groups items by topic id, keeps the strongest assessment, unions evidence and sources, and records each merge in the item's trace. Suppression runs here: a topic with a live disposition (`dismiss` until a date, `watch` with no new activity, `done`) is suppressed with the disposition as its reason; a topic whose latest record is from the operator is marked `answered`, unless the assess task kept one of the operator's own items as a commitment, because a reply that promises something leaves the topic open; a topic already present in the task store (matched by its references) is marked `tracked` and routed to task verification rather than a finding (FR-SIG-07).
 
 ## 8. Signals
 

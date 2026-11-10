@@ -142,3 +142,29 @@ def test_coverage_cross_reference_miss_and_hit():
         [("INC-100", "wiki", "c1", "read")]
     _, data = merge(items[:1], rules)
     assert data["coverage_notes"][0]["home_outcome"] == "not collected"
+
+
+def test_a_reply_that_promises_something_is_a_commitment_not_an_answer():
+    """The operator speaking last usually closes a topic. Not when what they said was a
+    promise: "Will do" answers nothing yet, and the assess task says so by keeping it as a
+    commitment."""
+    ask = item("ask", thread="t1", text="can you ask finance about the renewal?", handle="u/200",
+               at="2026-10-15T09:00:00+00:00")
+    promise = item("promise", thread="t1", text="Will do", handle="u/100", **{"from": "Rae Holm"},
+                   at="2026-10-15T09:05:00+00:00")
+    agent = {"ask": {"keep": True, "score": 80, "kind": "request"},
+             "promise": {"keep": True, "score": 80, "kind": "commitment", "owner": "me"}}
+    by, _ = merge([ask, promise], agent=agent)
+    (it,) = by.values()
+    assert it["status"] != "suppressed" and it["keep"] is True
+    assert any(t.get("step") == "open_commitment" for t in it["trace"])
+
+    done = {"ask": {"keep": True, "score": 80, "kind": "request"}, "promise": {"keep": False, "score": 5}}
+    by, _ = merge([ask, {**promise, "text": "Done, they said yes"}], agent=done)
+    (it,) = by.values()
+    assert it["status"] == "suppressed" and it["reason"].startswith("answered")
+
+    theirs = {"ask": {"keep": True, "score": 80, "kind": "commitment", "owner": "vic"},   # someone else's promise
+              "promise": {"keep": False, "score": 5}}
+    by, _ = merge([ask, promise], agent=theirs)
+    assert next(iter(by.values()))["status"] == "suppressed"

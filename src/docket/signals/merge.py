@@ -69,6 +69,16 @@ def _strength(it: dict[str, Any]) -> tuple[int, int, str]:
     return (0 if it["signals"]["surface"] else 1, -int(it["score"]), it["id"])
 
 
+def _open_commitment(rep: dict[str, Any], members: list[dict[str, Any]]) -> bool:
+    """The operator spoke last, but to promise something: an item of theirs that the assess
+    task kept as a commitment. Such a topic is open, not answered; the trace says so."""
+    promised = [m["id"] for m in members if m["sender"]["is_me"] and (m.get("agent") or {}).get("keep")
+                and (m.get("agent") or {}).get("kind") == "commitment"]
+    if promised:
+        rep["trace"].append({"stage": "merge", "step": "open_commitment", "items": promised})
+    return bool(promised)
+
+
 def _topic(members: list[dict[str, Any]], patterns: list[str]) -> tuple[str, str]:
     order = {p: i for i, p in enumerate(patterns)}
     refs = sorted({k for m in members for k in m["keys"] if k.startswith("ref:")},
@@ -208,7 +218,8 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
         else:
             agent = int(row.get("score") or 0)
             it["agent"] = {"keep": bool(row.get("keep")), "score": agent,
-                           **({"topic": row["topic"]} if row.get("topic") else {})}
+                           **({"topic": row["topic"]} if row.get("topic") else {}),
+                           **({"kind": row["kind"]} if row.get("kind") else {})}
             it["trace"].append({"stage": "assess", "step": "agent", "keep": bool(row.get("keep")), "score": agent})
             if row.get("topic") and not it["keys"]:
                 it["keys"].append(f"agent:{row['topic']}")
@@ -257,7 +268,7 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
         elif (disp := _disposition(group_ids, latest_at, inp.dispositions, inp.run_date, inp.run_id)) is not None:
             rep.update(keep=False, status="suppressed", reason=disp["reason"], suppressed=disp)
             rep["trace"].append({"stage": "merge", "step": "suppressed", **disp})
-        elif latest["sender"]["is_me"]:
+        elif latest["sender"]["is_me"] and not _open_commitment(rep, members):
             sup = {"reason": "answered", "item": latest["id"]}
             rep.update(keep=False, status="suppressed", reason="answered: the latest record is the operator's",
                        suppressed=sup)
