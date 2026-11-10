@@ -52,7 +52,10 @@ def assess_selection(rc: "RunContext", items: list[dict[str, Any]]) -> Selection
         if it["signals"]["surface"]:
             must.add(it["id"])
         if needs_agent(it):
-            cands.append(by_id[it["id"]])
+            # What the rules found travels with the candidate: a pack keeps a conversation
+            # together and tells the task which items must surface.
+            cands.append({**by_id[it["id"]], "conversation": it.get("conversation"),
+                          "must_surface": bool(it["signals"]["surface"])})
         else:
             skipped[it["id"]] = "rules_only" if it["signals"]["assess"] == "rules_only" else "dismissed"
     return Selection(cands, must, skipped)

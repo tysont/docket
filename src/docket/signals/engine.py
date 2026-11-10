@@ -165,6 +165,10 @@ def enrich(items: list[dict[str, Any]], env: SignalEnv) -> list[dict[str, Any]]:
         it["trace"] = [{"stage": "collect", "step": "mapped", "source": it["source"], "unit": it.get("unit") or "",
                         "record_id": it.get("record_id"), "identity": it.get("identity")}]
         out.append(it)
+    from docket.signals.conversations import assign
+    for it in assign(out, env.cfg, env.units):
+        if it["conversation"]:
+            it["keys"].append(f"conv:{it['conversation']}")
     return out
 
 
@@ -230,23 +234,8 @@ def match(w: When, it: dict[str, Any], env: SignalEnv, threads: dict[tuple[str, 
         if w.source.kind is not None and env.source_kinds.get(it["source"]) not in w.source.kind:
             return False
     if w.unit is not None:
-        up = w.unit
-        u = env.units.get((it["source"], it.get("unit") or "")) or {}
-        uid = it.get("unit") or ""
-        if up.id is not None and uid not in up.id:
-            return False
-        if up.id_regex is not None and not rx(up.id_regex).search(uid):
-            return False
-        if up.name_regex is not None and not rx(up.name_regex).search(str(u.get("name") or "")):
-            return False
-        if up.kind is not None and u.get("kind") not in up.kind:
-            return False
-        if up.class_ is not None and u.get("class") not in up.class_:
-            return False
-        tier = u.get("tier")
-        if up.tier is not None and str(tier) not in {str(t) for t in up.tier}:
-            return False
-        if up.tier_max is not None and (_num(tier) is None or _num(tier) > up.tier_max):  # type: ignore[operator]
+        from docket.signals.conversations import unit_holds
+        if not unit_holds(w.unit, it["source"], it.get("unit") or "", env.units):
             return False
     if w.from_ is not None:
         f, s = w.from_, it["sender"]

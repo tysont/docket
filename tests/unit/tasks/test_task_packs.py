@@ -198,3 +198,17 @@ def test_an_item_without_a_thread_is_its_own_conversation():
     packs = packs_for(_kind(max_items=10), items, cfg)
     assert [it["id"] for it in packs[0]["items"]] == ["item002", "item001", "item000"]
     assert all(it["thread"] == "" for it in packs[0]["items"])
+
+
+def test_an_exchange_in_a_unit_without_threads_is_packed_as_one_conversation_and_must_surface_is_told():
+    """In a direct conversation every message has a thread of its own; the rules give the
+    messages of one exchange a conversation key, and the pack follows that."""
+    cfg = persona_config("reference-like")
+    items = [_msg(1, "own-1", "2026-10-15T09:00:00Z", conversation="dms:d1:item001"),
+             _msg(2, "own-2", "2026-10-15T09:05:00Z", conversation="dms:d1:item001", must_surface=True),
+             _msg(3, "own-3", "2026-10-15T08:00:00Z", conversation=None),
+             _msg(4, "own-4", "2026-10-15T09:02:00Z", conversation="dms:d1:item001")]
+    (pack,) = packs_for(_kind(max_items=10), items, cfg)
+    rows = [(it["id"], it["thread"], it["must_surface"]) for it in pack["items"]]
+    assert rows == [("item001", "dms:d1:item001", False), ("item004", "dms:d1:item001", False),
+                    ("item002", "dms:d1:item001", True), ("item003", "own-3", False)]

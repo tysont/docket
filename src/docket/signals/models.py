@@ -301,8 +301,26 @@ class Scoring(Strict):
         return v
 
 
+class Conversation(Strict):
+    """Units whose items have no real threads (a direct or group conversation). Their items
+    are grouped into exchanges: a new one starts after ``gap`` with nothing said (TD §7.2)."""
+    unit: UnitPred
+    gap: str | int = "4h"
+
+    @field_validator("gap")
+    @classmethod
+    def _duration(cls, v: Any) -> Any:
+        from docket.text.durations import parse_duration
+        try:
+            parse_duration(v)
+        except Exception:
+            raise ValueError("expected a duration like 4h or 90m") from None  # raise-ok: pydantic validator (config loading)
+        return v
+
+
 class SignalsConfig(Strict):
     rules: list[Rule] = []
+    conversations: list[Conversation] = []
     references: dict[str, ReferencePattern] = {}
     scoring: Scoring = Scoring()
     budgets: Budgets = Budgets()

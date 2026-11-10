@@ -507,6 +507,7 @@ mapping:
 
 - **Item id**: `sha256(source, unit, record identity)[:16]`, stable across generations and runs.
 - **Thread id**: the source's thread key, or the item id for unthreaded records.
+- **Conversation**: some systems give every message a thread of its own, so a direct or group conversation has no threads and yet holds exchanges. `signals.conversations` names such units with a unit predicate and a `gap` (default 4h); the items of a unit between two silences longer than the gap share a conversation key. Merge treats the key as the items' topic, ahead of the thread, and a task pack treats it as their thread, so one exchange is one finding and reaches a task whole.
 - **Topic id**: the merge key across sources. Computed from, in order of preference, an explicit reference the item carries (a ticket key, an incident id, a document URL), a thread id, or an agent-assigned topic from the `assess` task. References are extracted by `signals.references` patterns from configuration.
 
 ### 7.3 Merge

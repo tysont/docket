@@ -233,6 +233,8 @@ def score_of(it: dict[str, Any]) -> int:
 
 def item_view(kind: "TaskKind", it: dict[str, Any]) -> dict[str, Any]:
     v: dict[str, Any] = {k: ("" if it.get(k) is None else _scalar(it.get(k))) for k in ITEM_FIELDS}
+    if it.get("conversation"):
+        v["thread"] = _scalar(it["conversation"])  # an exchange in a unit without threads
     if isinstance(it.get("from"), dict):
         v["from"] = _plain(it["from"])
     fields = it.get("fields")
@@ -287,7 +289,7 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
     # inside one the items run oldest first, so a task reads each exchange whole and in order.
     convs: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for it in items:
-        thread = it.get("thread")
+        thread = it.get("conversation") or it.get("thread")
         key = (str(it.get("source") or ""), str(it.get("unit") or ""), str(thread)) if thread else \
             ("", "", str(it.get("id")))
         convs.setdefault(key, []).append(it)

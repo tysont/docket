@@ -75,6 +75,9 @@ def _topic(members: list[dict[str, Any]], patterns: list[str]) -> tuple[str, str
                   key=lambda k: (order.get(k.split(":", 2)[1], len(order)), k))
     if refs:
         return refs[0], "reference"
+    convs = sorted({k for m in members for k in m["keys"] if k.startswith("conv:")})
+    if convs:
+        return convs[0], "conversation"
     threads = sorted({k for m in members for k in m["keys"] if k.startswith("thread:")})
     if threads:
         return threads[0], "thread"

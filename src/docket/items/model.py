@@ -85,7 +85,7 @@ class Item(Open):
     references: list[Reference] = []
     keys: list[str] = []
     topic: str = ""
-    topic_basis: Literal["reference", "thread", "agent", "item"] = "item"
+    topic_basis: Literal["reference", "conversation", "thread", "agent", "item"] = "item"
     signals: Signals = Signals()
     agent: dict[str, Any] | None = None
     agent_pending: bool = False
