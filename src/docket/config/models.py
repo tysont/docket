@@ -180,6 +180,7 @@ class OptionConfig(Strict):
     label: str
     when: str | None = None
     destination: str | None = None
+    set: dict[str, str] = {}   # fields the option fixes on its action, for example a task's tier
 
 
 # --- M5 decisions (TD §10) ---

@@ -241,6 +241,7 @@ class ResolveConfig(Strict):
 class Source(Strict):
     kind: str | None = None                 # derived from the transport; ``files`` with ``path`` needs none
     description: str | None = None
+    label: str | None = None                # what templates call a record of this source ("chat thread")
     path: str | None = None                 # files shorthand
     extends: str | None = None              # a source preset id, for example mcp/chat-codemode
     transport: str | None = None            # a key of the top-level ``transports``

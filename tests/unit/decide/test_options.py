@@ -52,3 +52,38 @@ def test_the_item_view_carries_the_words_the_assess_task_quoted():
     assert v["quote"] == "Who owns this?" and v["ask"] == "Name the owner"
     assert item_view(rc, {"id": "i2", "source": "chat", "title": "t"})["quote"] == ""
     assert item_view(rc, {"id": "i3", "source": "chat", "assessment": {"evidence": ["plain words"]}})["quote"] == "plain words"
+
+
+def _rc(tmp_path, units=()):
+    import sqlite3
+    from types import SimpleNamespace
+    from docket.store.db import open_db
+    from tests.task_helpers import persona_config
+    db = open_db(tmp_path / "d.db")
+    db.row_factory = sqlite3.Row
+    for source, uid, name in units:
+        db.execute("INSERT INTO units (source, unit_id, name) VALUES (?,?,?)", (source, uid, name))
+    cfg = persona_config("reference-like")
+    return SimpleNamespace(ws=SimpleNamespace(config=cfg), run=SimpleNamespace(store=SimpleNamespace(db=db)))
+
+
+def test_the_area_comes_from_the_unit_before_the_text(tmp_path):
+    """A message in a service's own room belongs to that service whatever it mentions; outside
+    such a room the text decides, and only when it points one way."""
+    from docket.decide.options import area_for
+    rc = _rc(tmp_path, [("chat", "room-ingest", "Ingest Service (Team)"), ("chat", "room-misc", "Hallway")])
+    topics = {t.id: t.area for t in rc.ws.config.profile.topics}
+    assert topics["ingest"] == "Platform"
+    in_room = {"source": "chat", "unit": "room-ingest", "mentioned": {"topics": []}}
+    assert area_for(rc, in_room) == "Platform"
+    assert area_for(rc, {"source": "chat", "unit": "room-misc", "mentioned": {"topics": ["ingest"]}}) == "Platform"
+    assert area_for(rc, {"source": "chat", "unit": "room-misc", "mentioned": {"topics": []}}) == ""
+    assert area_for(rc, {**in_room, "signals": {"area": "Finance"}}) == "Finance"   # a rule's word is final
+
+
+def test_the_item_view_names_the_source_as_configured(tmp_path):
+    from docket.decide.options import item_view
+    rc = _rc(tmp_path)
+    rc.ws.config.sources["chat"].label = "chat thread"
+    assert item_view(rc, {"id": "i", "source": "chat"})["source_label"] == "chat thread"
+    assert item_view(rc, {"id": "i", "source": "mail"})["source_label"] == "mail"      # no label: the id

@@ -521,3 +521,34 @@ def test_drafts_are_not_offered_without_an_mcp_transport(persona, cli):
     q = ask(ws)["questions"][0]
     refused = {r["option"]: r["reason"] for r in q["details"]["refused"]}
     assert refused["draft"] == "replies: no MCP transport is configured for this destination"
+
+
+def test_an_option_can_fix_fields_of_its_action_and_the_line_uses_the_ask(persona, cli):
+    """Two options with one action: one files the task under another heading. Choosing the
+    option is choosing the heading. The line's action is the ask the assess task wrote."""
+    ws = persona("reference-like")
+    cfg = ws / "docket.yaml"
+    text = cfg.read_text()
+    assert "    options: standard" in text
+    cfg.write_text(text.replace("    options: standard", "    options: filing").replace("decisions:\n", """decisions:
+  option_sets:
+    filing:
+      finding:
+        - { id: task, action: task.add, label: "Add a task" }
+        - { id: later, action: task.add, label: "Someday", set: { tier: someday } }
+        - { id: dismiss, action: dismiss, label: "Dismiss" }
+""", 1))
+    dst = ws / "destinations.yaml"
+    dst.write_text(dst.read_text().replace('line_template: "- [ ] {title} ', 'line_template: "- [ ] {action} '))
+    start(cli, ws)
+    q = ask(ws)["questions"][0]
+    assert [o["id"] for o in q["options"]] == ["task", "later", "dismiss"]
+    code, env = answer(cli, ws, q["id"], "later")
+    assert code == 0, env
+    op = env["data"]["action_preview"]["operations"][0]
+    assert op["anchor"] == "## Someday"
+    code, env = answer(cli, ws, q["id"], "task")
+    op = env["data"]["action_preview"]["operations"][0]
+    assert op["anchor"] == "## Inbox" and op["line"].startswith("- [ ] Follow up on ")   # the synthetic ask
+    code, env = answer(cli, ws, q["id"], "task", "--action", "Call the vendor")
+    assert env["data"]["preview"]["line"].startswith("- [ ] Call the vendor ")

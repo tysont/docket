@@ -105,16 +105,35 @@ def forum_for(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _unit_name(rc: "RunContext", it: dict[str, Any]) -> str:
+    try:
+        row = rc.run.store.db.execute("SELECT name FROM units WHERE source=? AND unit_id=?",
+                                      (it.get("source"), it.get("unit"))).fetchone()
+    except Exception:  # no registry (a context without a run): the unit says nothing
+        return ""
+    return str(row["name"] or "") if row is not None else ""
+
+
 def area_for(rc: "RunContext", it: dict[str, Any]) -> str:
+    """The item's area: a rule's word, else the area of the topic its unit is named after
+    (an owned one first), else the area its own text points to when it points one way."""
     sig = it.get("signals") or {}
     if sig.get("area"):
         return str(sig["area"])
     topics = {t.id: t for t in rc.ws.config.profile.topics}
+    name = _unit_name(rc, it)
+    if name:
+        from docket.items.identity import ProfileIndex
+        named = [topics[t] for t in ProfileIndex(rc.ws.config.profile).mentions(name)["topics"] if t in topics]
+        for t in sorted(named, key=lambda t: (not t.owned, t.id)):
+            if t.area:
+                return str(t.area)
+    areas = []
     for tid in [sig.get("topic"), *((it.get("mentioned") or {}).get("topics") or []),
                 (it.get("assessment") or {}).get("topic")]:
-        if tid in topics and topics[tid].area:
-            return str(topics[tid].area)
-    return ""
+        if tid in topics and topics[tid].area and str(topics[tid].area) not in areas:
+            areas.append(str(topics[tid].area))
+    return areas[0] if len(areas) == 1 else ""
 
 
 def deadline_of(it: dict[str, Any]) -> str | None:
@@ -162,7 +181,9 @@ def item_view(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
     """The template context of an item for prompts and labels."""
     a = it.get("assessment") or {}
     forum = forum_for(rc, it)
+    src_cfg = rc.ws.config.sources.get(it.get("source")) if it.get("source") else None
     return {
+        "source_label": (getattr(src_cfg, "label", None) or it.get("source") or ""),
         "item_id": it.get("id"), "source": it.get("source"), "unit": it.get("unit"), "title": it.get("title"),
         "text": it.get("text"), "from": it.get("from"), "at": it.get("at"), "url": it.get("url"),
         "score": it.get("score"), "fields": it.get("fields") or {}, "forum": forum or {},
@@ -320,7 +341,7 @@ def finding_options(rc: "RunContext", it: dict[str, Any], opts: list[dict[str, A
                 continue
         od = {k: v for k, v in defaults.items() if k in ("due", "est", "area", "forum")}
         offered.append({"id": o["id"], "label": templates.render(o["label"], ctx), "action": action,
-                        "destination": dest, "defaults": od})
+                        "destination": dest, "defaults": od, **({"set": dict(o["set"])} if o.get("set") else {})})
     return offered, refused, defaults
 
 

@@ -490,6 +490,8 @@ def _assess(cfg: TasksConfig) -> TaskKind:
                                       "clearly implies one.", extend="tasks.assess"),
         FieldSpec("topic", "str", "A topic id from the pack's profile when one matches, else a short noun "
                                   "phrase naming the subject.", max_length=80),
+        FieldSpec("est", "duration", "For a kept item, the focused working time the ask needs (15m, 30m, 1h): "
+                                     "the doing, not the waiting.", extend="tasks.assess"),
     )
     rules = (Rule((("keep", True),), ("owner", "ask", "evidence"),
                   "a kept item becomes a question: it needs who acts, what to do and the words that show it"),)

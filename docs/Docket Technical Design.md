@@ -668,6 +668,8 @@ decisions:
 
 Each option is a typed action proposal with derived defaults (FR-DEC-02): due from the item's deadline or the planning policy's default lead time; estimate from the assess task or the size default; area and forum from topic and sender. `when` guards are a closed set (`has_forum`, `has_reply_channel`, `has_deadline`, `has_calendar`, `source_is`, `relation_is`). Before offering an option, Docket asks the destination adapter `can_accept(action)`; a refusal removes the option and adds its reason to the question (FR-DEC-03), for example "The Platform agenda's Next section is full (5 of 5)".
 
+An option may fix fields of its action with `set`, so two options can share one action and differ in where it lands: a task option with `set: { tier: priority }` files under the priority heading. A finding's defaults are derived, never asked for. The area is a rule's word, else the area of the topic the item's unit is named after, else the area the item's own text points to when it points one way. The estimate is the one the assess task gave (`est`, optional in the assess output), else the configured default. A source's `label` is what templates call one of its records (`source_label`).
+
 ### 10.3 Answers
 
 `docket ask answer <question-id> <option> [overrides]` records an answer:

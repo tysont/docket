@@ -113,7 +113,10 @@ def finding_context(rc: "RunContext", qid: str, item: dict[str, Any], overrides:
         # ``action`` is what to do: the operator's words, else the ask the assess task wrote for
         # the finding, else the title (for a message, its first words).
         "question_id": qid, "title": title, "action": overrides.get("action") or ask or title, "due": due,
-        "est": overrides.get("est", ""), "when": overrides.get("when", ""), "note": overrides.get("note", ""),
+        # An estimate the assess task gave is the finding's own; the configured default is left
+        # to the destination's quality rules.
+        "est": overrides.get("est", "") or (dflt["est"] if dflt.get("est_source") == "assessment" else ""),
+        "when": overrides.get("when", ""), "note": overrides.get("note", ""),
         "area": overrides.get("area") or dflt.get("area") or "", "links": links,
         "forum": forum_row(rc, fid) or {} if fid else {},
         "run": {"id": rc.run.id, "date": rc.run.header.clock.date},
@@ -131,6 +134,8 @@ def finding_ops(rc: "RunContext", qid: str, item: dict[str, Any], option: dict[s
     if kind not in ("task.add", "agenda.add", "message.draft"):
         return []
     ctx = finding_context(rc, qid, item, overrides, merged_items)
+    for k, v in (option.get("set") or {}).items():
+        ctx[k] = v  # what the option fixes: choosing it is choosing this
     dest = option.get("destination") or default_destination(rc, kind, None)
     if kind == "agenda.add":
         dest = forum_agenda_destination(rc, (ctx.get("forum") or {}).get("id")) or dest
