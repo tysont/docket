@@ -92,42 +92,109 @@ def classify(rules: list[UnitRule], sid: str, unit: Unit, ws: Any = None) -> tup
     return got, used
 
 
-def upsert_units(db: sqlite3.Connection, ws: Any, sid: str, units: list[Unit], seen_at: str) -> list[dict[str, Any]]:
+KEPT = ("agent", "operator")  # classifications no rule overrides
+_REPORT = 50                   # units named per list in a membership report; counts are always whole
+
+
+def _brief(unit_id: str, name: Any, cls: Any, tier: Any) -> dict[str, Any]:
+    return {"unit": unit_id, "name": name, "class": cls, "tier": None if tier is None else str(tier)}
+
+
+def upsert_units(db: sqlite3.Connection, ws: Any, sid: str, units: list[Unit], seen_at: str) -> dict[str, Any]:
+    """Write a complete discovery of ``sid`` into the registry and report what changed.
+
+    Every unit listed is current. A unit of this source the discovery no longer lists is
+    marked gone; one that was gone and is listed again has returned. The first discovery of
+    a source is a baseline: it reports no unit as new.
+    """
     rules = unit_rules(ws)
-    out = []
+    before = {r["unit_id"]: r for r in db.execute("SELECT * FROM units WHERE source=?", (sid,)).fetchall()}
+    baseline = not before
+    new: list[dict[str, Any]] = []
+    returned: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for u in units:
         if u.id == ALL_UNITS:
             continue
+        seen.add(u.id)
         got, used = classify(rules, sid, u, ws)
-        prev = db.execute("SELECT * FROM units WHERE source=? AND unit_id=?", (sid, u.id)).fetchone()
+        prev = before.get(u.id)
         kind = got.get("kind", u.type)
         cls = got.get("class")
         tier = got.get("tier")
         by = "rule" if used else None
-        if prev is not None and prev["classified_by"] == "agent":
-            kind, cls, tier, by = prev["kind"], prev["class"], prev["tier"], "agent"
+        rule = ",".join(used) or None
+        if prev is not None and prev["classified_by"] in KEPT:
+            kind, cls, tier, by, rule = prev["kind"], prev["class"], prev["tier"], prev["classified_by"], prev["rule"]
         first = prev["first_seen"] if prev is not None else seen_at
         db.execute("INSERT OR REPLACE INTO units (source, unit_id, name, kind, class, tier, first_seen, last_seen, "
-                   "classified_by, members, rule, type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                   "classified_by, members, rule, type, gone_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
                    (sid, u.id, u.name, kind, cls, None if tier is None else str(tier), first, seen_at, by,
-                    u.members, ",".join(used) or None, u.type))
-        out.append({"unit": u.id, "kind": kind, "class": cls, "tier": tier, "classified_by": by})
-    return out
+                    u.members, rule, u.type))
+        if prev is None and not baseline:
+            new.append(_brief(u.id, u.name, cls, tier))
+        elif prev is not None and prev["gone_at"] is not None:
+            returned.append(_brief(u.id, u.name, cls, tier))
+    gone = []
+    for uid, prev in sorted(before.items()):
+        if uid not in seen and prev["gone_at"] is None:
+            db.execute("UPDATE units SET gone_at=? WHERE source=? AND unit_id=?", (seen_at, sid, uid))
+            gone.append(_brief(uid, prev["name"], prev["class"], prev["tier"]))
+    return {"baseline": baseline, "current": len(seen), "new": new, "gone": gone, "returned": returned}
 
 
-def preview(db: sqlite3.Connection, ws: Any, source: str | None = None) -> list[dict[str, Any]]:
+def membership_row(change: dict[str, Any]) -> dict[str, Any]:
+    """A membership report sized for an outcome: whole counts, and the first units by name."""
+    row: dict[str, Any] = {"current": change["current"], "baseline": change["baseline"]}
+    for k in ("new", "gone", "returned"):
+        row[k] = len(change[k])
+        if change[k]:
+            row[f"{k}_units"] = change[k][:_REPORT]
+    return row
+
+
+def set_classification(db: sqlite3.Connection, source: str, unit_id: str, values: dict[str, Any]) -> bool:
+    """The operator's classification of one unit. Only the attributes given change; rules
+    leave the unit alone from then on. Returns whether the unit exists."""
+    row = db.execute("SELECT 1 FROM units WHERE source=? AND unit_id=?", (source, unit_id)).fetchone()
+    if row is None:
+        return False
+    for k in ("kind", "class", "tier"):
+        if k in values and values[k] is not None:
+            db.execute(f"UPDATE units SET {k}=? WHERE source=? AND unit_id=?", (str(values[k]), source, unit_id))
+    db.execute("UPDATE units SET classified_by='operator', rule=NULL WHERE source=? AND unit_id=?", (source, unit_id))
+    return True
+
+
+def unset_classification(db: sqlite3.Connection, ws: Any, source: str, unit_id: str) -> bool:
+    """Give a unit back to the rules and classify it by them now. Returns whether it exists."""
+    r = db.execute("SELECT * FROM units WHERE source=? AND unit_id=?", (source, unit_id)).fetchone()
+    if r is None:
+        return False
+    utype = r["type"] or r["kind"]
+    got, used = classify(unit_rules(ws), source, Unit(unit_id, r["name"], utype, r["members"]), ws)
+    tier = got.get("tier")
+    db.execute("UPDATE units SET kind=?, class=?, tier=?, classified_by=?, rule=? WHERE source=? AND unit_id=?",
+               (got.get("kind", utype), got.get("class"), None if tier is None else str(tier),
+                "rule" if used else None, ",".join(used) or None, source, unit_id))
+    return True
+
+
+def preview(db: sqlite3.Connection, ws: Any, source: str | None = None, gone: bool = False) -> list[dict[str, Any]]:
     """Apply the current rules to every unit in the registry and write nothing. Each row
     carries what the registry holds (``was``) and what the rules give now (``now``). A unit
     an agent classified keeps that. A row from before the registry kept types is matched
-    by its kind, which was its type unless a rule had renamed it."""
+    by its kind, which was its type unless a rule had renamed it. Units that are gone are
+    left out unless ``gone`` is set."""
     rules = unit_rules(ws)
-    sql = "SELECT * FROM units" + (" WHERE source=?" if source else "") + " ORDER BY source, unit_id"
+    where = [w for w in ("source=?" if source else None, None if gone else "gone_at IS NULL") if w]
+    sql = "SELECT * FROM units" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY source, unit_id"
     out = []
     for r in db.execute(sql, (source,) if source else ()).fetchall():
         row = dict(r)
         was = {"kind": row["kind"], "class": row["class"], "tier": row["tier"], "rule": row["rule"]}
         utype = row.get("type") or row["kind"]
-        if row["classified_by"] == "agent":
+        if row["classified_by"] in KEPT:
             now = dict(was)
         else:
             got, used = classify(rules, row["source"], Unit(row["unit_id"], row["name"], utype, row["members"]), ws)
@@ -135,5 +202,6 @@ def preview(db: sqlite3.Connection, ws: Any, source: str | None = None) -> list[
             now = {"kind": got.get("kind", utype), "class": got.get("class"),
                    "tier": None if tier is None else str(tier), "rule": ",".join(used) or None}
         out.append({"source": row["source"], "unit": row["unit_id"], "name": row["name"], "type": utype,
-                    "members": row["members"], "first_seen": row["first_seen"], "was": was, "now": now})
+                    "members": row["members"], "first_seen": row["first_seen"], "gone_at": row.get("gone_at"),
+                    "classified_by": row["classified_by"], "was": was, "now": now})
     return out

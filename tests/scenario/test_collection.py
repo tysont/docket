@@ -247,3 +247,34 @@ def test_context_records_never_enter_the_item_pipeline(persona, cli, pinned_now)
     assert len(art["context"]) == 10 and all(c["source"] == "closed" for c in art["context"])
     assert not any(i["source"] == "closed" for i in art["items"])
     assert art["sources"]["closed"]["records"] == 10 and art["sources"]["closed"]["target"] == "context"
+
+
+def test_collect_reports_membership_and_the_operator_can_classify_a_unit(persona, cli, pinned_now):
+    ws = persona("reference-like")
+    cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
+    code, env = cli("collect", "--workspace", str(ws))
+    chat = env["data"]["result"]["sources"]["chat"]
+    assert chat["membership"]["baseline"] is True and chat["membership"]["new"] == 0
+    assert chat["membership"]["current"] == len(cli("units", "list", "--source", "chat", "--workspace", str(ws))[1]
+                                                 ["data"]["units"])
+    # A unit with records and no class is named, so a new kind of room is noticed in the run that meets it.
+    assert all(set(u) == {"unit", "name", "records"} for u in chat["membership"].get("unclassified_active", []))
+
+    code, env = cli("units", "set", "chat", "spaces/hallway", "--class", "social", "--tier", "4",
+                    "--workspace", str(ws))
+    assert code == 0 and env["data"]["unit"]["classified_by"] == "operator" and env["data"]["unit"]["class"] == "social"
+    code, env = cli("units", "list", "--source", "chat", "--workspace", str(ws))
+    assert {u["unit_id"]: u["class"] for u in env["data"]["units"]}["spaces/hallway"] == "social"
+    code, env = cli("units", "preview", "--class", "social", "--workspace", str(ws))
+    assert [u["unit"] for u in env["data"]["listed"]] == ["spaces/hallway"] and env["data"]["changed"] == []
+
+    code, env = cli("units", "set", "chat", "spaces/nope", "--class", "x", "--workspace", str(ws))
+    assert code == 2 and env["error"]["code"] == "input.unknown_unit"
+    code, env = cli("units", "set", "chat", "spaces/hallway", "--workspace", str(ws))
+    assert code == 2 and env["error"]["code"] == "input.bad_argument"
+
+    code, env = cli("units", "unset", "chat", "spaces/hallway", "--workspace", str(ws))
+    assert code == 0 and env["data"]["unit"]["classified_by"] == "rule" and env["data"]["unit"]["class"] != "social"
+
+    code, env = cli("units", "list", "--unclassified", "--workspace", str(ws))
+    assert all(u["class"] is None for u in env["data"]["units"])

@@ -85,6 +85,10 @@ CREATE INDEX ledgers_by_name ON ledgers (ledger, run_id)
     (9, """
 ALTER TABLE units ADD COLUMN type TEXT
 """),
+    # Membership: when a complete discovery stopped listing the unit (TD §6.9).
+    (10, """
+ALTER TABLE units ADD COLUMN gone_at TEXT
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

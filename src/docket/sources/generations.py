@@ -143,7 +143,20 @@ def persist(rc: "RunContext", n: int, results: dict[str, "SourceResult"]) -> dic
                     continue
                 write_proposal(db, r.id, sid, ur.unit.id, pos, cov, generation=n, model=res.model, complete=complete)
             if res.discovered:
-                upsert_units(db, ws, sid, res.discovered, instant)
+                from docket.sources.units import membership_row
+                member = membership_row(upsert_units(db, ws, sid, res.discovered, instant))
+                counts: dict[str, int] = {}
+                for x in mapped:
+                    counts[x.get("unit") or ""] = counts.get(x.get("unit") or "", 0) + 1
+                loose = []
+                for uid in sorted(counts, key=lambda k: -counts[k]):
+                    u = db.execute("SELECT name, class FROM units WHERE source=? AND unit_id=?", (sid, uid)).fetchone()
+                    if u is not None and u["class"] is None:
+                        loose.append({"unit": uid, "name": u["name"], "records": counts[uid]})
+                if loose:
+                    member["unclassified_active"] = loose[:50]
+                    member["unclassified_active_count"] = len(loose)
+                row["membership"] = member
     write_atomic(gd / "outcomes.json", pretty_json(outcomes))
     return outcomes
 

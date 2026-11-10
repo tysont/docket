@@ -163,15 +163,25 @@ _EXTERNAL = {"source.failed", "source.auth_failed", "source.contract.type_change
              "transport.error"}
 
 
-@command("units list", "List the unit registry: discovered units and their classification.",
-         args=[Arg("--source", "Only units of this source.")], examples=["docket units list --json"])
+@command("units list", "List the unit registry: discovered units and their classification. Units a discovery "
+         "no longer lists are left out unless --gone is given.",
+         args=[Arg("--source", "Only units of this source."),
+               Arg("--gone", "Include units that are gone, with when.", action="store_true"),
+               Arg("--unclassified", "Only units with no class.", action="store_true")],
+         examples=["docket units list --json", "docket units list --unclassified --json"])
 def cmd_units_list(ctx: Any, ns: Any) -> Result:
     ctx.workspace_root()
     db = ctx.store().db
+    where, params = [], []
     if ns.source:
-        rows = db.execute("SELECT * FROM units WHERE source=? ORDER BY source, unit_id", (ns.source,)).fetchall()
-    else:
-        rows = db.execute("SELECT * FROM units ORDER BY source, unit_id").fetchall()
+        where.append("source=?")
+        params.append(ns.source)
+    if not ns.gone:
+        where.append("gone_at IS NULL")
+    if ns.unclassified:
+        where.append("class IS NULL")
+    rows = db.execute("SELECT * FROM units" + (" WHERE " + " AND ".join(where) if where else "")
+                      + " ORDER BY source, unit_id", params).fetchall()
     out = [dict(r) for r in rows]
     text = "\n".join(f"{r['source']:<12} {r['unit_id']:<28} {r['kind'] or '-':<10} {r['class'] or '-':<12} "
                      f"{r['classified_by'] or 'unclassified'}" for r in out)
@@ -181,7 +191,8 @@ def cmd_units_list(ctx: Any, ns: Any) -> Result:
 @command("units preview", "Apply the current unit rules to the registry and show the result; writes nothing. "
          "Counts per class and tier, every unit whose classification would change, and the units no rule matches.",
          args=[Arg("--source", "Only units of this source."),
-               Arg("--class", "List every unit the rules put in this class ('none' for units no rule matches).")],
+               Arg("--class", "List every unit the rules put in this class ('none' for units no rule matches)."),
+               Arg("--gone", "Include units that are gone.", action="store_true")],
          effects=["reads the unit registry; contacts no source and writes nothing"],
          examples=["docket units preview --json", "docket units preview --class none --json"])
 def cmd_units_preview(ctx: Any, ns: Any) -> Result:
@@ -189,7 +200,7 @@ def cmd_units_preview(ctx: Any, ns: Any) -> Result:
 
     from docket.sources.units import preview
     ws = ctx.workspace()
-    rows = preview(ctx.store().db, ws, ns.source)
+    rows = preview(ctx.store().db, ws, ns.source, gone=ns.gone)
     classes = Counter(r["now"]["class"] or "none" for r in rows)
     tiers = Counter(r["now"]["tier"] or "none" for r in rows)
     changed = [{"unit": r["unit"], "source": r["source"], "name": r["name"], "was": r["was"], "now": r["now"]}
@@ -209,3 +220,52 @@ def cmd_units_preview(ctx: Any, ns: Any) -> Result:
         data["listed"] = listed
         text += [f"  [{u['tier'] or '-'}] {u['name']}" for u in listed]
     return Result(data, "\n".join(text))
+
+
+def _unit_row(db: Any, source: str, unit: str) -> dict[str, Any] | None:
+    r = db.execute("SELECT * FROM units WHERE source=? AND unit_id=?", (source, unit)).fetchone()
+    return dict(r) if r is not None else None
+
+
+def _unknown_unit(db: Any, source: str, unit: str) -> InputError:
+    from docket.config.loader import closest
+    known = [r["unit_id"] for r in db.execute("SELECT unit_id FROM units WHERE source=?", (source,))]
+    return InputError("input.unknown_unit", f"The registry has no unit {unit!r} of source {source!r}.",
+                      hint="docket units list", details={"suggestion": closest(unit, known)})
+
+
+@command("units set", "Classify one unit by hand. Only the attributes given change, and unit rules leave the "
+         "unit alone from then on (classified_by: operator).",
+         args=[Arg("source", "Source id."), Arg("unit", "Unit id."),
+               Arg("--class", "The unit's class."), Arg("--tier", "The unit's tier."), Arg("--kind", "The unit's kind.")],
+         effects=["writes one row of the unit registry"],
+         examples=["docket units set chat spaces/room-1 --class social --tier 4 --json"])
+def cmd_units_set(ctx: Any, ns: Any) -> Result:
+    from docket.sources.units import set_classification
+    ctx.workspace_root()
+    values = {"class": getattr(ns, "class", None), "tier": ns.tier, "kind": ns.kind}
+    if all(v is None for v in values.values()):
+        raise InputError("input.bad_argument", "Give at least one of --class, --tier and --kind.",
+                         hint="docket units set <source> <unit> --class <class>")
+    db = ctx.store().db
+    with db:
+        if not set_classification(db, ns.source, ns.unit, values):
+            raise _unknown_unit(db, ns.source, ns.unit)
+    row = _unit_row(db, ns.source, ns.unit)
+    return Result({"unit": row}, f"{ns.unit}: class {row['class'] or '-'}, tier {row['tier'] or '-'} (operator)")
+
+
+@command("units unset", "Give one unit back to the unit rules and classify it by them now.",
+         args=[Arg("source", "Source id."), Arg("unit", "Unit id.")],
+         effects=["writes one row of the unit registry"],
+         examples=["docket units unset chat spaces/room-1 --json"])
+def cmd_units_unset(ctx: Any, ns: Any) -> Result:
+    from docket.sources.units import unset_classification
+    ws = ctx.workspace()
+    db = ctx.store().db
+    with db:
+        if not unset_classification(db, ws, ns.source, ns.unit):
+            raise _unknown_unit(db, ns.source, ns.unit)
+    row = _unit_row(db, ns.source, ns.unit)
+    return Result({"unit": row}, f"{ns.unit}: class {row['class'] or '-'}, tier {row['tier'] or '-'} "
+                                 f"({row['classified_by'] or 'unclassified'})")
