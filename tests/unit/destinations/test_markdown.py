@@ -244,3 +244,21 @@ def test_crlf_files_keep_their_newlines(tmp_path):
     d.apply(op)
     raw = p.read_bytes().decode()
     assert "\r\n- [ ] Plan the offsite [source:: chat]\r\n" in raw and "\n" not in raw.replace("\r\n", "")
+
+
+def test_required_fields_are_written_under_the_names_the_task_list_uses(tmp_path):
+    """A task list may name its fields its own way: the due date as a field with no name,
+    the estimate in whole minutes. ``quality.fields`` maps the attribute to the field on the
+    line, and ``quality.duration: minutes`` writes 90m, not 1h30m."""
+    d = tasks(tmp_path, line_template="- [ ] {action}{?url} [thread]({url}){/url}",
+              quality={"require": ["due", "area", "est"], "defaults": {"due": "+3d", "est": "90m"},
+                       "fields": {"due": ""}, "duration": "minutes"})
+    [op] = preview(d, add("Ship it", action="Ship the release notes", area="Platform", url="https://t.example/1"))
+    assert op.line == ("- [ ] Ship the release notes [thread](https://t.example/1) [:: 2026-10-18] "
+                       "[area:: Platform] [est:: 90m]")
+    [op] = preview(d, add("Ship it", action="Ship it", area="Platform", due="2026-10-20", est=135))
+    assert op.line.endswith("[:: 2026-10-20] [area:: Platform] [est:: 135m]")
+    # a field the template already wrote under its mapped name is left alone
+    d2 = tasks(tmp_path, line_template="- [ ] {action} [:: 2026-11-01]",
+               quality={"require": ["due"], "defaults": {"due": "+3d"}, "fields": {"due": ""}})
+    assert preview(d2, add("Ship it", action="Ship it"))[0].line == "- [ ] Ship it [:: 2026-11-01]"

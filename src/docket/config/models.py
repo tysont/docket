@@ -281,6 +281,8 @@ class QualityConfig(Strict):
     require: list[str] = []
     defaults: dict[str, str] = {}
     evidence: Literal["required", "optional"] = "optional"
+    fields: dict[str, str] = {}   # required attribute -> the field's name on the line ("" for a field with no key)
+    duration: Literal["compact", "minutes"] = "compact"   # an estimate as 1h30m, or as 90m
 
 
 class RedactConfig(Strict):

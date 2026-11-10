@@ -93,6 +93,7 @@ def finding_context(rc: "RunContext", qid: str, item: dict[str, Any], overrides:
     view = item_view(rc, item)
     dflt = derived_defaults(rc, item)
     merged_items = merged_items or []
+    ask = (item.get("assessment") or {}).get("ask") if isinstance(item.get("assessment"), dict) else None
     base_title = overrides.get("action") or overrides.get("title") or item.get("title") or ""
     title = base_title
     links = list(overrides.get("links") or [])
@@ -109,7 +110,9 @@ def finding_context(rc: "RunContext", qid: str, item: dict[str, Any], overrides:
     if not due and dflt["due_source"] == "deadline":
         due = dflt["due"]
     view.update({
-        "question_id": qid, "title": title, "action": overrides.get("action") or title, "due": due,
+        # ``action`` is what to do: the operator's words, else the ask the assess task wrote for
+        # the finding, else the title (for a message, its first words).
+        "question_id": qid, "title": title, "action": overrides.get("action") or ask or title, "due": due,
         "est": overrides.get("est", ""), "when": overrides.get("when", ""), "note": overrides.get("note", ""),
         "area": overrides.get("area") or dflt.get("area") or "", "links": links,
         "forum": forum_row(rc, fid) or {} if fid else {},

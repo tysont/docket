@@ -8,7 +8,9 @@ Run on every rendered task line, in order:
 2. ``require``: each named field must be present. ``link`` is satisfied by any
    link on the line, else filled from the item URL. Other fields are filled from
    the answer (``due``, ``est`` overrides), then ``defaults`` (``due`` may be
-   ``+Nd`` from the run date), then the item's ``area``.
+   ``+Nd`` from the run date), then the item's ``area``. ``fields`` names the
+   field on the line when the task list calls it something else, and
+   ``duration: minutes`` writes an estimate as whole minutes.
 3. ``evidence: required``: the item must carry a URL, its text, or a note.
 4. ``max_length``: the task text (without fields) must fit.
 
@@ -32,17 +34,22 @@ PLACEHOLDER = {"due": "<date>", "est": "<duration>", "title": "<shorter imperati
 Fix = Callable[[str, str], str]  # (flag, placeholder) -> command text
 
 
-def _value(name: str, ctx: dict[str, Any], defaults: dict[str, str]) -> str | None:
+def _duration(v: Any, style: str) -> str:
+    from docket.text.durations import format_duration, parse_duration
+    try:
+        minutes = parse_duration(v)
+    except Exception:
+        return str(v)
+    return f"{minutes}m" if style == "minutes" else format_duration(minutes)
+
+
+def _value(name: str, ctx: dict[str, Any], defaults: dict[str, str], duration: str = "compact") -> str | None:
     v = ctx.get(name)
     if v not in (None, "", []):
-        if name == "est":
-            from docket.text.durations import format_duration, parse_duration
-            try:
-                return format_duration(parse_duration(v))
-            except Exception:
-                return str(v)
-        return str(v)
+        return _duration(v, duration) if name == "est" else str(v)
     d = defaults.get(name)
+    if d and name == "est":
+        return _duration(d, duration)
     if d:
         m = re.fullmatch(r"\+(\d+)d", d.strip())
         run_date = ((ctx.get("run") or {}).get("date")) or None
@@ -91,12 +98,13 @@ def check_line(quality: Any, grammar: Grammar, line: str, ctx: dict[str, Any], *
                     continue
                 raise _refuse(dest_id, "require", "the task has no link and the item has no URL",
                               grammar.render(t), "link", fix)
-            if t.get(name) not in (None, ""):
+            on_line = (q.get("fields") or {}).get(name, name)  # the task list's own name for it
+            if t.get(on_line) not in (None, ""):
                 continue
-            val = _value(name, ctx, defaults)
+            val = _value(name, ctx, defaults, q.get("duration") or "compact")
             if val is None:
                 raise _refuse(dest_id, "require", f"required field {name!r} is missing", grammar.render(t), name, fix)
-            t = t.with_field(name, val)
+            t = t.with_field(on_line, val)
         text_len = len(t.text)
         line = grammar.render(t)
     if q.get("evidence") == "required" and not any(ctx.get(k) for k in ("url", "text", "note")):
