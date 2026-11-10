@@ -3,26 +3,45 @@ source:
   capabilities: [read, discover]
   volatile: true
   cursor: { model: units, position: order_key, lookback: 1d }
-  params: { spaces_tool: null, messages_tool: null }
+  # The workspace names the gateway's two tools and, where they differ from the defaults,
+  # the argument names those tools take.
+  params:
+    spaces_tool: null
+    messages_tool: null
+    space_arg: parent
+    size_arg: pageSize
+    after_arg: after
+    token_arg: pageToken
   request:
+    # A gateway hands a tool result back as a parsed object, as JSON text, or as MCP content
+    # (text blocks, bare or under "content"). read() takes any of them.
     discover:
       script: |
         async () => {
-          const call = (name, args) => codemode[name](args);
-          const raw = await call({{tool}}, { pageToken: {{token}} });
-          const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+          const read = (r) => {
+            if (r && !Array.isArray(r) && Array.isArray(r.content)) r = r.content;
+            if (Array.isArray(r)) r = r.map(b => (b && typeof b.text === "string") ? b.text : "").join("");
+            return (typeof r === "string" ? JSON.parse(r) : r) ?? {};
+          };
+          const v = read(await codemode[{{tool}}]({ [{{token_arg}}]: {{token}} }));
           const spaces = (v.spaces ?? []).map(s => ({
             name: s.name ?? null, displayName: s.displayName ?? null,
-            spaceType: s.spaceType ?? null, memberCount: s.memberCount ?? null }));
+            spaceType: s.spaceType ?? null,
+            memberCount: s.memberCount ?? s.membershipCount?.joinedDirectHumanUserCount ?? null }));
           return JSON.stringify({ spaces, nextPageToken: v.nextPageToken ?? null });
         }
-      args: { tool: "{params.spaces_tool}", token: "{page.token}" }
+      args: { tool: "{params.spaces_tool}", token: "{page.token}", token_arg: "{params.token_arg}" }
     read:
       script: |
         async () => {
-          const call = (name, args) => codemode[name](args);
-          const raw = await call({{tool}}, { parent: {{space}}, after: {{after}}, pageSize: {{page_size}}, pageToken: {{token}} });
-          const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+          const read = (r) => {
+            if (r && !Array.isArray(r) && Array.isArray(r.content)) r = r.content;
+            if (Array.isArray(r)) r = r.map(b => (b && typeof b.text === "string") ? b.text : "").join("");
+            return (typeof r === "string" ? JSON.parse(r) : r) ?? {};
+          };
+          const v = read(await codemode[{{tool}}]({
+            [{{space_arg}}]: {{space}}, [{{after_arg}}]: {{after}},
+            [{{size_arg}}]: {{page_size}}, [{{token_arg}}]: {{token}} }));
           const messages = (v.messages ?? []).map(m => ({
             name: m.name ?? null, createTime: m.createTime ?? null, text: String(m.text ?? "").slice(0, 2000),
             sender: { name: m.sender?.name ?? null, displayName: m.sender?.displayName ?? null },
@@ -35,6 +54,10 @@ source:
         after: "{cursor.start}"
         page_size: "{page.size}"
         token: "{page.token}"
+        space_arg: "{params.space_arg}"
+        size_arg: "{params.size_arg}"
+        after_arg: "{params.after_arg}"
+        token_arg: "{params.token_arg}"
   discover:
     kind: space
     entries: "$.spaces"
@@ -57,7 +80,7 @@ source:
     space:
       required: { name: str }
       optional: { displayName: str, spaceType: str, memberCount: int }
-      enums: { spaceType: [ROOM, DM, GROUP_DM] }
+      enums: { spaceType: [SPACE, GROUP_CHAT, DIRECT_MESSAGE, ROOM, DM, GROUP_DM] }
       variations:
         spaceType: { unknown: { reading: "treat as a group space", value: ROOM, extend: "preset mcp/chat-codemode: contract.space.enums.spaceType" } }
     message:

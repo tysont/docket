@@ -98,6 +98,8 @@ def test_lease_error(cli, persona, pinned_now):
 def test_internal_error_writes_traceback_file(cli, monkeypatch, isolate):
     def boom(ctx, ns):
         raise RuntimeError("synthetic failure")
+    from docket.cli import _load_commands
+    _load_commands()  # the registry fills on first use; this test may be the first in its worker
     monkeypatch.setattr(REGISTRY["version"], "handler", boom)
     code, env = cli("version")
     assert_error(code, env, "internal.bug", "internal")
