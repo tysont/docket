@@ -176,3 +176,36 @@ def cmd_units_list(ctx: Any, ns: Any) -> Result:
     text = "\n".join(f"{r['source']:<12} {r['unit_id']:<28} {r['kind'] or '-':<10} {r['class'] or '-':<12} "
                      f"{r['classified_by'] or 'unclassified'}" for r in out)
     return Result({"units": out}, text or "no units")
+
+
+@command("units preview", "Apply the current unit rules to the registry and show the result; writes nothing. "
+         "Counts per class and tier, every unit whose classification would change, and the units no rule matches.",
+         args=[Arg("--source", "Only units of this source."),
+               Arg("--class", "List every unit the rules put in this class ('none' for units no rule matches).")],
+         effects=["reads the unit registry; contacts no source and writes nothing"],
+         examples=["docket units preview --json", "docket units preview --class none --json"])
+def cmd_units_preview(ctx: Any, ns: Any) -> Result:
+    from collections import Counter
+
+    from docket.sources.units import preview
+    ws = ctx.workspace()
+    rows = preview(ctx.store().db, ws, ns.source)
+    classes = Counter(r["now"]["class"] or "none" for r in rows)
+    tiers = Counter(r["now"]["tier"] or "none" for r in rows)
+    changed = [{"unit": r["unit"], "source": r["source"], "name": r["name"], "was": r["was"], "now": r["now"]}
+               for r in rows if (r["was"]["kind"], r["was"]["class"], r["was"]["tier"]) !=
+               (r["now"]["kind"], r["now"]["class"], r["now"]["tier"])]
+    data: dict[str, Any] = {"units": len(rows), "classes": dict(sorted(classes.items())),
+                            "tiers": dict(sorted(tiers.items())), "changed_count": len(changed),
+                            "changed": changed[:200], "written": False}
+    text = [f"{len(rows)} unit(s); {len(changed)} would change"]
+    text += [f"  {k:<18} {v}" for k, v in sorted(classes.items(), key=lambda kv: -kv[1])]
+    unit_class = getattr(ns, "class", None)
+    if unit_class:
+        want = None if unit_class == "none" else unit_class
+        listed = [{"unit": r["unit"], "source": r["source"], "name": r["name"], "type": r["type"],
+                   "members": r["members"], "first_seen": r["first_seen"], "class": r["now"]["class"],
+                   "tier": r["now"]["tier"], "rule": r["now"]["rule"]} for r in rows if r["now"]["class"] == want]
+        data["listed"] = listed
+        text += [f"  [{u['tier'] or '-'}] {u['name']}" for u in listed]
+    return Result(data, "\n".join(text))

@@ -81,6 +81,10 @@ ALTER TABLE dispositions ADD COLUMN op_id TEXT;
 ALTER TABLE dispositions ADD COLUMN outcome TEXT;
 CREATE INDEX ledgers_by_name ON ledgers (ledger, run_id)
 """),
+    # The unit's type as its system reports it, kept beside the kind a rule may assign (TD §6.9).
+    (9, """
+ALTER TABLE units ADD COLUMN type TEXT
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

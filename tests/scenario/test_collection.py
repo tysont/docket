@@ -89,6 +89,40 @@ def test_isolation_journal_and_units(persona, cli, pinned_now):
     assert units["spaces/release-train"]["class"] == "broadcast" and units["spaces/release-train"]["members"] == 30
     assert units["spaces/hallway"]["name"] == "spaces/hallway"  # nameless: the id is its name
     assert units["spaces/hallway"]["classified_by"] == "rule"
+    # The registry keeps what the system called the unit, whatever kind a rule gave it.
+    assert units["spaces/dm-kim"]["type"] == "DM" and units["spaces/release-train"]["type"] == "ROOM"
+
+
+def test_units_preview_applies_the_current_rules_to_the_registry_and_writes_nothing(persona, cli, pinned_now):
+    """Change a rule, see what it would do to every unit already discovered, read nothing."""
+    ws = persona("reference-like")
+    cli("run", "start", "isolation", "--now", pinned_now, "--workspace", str(ws))
+    run_agent(ws)
+    code, env = cli("units", "preview", "--workspace", str(ws))
+    same = env["data"]
+    assert code == 0 and same["changed"] == [] and same["units"] == sum(same["classes"].values())
+    before = cli("units", "list", "--workspace", str(ws))[1]["data"]["units"]
+
+    cfg = ws / "signals.yaml"
+    text = cfg.read_text()
+    assert "{ id: direct, match: { source: chat, type: [DM] }" in text
+    cfg.write_text(text.replace("- { id: war-room,", "- { id: trains, match: { source: chat, name_regex: "
+                                '"(?i)release train" }, set: { class: releases, tier: 2 } }\n      - { id: war-room,'))
+    code, env = cli("units", "preview", "--workspace", str(ws))
+    data = env["data"]
+    assert code == 0 and data["classes"]["releases"] == 1
+    (ch,) = data["changed"]
+    assert ch["unit"] == "spaces/release-train" and ch["name"]
+    assert (ch["was"]["class"], ch["now"]["class"], ch["now"]["tier"]) == ("broadcast", "releases", "2")
+    assert ch["now"]["kind"] == "broadcast" and ch["now"]["rule"] == "trains,large-room"  # kind from the later rule
+    # the DM is still matched by its type, though a rule renamed its kind
+    assert not any(c["unit"] == "spaces/dm-kim" for c in data["changed"])
+    assert cli("units", "list", "--workspace", str(ws))[1]["data"]["units"] == before  # nothing written
+
+    code, env = cli("units", "preview", "--class", "releases", "--workspace", str(ws))
+    assert [u["unit"] for u in env["data"]["listed"]] == ["spaces/release-train"]
+    code, env = cli("units", "preview", "--class", "none", "--workspace", str(ws))
+    assert all(u["class"] is None for u in env["data"]["listed"])
 
 
 WIKI_RECORDING = json.dumps({

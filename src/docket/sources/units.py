@@ -108,8 +108,32 @@ def upsert_units(db: sqlite3.Connection, ws: Any, sid: str, units: list[Unit], s
             kind, cls, tier, by = prev["kind"], prev["class"], prev["tier"], "agent"
         first = prev["first_seen"] if prev is not None else seen_at
         db.execute("INSERT OR REPLACE INTO units (source, unit_id, name, kind, class, tier, first_seen, last_seen, "
-                   "classified_by, members, rule) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                   "classified_by, members, rule, type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                    (sid, u.id, u.name, kind, cls, None if tier is None else str(tier), first, seen_at, by,
-                    u.members, ",".join(used) or None))
+                    u.members, ",".join(used) or None, u.type))
         out.append({"unit": u.id, "kind": kind, "class": cls, "tier": tier, "classified_by": by})
+    return out
+
+
+def preview(db: sqlite3.Connection, ws: Any, source: str | None = None) -> list[dict[str, Any]]:
+    """Apply the current rules to every unit in the registry and write nothing. Each row
+    carries what the registry holds (``was``) and what the rules give now (``now``). A unit
+    an agent classified keeps that. A row from before the registry kept types is matched
+    by its kind, which was its type unless a rule had renamed it."""
+    rules = unit_rules(ws)
+    sql = "SELECT * FROM units" + (" WHERE source=?" if source else "") + " ORDER BY source, unit_id"
+    out = []
+    for r in db.execute(sql, (source,) if source else ()).fetchall():
+        row = dict(r)
+        was = {"kind": row["kind"], "class": row["class"], "tier": row["tier"], "rule": row["rule"]}
+        utype = row.get("type") or row["kind"]
+        if row["classified_by"] == "agent":
+            now = dict(was)
+        else:
+            got, used = classify(rules, row["source"], Unit(row["unit_id"], row["name"], utype, row["members"]), ws)
+            tier = got.get("tier")
+            now = {"kind": got.get("kind", utype), "class": got.get("class"),
+                   "tier": None if tier is None else str(tier), "rule": ",".join(used) or None}
+        out.append({"source": row["source"], "unit": row["unit_id"], "name": row["name"], "type": utype,
+                    "members": row["members"], "first_seen": row["first_seen"], "was": was, "now": now})
     return out
