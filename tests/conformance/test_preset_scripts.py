@@ -25,7 +25,7 @@ SPACES = {"spaces": [
     {"name": "spaces/dm-1", "spaceType": "DIRECT_MESSAGE", "memberCount": 2},
 ], "nextPageToken": "p2"}
 MESSAGES = {"messages": [
-    {"name": "spaces/room-1/messages/m1", "createTime": "2026-10-15T07:00:00Z", "text": "x" * 3000,
+    {"name": "spaces/room-1/messages/t1.m1", "createTime": "2026-10-15T07:00:00Z", "text": "x" * 3000,
      "sender": {"name": "users/2002", "displayName": "Kim Osei", "type": "HUMAN"},
      "thread": {"name": "spaces/room-1/threads/t1"}, "cardsV2": [{"cardId": "c"}],
      "annotations": [
@@ -86,7 +86,7 @@ def test_chat_read_calls_the_tool_with_the_workspace_argument_names(wrapping):
     assert got["calls"] == [["posts_list", {"spaceName": "spaces/room-1", "since": "2026-10-14T00:00:00Z",
                                             "maxResults": 25, "cursor": "t9"}]]
     (m,) = got["out"]["messages"]
-    assert m["name"] == "spaces/room-1/messages/m1" and len(m["text"]) == 2000 and "cardsV2" not in m
+    assert m["name"] == "spaces/room-1/messages/t1.m1" and len(m["text"]) == 2000 and "cardsV2" not in m
     assert m["sender"] == {"name": "users/2002", "displayName": "Kim Osei", "type": "HUMAN"}
     assert m["mentions"] == ["users/1001", "users/3003"]  # people mentioned, by handle; other annotations ignored
     assert m["url"] is None                                # no link template configured
@@ -117,6 +117,9 @@ READ = {"tool": "posts_list", "space": "spaces/room-1", "after": None, "page_siz
 @pytest.mark.parametrize("template,want", [
     ("https://chat.example.org/room/{space}/{thread}", "https://chat.example.org/room/room-1/t1"),
     ("https://chat.example.org/dm/{space}", "https://chat.example.org/dm/room-1"),
+    # A link to the message itself. A message id may carry its thread as a prefix
+    # ("<thread>.<message>"); {message} is the part that names the message.
+    ("https://chat.example.org/room/{space}/{thread}/{message}", "https://chat.example.org/room/room-1/t1/m1"),
     ("", None),
 ])
 def test_chat_read_builds_a_link_back_from_the_workspace_template(template, want):

@@ -14,7 +14,8 @@ source:
     token_arg: pageToken
     spaces_size_arg: ""       # the spaces tool's page-size argument, when discover.page_size is set
     # A template for the item's url. {space} and {thread} are the last segments of the
-    # space and thread names. Empty: items carry no link.
+    # space and thread names; {message} is the last segment of the message name, without
+    # the thread prefix some systems put before a dot. Empty: items carry no link.
     link: ""
   request:
     # A gateway hands a tool result back as a parsed object, as JSON text, or as MCP content
@@ -59,7 +60,8 @@ source:
           const last = (n) => String(n ?? "").split("/").pop();
           const template = {{link}} || "";
           const link = (m) => template
-            ? template.replace("{space}", last({{space}})).replace("{thread}", last(m.thread?.name)) : null;
+            ? template.replace("{space}", last({{space}})).replace("{thread}", last(m.thread?.name))
+                .replace("{message}", last(m.name).split(".").pop()) : null;
           const messages = (v.messages ?? []).map(m => ({
             name: m.name ?? null, createTime: m.createTime ?? null, text: String(m.text ?? "").slice(0, 2000),
             sender: { name: m.sender?.name ?? null, displayName: m.sender?.displayName ?? null,
