@@ -10,6 +10,7 @@ Every subprocess a transport starts runs without a controlling terminal, with
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -116,10 +117,39 @@ class Secrets:
         return self.mask(data.decode("utf-8", "replace")).encode("utf-8")
 
 
-def resolve_credential(ref: Any, env: Mapping[str, str], root: Path, secrets: Secrets) -> tuple[str | None, str | None]:
-    """Read a credential reference ``{env: NAME}`` or ``{file: PATH}``. Returns (value, problem).
+def _select_json(text: str, json_path: Any) -> tuple[str, str | None]:
+    """The string at ``json_path`` inside JSON text. Returns (value, problem); the problem
+    names how far the path was followed and never quotes the file."""
+    try:
+        node = json.loads(text)
+    except ValueError:
+        return "", "is not valid JSON"
+    seen: list[str] = []
+    for key in json_path:
+        at = ".".join(seen) or "the top level"
+        if isinstance(key, int) and not isinstance(key, bool) and isinstance(node, list):
+            if not -len(node) <= key < len(node):
+                return "", f"has no index {key} at {at}"
+            node = node[key]
+        elif isinstance(key, str) and isinstance(node, dict) and key in node:
+            node = node[key]
+        else:
+            what = f"index {key}" if isinstance(key, int) else f"key {key!r}"
+            return "", f"has no {what} at {at}"
+        seen.append(str(key))
+    at = ".".join(seen) or "the top level"
+    if not isinstance(node, str):
+        return "", f"is not a string at {at}"
+    if not node.strip():
+        return "", f"is empty at {at}"
+    return node.strip(), None
 
-    The problem text names the variable or path, never a value.
+
+def resolve_credential(ref: Any, env: Mapping[str, str], root: Path, secrets: Secrets) -> tuple[str | None, str | None]:
+    """Read a credential reference ``{env: NAME}``, ``{file: PATH}`` or
+    ``{file: PATH, json_path: [key, ...]}``. Returns (value, problem).
+
+    The problem text names the variable, the path or the place inside the file, never a value.
     """
     name = getattr(ref, "env", None)
     path = getattr(ref, "file", None)
@@ -142,6 +172,13 @@ def resolve_credential(ref: Any, env: Mapping[str, str], root: Path, secrets: Se
             val = p.read_text(encoding="utf-8").strip()
         except OSError as e:
             return None, f"credential file {path} cannot be read: {e.strerror}"
+        json_path = getattr(ref, "json_path", None)
+        if json_path is not None:
+            val, problem = _select_json(val, json_path)
+            if problem:
+                return None, f"credential file {path} {problem}"
+            secrets.register(val)
+            return val, None
         if not val:
             return None, f"credential file {path} is empty"
         secrets.register(val)

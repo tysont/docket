@@ -81,6 +81,8 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     # --- M2 collection ---
     "config.secret_literal": ("config", False, "A credential-named field holds a literal that looks like a secret; "
                               "reference an environment variable or a file instead."),
+    "config.bad_credential": ("config", False, "A credential reference is inconsistent, for example json_path "
+                              "without the file it selects from."),
     "input.unknown_source": ("input", False, "The workspace defines no source with this id."),
     "input.unknown_unit": ("input", False, "The source discovered no unit with this id."),
     "source.failed": ("external", True, "A source or unit failed; details carry the raw cause."),

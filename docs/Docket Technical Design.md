@@ -423,7 +423,7 @@ A transport sends one request and returns one response body plus metadata. Trans
 | `http_json` | Method, URL template, headers, body | For plain JSON APIs. |
 | `files` | Glob and parser | Local files: Markdown, JSON, ICS, CSV. |
 
-Transport instances are declared once under `transports:` and shared by sources (`chat-gateway`, `docs-gateway`). Credentials are referenced by environment variable name or file path; the loader rejects a literal that looks like a secret (high-entropy strings in credential-named fields).
+Transport instances are declared once under `transports:` and shared by sources (`chat-gateway`, `docs-gateway`). Credentials are referenced by environment variable name or file path. A file reference may add `json_path`, a list of keys and list positions, to take one string from inside a JSON file such as another tool's token store; the path is a list so a key may hold any character. The loader rejects a literal that looks like a secret (high-entropy strings in credential-named fields).
 
 ### 6.4 Cursor models
 

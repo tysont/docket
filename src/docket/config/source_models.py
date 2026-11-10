@@ -75,6 +75,9 @@ class CredentialRef(Strict):
     """Where a credential lives. A value never appears in configuration (TD §16)."""
     env: str | None = None
     file: str | None = None
+    # With file: the file is JSON and the credential is the string at this path, a list of
+    # object keys and list positions. A list, not a dotted string, so a key may hold any character.
+    json_path: list[str | int] | None = None
 
 
 class RecordConfig(Strict):

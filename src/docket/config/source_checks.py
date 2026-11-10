@@ -224,6 +224,13 @@ def check(loaded: Loaded) -> list[Issue]:
             continue
         k = t.get("kind")
         base = ("transports", tname)
+        refs = [(("bearer",), t.get("bearer"))]
+        refs += [((sect, name), r) for sect in ("headers_from", "env_from") for name, r in _items(t.get(sect))]
+        for sub, r in refs:
+            if isinstance(r, dict) and r.get("json_path") is not None and not r.get("file"):
+                out.append(_issue(loaded, "config.bad_credential",
+                                  f"{dotted(base + sub)} sets json_path without file; json_path selects a value "
+                                  "inside a JSON file, so name the file", base + sub, 3))
         need = {"exec_jsonl": ("command",), "mcp_stdio": ("command",), "mcp_http": ("url",), "replay": ("path",)}
         for key in need.get(k, ()):
             if not t.get(key):
