@@ -81,6 +81,8 @@ def _outcome_row(res: "SourceResult", cfg: Any) -> dict[str, Any]:
     for k in ("pages", "stepdowns", "tombstones", "failed_records"):
         if getattr(o, k):
             row[k] = getattr(o, k)
+    if res.quiet:
+        row["quiet_units"] = len(res.quiet)  # not read: no activity since their cursor (TD §6.9)
     if res.units and not (len(res.units) == 1 and res.units[0].unit.id == ALL_UNITS):
         row["units"] = {u.unit.id: {**u.outcome.as_dict(), "start": u.cursor.position} for u in res.units}
     return row

@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 SPACES = {"spaces": [
     {"name": "spaces/room-1", "displayName": "Platform", "spaceType": "SPACE", "extra": "dropped",
-     "membershipCount": {"joinedDirectHumanUserCount": 41}},
+     "membershipCount": {"joinedDirectHumanUserCount": 41}, "lastActiveTime": "2026-10-15T09:00:00Z"},
     {"name": "spaces/dm-1", "spaceType": "DIRECT_MESSAGE", "memberCount": 2},
 ], "nextPageToken": "p2"}
 MESSAGES = {"messages": [
@@ -66,8 +66,10 @@ def test_chat_discover_projects_spaces_from_every_result_wrapping(wrapping):
               wrapping, {"rooms_list": SPACES})
     assert got["calls"] == [["rooms_list", {}]]  # an absent value is left out: a strict tool schema refuses null
     assert got["out"] == {"nextPageToken": "p2", "spaces": [
-        {"name": "spaces/room-1", "displayName": "Platform", "spaceType": "SPACE", "memberCount": 41},
-        {"name": "spaces/dm-1", "displayName": None, "spaceType": "DIRECT_MESSAGE", "memberCount": 2}]}
+        {"name": "spaces/room-1", "displayName": "Platform", "spaceType": "SPACE", "memberCount": 41,
+         "lastActiveTime": "2026-10-15T09:00:00Z"},
+        {"name": "spaces/dm-1", "displayName": None, "spaceType": "DIRECT_MESSAGE", "memberCount": 2,
+         "lastActiveTime": None}]}
 
 
 @pytest.mark.parametrize("wrapping", WRAPPINGS)
@@ -89,6 +91,12 @@ def test_chat_requests_leave_out_arguments_that_have_no_value_and_pass_those_tha
     got = run(src["request"]["discover"]["script"], {"tool": "rooms_list", "token": "p2", "token_arg": "cursor"},
               "object", {"rooms_list": SPACES})
     assert got["calls"] == [["rooms_list", {"cursor": "p2"}]]
+    sized = {"tool": "rooms_list", "token": None, "token_arg": "cursor", "size_arg": "limit", "page_size": 500}
+    got = run(src["request"]["discover"]["script"], sized, "object", {"rooms_list": SPACES})
+    assert got["calls"] == [["rooms_list", {"limit": 500}]]
+    unsized = {**sized, "size_arg": ""}  # no size argument named: the page size is not sent under any name
+    got = run(src["request"]["discover"]["script"], unsized, "object", {"rooms_list": SPACES})
+    assert got["calls"] == [["rooms_list", {}]]
     first = {"tool": "posts_list", "space": "spaces/room-1", "after": None, "page_size": 25, "token": None,
              "space_arg": "parent", "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken"}
     got = run(src["request"]["read"]["script"], first, "object", {"posts_list": MESSAGES})
@@ -98,7 +106,8 @@ def test_chat_requests_leave_out_arguments_that_have_no_value_and_pass_those_tha
 def test_the_preset_defaults_name_arguments_and_the_request_plan_passes_them():
     src = _load()
     assert src["params"] == {"spaces_tool": None, "messages_tool": None, "space_arg": "parent",
-                             "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken"}
+                             "size_arg": "pageSize", "after_arg": "after", "token_arg": "pageToken",
+                             "spaces_size_arg": ""}
     read_args = src["request"]["read"]["args"]
     assert read_args["space_arg"] == "{params.space_arg}" and read_args["token_arg"] == "{params.token_arg}"
     assert src["request"]["discover"]["args"]["token_arg"] == "{params.token_arg}"

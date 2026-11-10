@@ -12,6 +12,7 @@ source:
     size_arg: pageSize
     after_arg: after
     token_arg: pageToken
+    spaces_size_arg: ""       # the spaces tool's page-size argument, when discover.page_size is set
   request:
     # A gateway hands a tool result back as a parsed object, as JSON text, or as MCP content
     # (text blocks, bare or under "content"). read() takes any of them. An argument with no
@@ -25,14 +26,21 @@ source:
             return (typeof r === "string" ? JSON.parse(r) : r) ?? {};
           };
           const given = (a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== null && x !== undefined));
-          const v = read(await codemode[{{tool}}](given({ [{{token_arg}}]: {{token}} })));
+          const size = {{size_arg}} ? { [{{size_arg}}]: {{page_size}} } : {};
+          const v = read(await codemode[{{tool}}](given({ [{{token_arg}}]: {{token}}, ...size })));
           const spaces = (v.spaces ?? []).map(s => ({
             name: s.name ?? null, displayName: s.displayName ?? null,
             spaceType: s.spaceType ?? null,
-            memberCount: s.memberCount ?? s.membershipCount?.joinedDirectHumanUserCount ?? null }));
+            memberCount: s.memberCount ?? s.membershipCount?.joinedDirectHumanUserCount ?? null,
+            lastActiveTime: s.lastActiveTime ?? null }));
           return JSON.stringify({ spaces, nextPageToken: v.nextPageToken ?? null });
         }
-      args: { tool: "{params.spaces_tool}", token: "{page.token}", token_arg: "{params.token_arg}" }
+      args:
+        tool: "{params.spaces_tool}"
+        token: "{page.token}"
+        page_size: "{page.size}"
+        token_arg: "{params.token_arg}"
+        size_arg: "{params.spaces_size_arg}"
     read:
       script: |
         async () => {
@@ -69,6 +77,7 @@ source:
     name: "$.displayName"
     type: "$.spaceType"
     members: "$.memberCount"
+    active: "$.lastActiveTime"   # a space with nothing since its cursor is not read (verify_every: 7d)
   paging:
     kind: message
     page_size: 100
@@ -82,7 +91,7 @@ source:
   contract:
     space:
       required: { name: str }
-      optional: { displayName: str, spaceType: str, memberCount: int }
+      optional: { displayName: str, spaceType: str, memberCount: int, lastActiveTime: timestamp }
       enums: { spaceType: [SPACE, GROUP_CHAT, DIRECT_MESSAGE, ROOM, DM, GROUP_DM] }
       variations:
         spaceType: { unknown: { reading: "treat as a group space", value: ROOM, extend: "preset mcp/chat-codemode: contract.space.enums.spaceType" } }

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from docket.config.source_models import Source as SourceConfig
-from docket.shapes.unexpected import Shape, collecting, replay
+from docket.shapes.unexpected import Shape, collecting, replay, unexpected
 from docket.sources.base import ALL_UNITS, Cursor, Outcome, Page, Unit
 from docket.sources.cursors import cadence_skip, interval_from
 from docket.sources.declarative import DeclarativeSource, Limits
@@ -45,6 +45,7 @@ class SourceResult:
     units: list[UnitResult] = field(default_factory=list)
     discovered: list[Unit] = field(default_factory=list)
     shapes: list[Shape] = field(default_factory=list)
+    quiet: list[str] = field(default_factory=list)   # units not read: no activity since their cursor
 
 
 @dataclass
@@ -142,25 +143,86 @@ async def _read_one(src: DeclarativeSource, sid: str, cfg: SourceConfig, *, star
         for u in found:
             if only_unit and u.id != only_unit:
                 continue
-            jobs.append((u, starts.cursor(sid, u.id, cfg, instant), {}))
+            cur = starts.cursor(sid, u.id, cfg, instant)
+            state = None if only_unit else _quiet(cfg, u, cur, instant)
+            if state == "quiet":
+                res.quiet.append(u.id)
+                continue
+            jobs.append((u, cur, {"check_activity": True} if state == "verify" else {}))
     sem = asyncio.Semaphore(max(1, cfg.budget.concurrency))
 
     async def one(unit: Unit, cur: Cursor, extra: dict[str, Any]) -> UnitResult:
         async with sem:
             tpl = extra.pop("template", None)
+            check_activity = extra.pop("check_activity", False)
             reader = src.read(None, unit, cur, entry_limit=entry_limit, template=tpl, extra=extra)
             pages = [p async for p in reader]
             assert reader.outcome is not None
+            if check_activity and reader.outcome.entries:
+                unexpected("source.unit_activity",
+                           f"{sid} unit {unit.id} held {reader.outcome.entries} record(s) newer than its reported "
+                           "last activity", reading="read the records; the activity time is not proof for this unit",
+                           extend=f"sources.{sid}.discover.active (or shorten discover.verify_every)")
             return UnitResult(unit, cur, reader.outcome, pages, reader.proposal)
 
-    results = await asyncio.gather(*(one(u, c, e) for u, c, e in jobs), return_exceptions=True)
+    unread = 0
+    if entry_limit is not None and model == "units" and not only_unit:
+        # A sample: the most recently active units first, one at a time, until it has enough.
+        jobs.sort(key=lambda j: j[0].active or "", reverse=True)
+        results: list[Any] = []
+        have = 0
+        for u, c, e in jobs:
+            if have >= entry_limit:
+                break
+            try:
+                r = await one(u, c, e)
+                have += r.outcome.entries
+            except Exception as exc:  # the unit boundary, as gather isolates it below
+                r = exc
+            results.append(r)
+        unread = len(jobs) - len(results)
+        jobs = jobs[:len(results)]
+    else:
+        results = await asyncio.gather(*(one(u, c, e) for u, c, e in jobs), return_exceptions=True)
     for (u, c, _), r in zip(jobs, results, strict=True):
         if isinstance(r, BaseException):
             r = UnitResult(u, c, Outcome("failed", cause={"code": "source.failed", "message": raw_message(r)}))
         res.units.append(r)
     res.units.sort(key=lambda x: x.unit.id)
     res.outcome = aggregate(res.units) if model != "id-scan" or res.units else Outcome("empty")
+    if unread:
+        res.outcome.status = "partial"
+        res.outcome.reason = f"sample limit {entry_limit} reached; {unread} unit(s) not read"
     return res
+
+
+def _quiet(cfg: SourceConfig, unit: Unit, cur: Cursor, instant: str) -> str | None:
+    """How a unit's reported last activity bears on reading it (TD §6.9).
+
+    ``quiet``: nothing happened after the place its cursor starts and it was really read
+    within the verify window, so it is not read. ``verify``: nothing is reported to have
+    happened, but the window has passed, so it is read and a record found is reported.
+    ``None``: read it; the activity time says nothing either way.
+    """
+    from docket.sources.cursors import compare
+    dc = cfg.discover
+    if dc is None or not dc.active or unit.active is None:
+        return None
+    start = cur.position if cur.position is not None else cur.interval_from
+    if start is None or cur.coverage_end is None:
+        return None  # never read: read it once, so a cursor exists to compare against
+    order = compare(unit.active, start)
+    if order is None or order > 0:
+        return None
+    if dc.verify_every is None:
+        return "quiet"
+    from datetime import datetime, timedelta
+    from docket.text.durations import parse_duration
+    try:
+        age = datetime.fromisoformat(instant) - datetime.fromisoformat(cur.coverage_end)
+    except ValueError:
+        return "verify"
+    return "quiet" if age <= timedelta(minutes=parse_duration(dc.verify_every)) else "verify"
 
 
 def _build_transports(ws: Any, names: set[str], *, env: Mapping[str, str], log_dir: Path | None,

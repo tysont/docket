@@ -179,7 +179,8 @@ class DeclarativeSource:
         units: dict[str, Unit] = {}
         token: str | None = None
         for number in range(1, 101):
-            payload = render(req.payload(), self.context(None, None, page={"token": token, "number": number}))
+            payload = render(req.payload(), self.context(None, None, page={"token": token, "number": number,
+                                                                           "size": dc.page_size}))
             resp = await self.send(payload)
             self.budget.pages += 1
             if resp.error is not None:
@@ -210,9 +211,10 @@ class DeclarativeSource:
                     name = str(uid)
                 utype = lookup(checked.view, dc.type) if dc.type else None
                 members = lookup(checked.view, dc.members) if dc.members else None
+                active = lookup(checked.view, dc.active) if dc.active else None
                 units[str(uid)] = Unit(str(uid), str(name), None if utype is None else str(utype),
                                        members if isinstance(members, int) and not isinstance(members, bool) else None,
-                                       checked.view)
+                                       checked.view, active if isinstance(active, str) and active else None)
             token = _token(lookup(body, dc.next)) if dc.next else None
             if token is None:
                 break

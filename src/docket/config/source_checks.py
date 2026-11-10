@@ -285,6 +285,13 @@ def check(loaded: Loaded) -> list[Issue]:
             except Exception:
                 out.append(_issue(loaded, "config.bad_type", f"sources.{sid}.cursor.lookback: not a duration",
                                   base + ("cursor", "lookback"), 3, expected="a duration like 3d or 12h"))
+        disc = src.get("discover") if isinstance(src.get("discover"), dict) else {}
+        if isinstance(disc.get("verify_every"), str):
+            try:
+                parse_duration(disc["verify_every"])
+            except Exception:
+                out.append(_issue(loaded, "config.bad_type", f"sources.{sid}.discover.verify_every: not a duration",
+                                  base + ("discover", "verify_every"), 3, expected="a duration like 7d"))
         req = src.get("request") if isinstance(src.get("request"), dict) else {}
         wants = {"units": ("discover", "read"), "id-scan": ("ids", "get")}.get(eff, ("read",))
         for w in wants:

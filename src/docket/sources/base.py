@@ -26,6 +26,7 @@ class Unit:
     type: str | None = None
     members: int | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+    active: str | None = None           # last activity, when discovery reports it
 
 
 @dataclass

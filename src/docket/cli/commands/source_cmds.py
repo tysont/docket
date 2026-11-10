@@ -149,8 +149,10 @@ def cmd_source_test(ctx: Any, ns: Any) -> Result:
                     items.append(map_entry(ns.id, ur.unit.id, e.view, cfg.mapping, f"sample#{page.number}.{e.index}"))
     data = {"source": ns.id, "outcome": res.outcome.as_dict(), "units": units,
             "discovered": [{"id": u.id, "name": u.name, "type": u.type, "members": u.members} for u in res.discovered],
-            "items": items, "written": False}
+            "quiet_units": len(res.quiet), "items": items, "written": False}
     text = [f"{ns.id}: {res.outcome.status} ({len(items)} item(s) shown)"]
+    if res.quiet:
+        text.append(f"  {len(res.quiet)} unit(s) not read: no activity since their cursor")
     text += [f"  [{it['unit'] or '-'}] {it['title']}" for it in items]
     return Result(data, "\n".join(text))
 

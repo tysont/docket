@@ -471,7 +471,7 @@ The contract checker runs on every page. A missing optional field is not drift. 
 
 ### 6.9 Unit registry and classification
 
-For `units` sources, discovered units are upserted into the `units` table. Classification rules in `signals.units` assign `kind`, `class` and `tier` from name patterns, membership counts and unit type. `docket units list` shows the durable registry and its classifications. The `classify` task kind ships, but automatically issuing it for unclassified units is deferred with FR-SRC-11.
+For `units` sources, discovered units are upserted into the `units` table. Classification rules in `signals.units` assign `kind`, `class` and `tier` from name patterns, membership counts and unit type. `docket units list` shows the durable registry and its classifications. A source in thousands of units reads only the ones that moved. When discovery maps a unit's last activity (`discover.active`), a unit with no activity after the place its cursor starts is not read, provided it was really read within `discover.verify_every` (default 7 days). Past that window it is read anyway, and a record found in a unit the rule would have skipped is recorded as an unexpected shape, because the activity time was wrong. A unit never read is read once so that a cursor exists. The outcome counts the units not read as `quiet_units`. A sample (`source test --limit`) reads the most recently active units one at a time and stops when it has enough. The `classify` task kind ships, but automatically issuing it for unclassified units is deferred with FR-SRC-11.
 
 ### 6.10 Resolve
 

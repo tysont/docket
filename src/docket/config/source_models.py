@@ -179,6 +179,11 @@ class DiscoverConfig(Strict):
     name: str | None = "$.name"
     type: str | None = "$.type"
     members: str | None = None
+    page_size: int | None = None            # units per discovery page ({page.size}); None: the system's default
+    # Last activity of a unit. A unit with no activity after the place its cursor starts is
+    # not read, provided it was really read within verify_every; None there trusts it always.
+    active: str | None = None
+    verify_every: str | None = "7d"
 
 
 class VariationRule(Strict):
