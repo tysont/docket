@@ -417,13 +417,13 @@ A transport sends one request and returns one response body plus metadata. Trans
 | Transport | Request | Notes |
 |---|---|---|
 | `mcp_stdio` | Tool name and arguments | Spawns the server once per collect, reuses the session. |
-| `mcp_http` | Tool name and arguments | Streamable HTTP; bearer token read from a file or an env var name, never from configuration text. |
+| `mcp_http` | Tool name and arguments | Streamable HTTP; bearer token read from a file or an env var name on every request, never from configuration text. |
 | `codemode` | Script template and parameters | For servers that expose one code-execution tool. The preset ships a script that pages, projects to declared fields and returns compact JSON under the server's response cap. |
 | `exec_jsonl` | One JSON object on stdin | A long-lived child process speaking the Docket protocol (§17.2). One process per source per collect, not per item. |
 | `http_json` | Method, URL template, headers, body | For plain JSON APIs. |
 | `files` | Glob and parser | Local files: Markdown, JSON, ICS, CSV. |
 
-Transport instances are declared once under `transports:` and shared by sources (`chat-gateway`, `docs-gateway`). Credentials are referenced by environment variable name or file path. A file reference may add `json_path`, a list of keys and list positions, to take one string from inside a JSON file such as another tool's token store; the path is a list so a key may hold any character. The loader rejects a literal that looks like a secret (high-entropy strings in credential-named fields).
+Transport instances are declared once under `transports:` and shared by sources (`chat-gateway`, `docs-gateway`). Credentials are referenced by environment variable name or file path. A file reference may add `json_path`, a list of keys and list positions, to take one string from inside a JSON file such as another tool's token store; the path is a list so a key may hold any character. A reference may also name a `refresh` command for a credential that expires. Credential headers are read again on every request, so a value another program renewed is picked up. When a server answers 401, the transport runs the command once, with no terminal, a closed stdin, a scrubbed environment and a timeout, reads the credential again and repeats the request; concurrent rejections share one run. A rejection that survives is reported as `unavailable` with `authentication rejected (HTTP 401)` and the reason the refresh did not help. The loader rejects a literal that looks like a secret (high-entropy strings in credential-named fields).
 
 ### 6.4 Cursor models
 

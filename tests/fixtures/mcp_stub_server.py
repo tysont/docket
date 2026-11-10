@@ -1,7 +1,9 @@
 """A stub MCP server for transport tests, written with the official SDK.
 
 ``python mcp_stub_server.py`` serves stdio; ``python mcp_stub_server.py --http PORT``
-serves streamable HTTP on 127.0.0.1. Tools:
+serves streamable HTTP on 127.0.0.1. With ``--bearer-file PATH`` the HTTP server answers
+401 unless the request carries ``Authorization: Bearer <the file's current content>``; the
+file is read on every request, so rewriting it expires every token already handed out. Tools:
 
 - ``list_items(token, page_size)``: pages of ROWS entries as JSON text; a page above 4 rows
   is refused as too large, like a gateway with a response cap;
@@ -69,6 +71,25 @@ def execute(code: str) -> str:
 if __name__ == "__main__":
     if "--http" in sys.argv:
         port = int(sys.argv[sys.argv.index("--http") + 1])
-        server.run("streamable-http", host="127.0.0.1", port=port, json_response=True, stateless_http=True)
+        if "--bearer-file" in sys.argv:
+            import uvicorn
+            bearer_file = sys.argv[sys.argv.index("--bearer-file") + 1]
+            inner = server.streamable_http_app(json_response=True, stateless_http=True)
+
+            async def guarded(scope, receive, send):
+                if scope["type"] == "http":
+                    with open(bearer_file, encoding="utf-8") as f:
+                        want = "Bearer " + f.read().strip()
+                    got = dict(scope["headers"]).get(b"authorization", b"").decode()
+                    if got != want:
+                        await send({"type": "http.response.start", "status": 401,
+                                    "headers": [(b"content-type", b"application/json")]})
+                        await send({"type": "http.response.body", "body": b'{"error":"invalid_token"}'})
+                        return
+                await inner(scope, receive, send)
+
+            uvicorn.run(guarded, host="127.0.0.1", port=port, log_level="error")
+        else:
+            server.run("streamable-http", host="127.0.0.1", port=port, json_response=True, stateless_http=True)
     else:
         server.run()

@@ -28,16 +28,16 @@ def _resolve_all(refs: Mapping[str, Any], env: Mapping[str, str], root: Path,
 def build_transport(tid: str, cfg: TransportConfig, *, root: Path, env: Mapping[str, str], log_dir: Path | None,
                     secrets: Secrets) -> tuple[Any | None, Failure | None]:
     """Return (transport, None) or (None, failure). Nothing is started here."""
+    from docket.transports.credentials import Credentials
     headers = dict(cfg.headers)
-    extra, problem = _resolve_all(cfg.headers_from, env, root, secrets)
+    refs: dict[str, tuple[str, Any]] = {name: ("", ref) for name, ref in cfg.headers_from.items()}
+    if cfg.bearer is not None:
+        refs["Authorization"] = ("Bearer ", cfg.bearer)
+    # Credential headers are read again on every request, so a renewed value is used (TD §6.8).
+    creds = Credentials(refs, env=env, root=root, secrets=secrets)
+    _, problem = creds.headers()
     if problem:
         return None, Failure("unavailable", problem)
-    headers.update(extra)
-    if cfg.bearer is not None:
-        tok, problem = resolve_credential(cfg.bearer, env, root, secrets)
-        if problem:
-            return None, Failure("unavailable", problem)
-        headers["Authorization"] = f"Bearer {tok}"
     child_vars, problem = _resolve_all(cfg.env_from, env, root, secrets)
     if problem:
         return None, Failure("unavailable", problem)
@@ -58,14 +58,15 @@ def build_transport(tid: str, cfg: TransportConfig, *, root: Path, env: Mapping[
     elif cfg.kind == "http_json":
         from docket.transports.http_json import HttpJsonTransport
         t = HttpJsonTransport(tid, base_url=cfg.url, headers=headers, timeout_s=cfg.timeout_s,
-                              max_response_bytes=cfg.max_response_bytes, trust_env=cfg.trust_env, secrets=secrets)
+                              max_response_bytes=cfg.max_response_bytes, trust_env=cfg.trust_env, secrets=secrets,
+                              credentials=creds)
     elif cfg.kind in ("mcp_stdio", "mcp_http", "codemode"):
         from docket.transports.mcp_http import McpHttpTransport
         from docket.transports.mcp_stdio import McpStdioTransport
         if cfg.command:
             sess: Any = McpStdioTransport(tid, cfg.command, env=cenv, cwd=cwd, log_dir=log_dir, **common)
         else:
-            sess = McpHttpTransport(tid, cfg.url or "", headers=headers, **common)
+            sess = McpHttpTransport(tid, cfg.url or "", headers=headers, credentials=creds, **common)
         if cfg.kind == "codemode":
             from docket.transports.codemode import CodemodeTransport
             t = CodemodeTransport(tid, sess, tool=cfg.tool or "", code_arg=cfg.code_arg)

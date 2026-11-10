@@ -78,6 +78,10 @@ class CredentialRef(Strict):
     # With file: the file is JSON and the credential is the string at this path, a list of
     # object keys and list positions. A list, not a dotted string, so a key may hold any character.
     json_path: list[str | int] | None = None
+    # A command that renews the credential where it lives (the variable's source or the file).
+    # Run without a terminal when a server answers 401; the credential is then read again.
+    refresh: list[str] | None = None
+    refresh_timeout_s: float = 30.0
 
 
 class RecordConfig(Strict):

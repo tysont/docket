@@ -19,7 +19,8 @@ class HttpJsonTransport:
     kind = "http_json"
 
     def __init__(self, tid: str, *, base_url: str | None, headers: dict[str, str], timeout_s: float,
-                 max_response_bytes: int | None, trust_env: bool, secrets: Secrets) -> None:
+                 max_response_bytes: int | None, trust_env: bool, secrets: Secrets,
+                 credentials: Any = None) -> None:
         self.id = tid
         self.base_url = base_url or ""
         self.headers = dict(headers)
@@ -28,13 +29,18 @@ class HttpJsonTransport:
         self.trust_env = trust_env
         self.secrets = secrets
         self.info: dict[str, Any] = {"name": "http_json", "protocol": 1}
+        self.credentials = credentials
         self._client: Any = None
 
     async def open(self) -> Failure | None:
         if self._client is None:
             import httpx
+            auth = None
+            if self.credentials:
+                from docket.transports.credentials import auth_for
+                auth = auth_for(httpx.Auth, self.credentials)
             self._client = httpx.AsyncClient(base_url=self.base_url, headers=self.headers, timeout=self.timeout_s,
-                                             trust_env=self.trust_env, follow_redirects=True)
+                                             trust_env=self.trust_env, follow_redirects=True, auth=auth)
         return None
 
     async def request(self, req: Request) -> Response:
@@ -59,6 +65,9 @@ class HttpJsonTransport:
             return Response(error=Failure("unavailable", self.secrets.mask(f"{method} {url}: {raw_message(e)}"),
                                           retryable=True))
         body = r.content
+        if r.status_code == 401 and self.credentials and self.credentials.rejected:
+            return Response(body=b"", status=401, error=Failure(
+                "unavailable", self.secrets.mask(self.credentials.rejection_message() or "HTTP 401"), status=401))
         if r.status_code >= 400:
             text = self.secrets.mask(body.decode("utf-8", "replace")[:_ERROR_TEXT])
             kind = "too_large" if r.status_code == 413 else "status"

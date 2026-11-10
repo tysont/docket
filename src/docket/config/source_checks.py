@@ -231,6 +231,10 @@ def check(loaded: Loaded) -> list[Issue]:
                 out.append(_issue(loaded, "config.bad_credential",
                                   f"{dotted(base + sub)} sets json_path without file; json_path selects a value "
                                   "inside a JSON file, so name the file", base + sub, 3))
+            if isinstance(r, dict) and r.get("refresh") is not None and not r.get("refresh"):
+                out.append(_issue(loaded, "config.bad_credential",
+                                  f"{dotted(base + sub)} sets an empty refresh command; give the program and "
+                                  "its arguments, or remove refresh", base + sub, 3))
         need = {"exec_jsonl": ("command",), "mcp_stdio": ("command",), "mcp_http": ("url",), "replay": ("path",)}
         for key in need.get(k, ()):
             if not t.get(key):

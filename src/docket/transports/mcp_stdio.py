@@ -57,6 +57,10 @@ class McpTransport(ABC):
     def _cleanup(self) -> None:
         return None
 
+    def _auth_failure(self) -> Failure | None:
+        """A transport that sends credentials reports a standing rejection here."""
+        return None
+
     async def _runner(self) -> None:
         try:
             async with self._connect() as client:
@@ -67,7 +71,7 @@ class McpTransport(ABC):
                 await self._stop.wait()
         except BaseException as e:  # the SDK raises exception groups from its task group
             if self._failure is None and not self._ready.is_set():
-                self._failure = Failure("unavailable", self.secrets.mask(raw_message(e)))
+                self._failure = self._auth_failure() or Failure("unavailable", self.secrets.mask(raw_message(e)))
             self._client = None
         finally:
             self._ready.set()
@@ -99,7 +103,7 @@ class McpTransport(ABC):
         except asyncio.TimeoutError:
             return Response(error=Failure("timeout", f"{tool} timed out after {self.timeout_s:g}s", retryable=True))
         except Exception as e:
-            return Response(error=Failure("error", self.secrets.mask(raw_message(e))))
+            return Response(error=self._auth_failure() or Failure("error", self.secrets.mask(raw_message(e))))
         body = result_body(result)
         if getattr(result, "is_error", None) or getattr(result, "isError", None):
             return Response(error=Failure("error", self.secrets.mask(body.decode("utf-8", "replace"))))
