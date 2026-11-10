@@ -109,7 +109,7 @@ def test_stage_schema_bump_recomputes_exactly_that_stage(persona, cli, pinned_no
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
     run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
-    monkeypatch.setattr(STAGE_IMPLS["merge"], "schema_version", 2)
+    monkeypatch.setattr(STAGE_IMPLS["merge"], "schema_version", STAGE_IMPLS["merge"].schema_version + 1)
     st = _status(cli, ws)
     assert st["assess"]["state"] == "current" and st["merge"]["state"] == "stale"
 
