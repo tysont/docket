@@ -220,7 +220,8 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
             agent = int(row.get("score") or 0)
             it["agent"] = {"keep": bool(row.get("keep")), "score": agent,
                            **({"topic": row["topic"]} if row.get("topic") else {}),
-                           **({"kind": row["kind"]} if row.get("kind") else {})}
+                           **({"kind": row["kind"]} if row.get("kind") else {}),
+                           **({"decision": row["decision"]} if row.get("decision") else {})}
             it["trace"].append({"stage": "assess", "step": "agent", "keep": bool(row.get("keep")), "score": agent})
             if row.get("topic") and not it["keys"]:
                 it["keys"].append(f"agent:{row['topic']}")

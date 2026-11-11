@@ -97,7 +97,8 @@ def evidence_summary(it: dict[str, Any]) -> list[str]:
 
 def select_asked(items: list[dict[str, Any]], floor: int, budget: int | None, must_surface: str = "ranked", *,
                  batch: set[str] | None = None, batch_budget: int | None = None,
-                 surfaced: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+                 surfaced: str | None = None,
+                 floors: dict[str, int] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(items to ask, items past a budget), ranked by score.
 
     A must-surface item sits at the floor by construction, so ranking alone cuts exactly the
@@ -110,7 +111,11 @@ def select_asked(items: list[dict[str, Any]], floor: int, budget: int | None, mu
     and cut in its own group against ``batch_budget``, so a list of things to acknowledge
     and the questions asked one by one do not crowd each other out.
     """
-    kept = [it for it in items if it.get("keep") and int(it.get("score") or 0) >= floor]
+    def own_floor(it: dict[str, Any]) -> int:
+        decision = (it.get("assessment") or {}).get("decision")
+        return int((floors or {}).get(decision, floor)) if decision else floor
+
+    kept = [it for it in items if it.get("keep") and int(it.get("score") or 0) >= own_floor(it)]
     kept.sort(key=lambda it: (-int(it.get("score") or 0), it["id"]))
 
     def is_must(it: dict[str, Any]) -> bool:
@@ -159,7 +164,8 @@ def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
     wq = rc.workflow.questions
     asked, over = select_asked(items, floor, wq.budget, wq.must_surface,
                                batch={o["id"] for o in opts if o.get("batch")}, batch_budget=wq.batch_budget,
-                               surfaced=rc.ws.config.decisions.recommend.surfaced)
+                               surfaced=rc.ws.config.decisions.recommend.surfaced,
+                               floors=dict((rc.ws.config.signals.get("scoring") or {}).get("decision_floors") or {}))
     prompt_tpl = templates.parse(rc.ws.config.decisions.templates.get("finding_prompt", "{title}"))
     questions = []
     for it in asked:

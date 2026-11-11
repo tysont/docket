@@ -302,3 +302,30 @@ def test_a_unit_read_and_found_empty_keeps_its_proven_coverage(tmp_path):
     assert rows == {"empty": (None, later), "empty2": ("2026-10-16T09:00:00+00:00", later),
                     "held": ("2026-10-15T05:00:00+00:00", later)}       # the durable position is never erased
     db.close()
+
+
+def test_a_workflow_reads_some_sources_every_run_and_others_on_a_schedule():
+    """A workflow says how often it reads each of its sources. One with no schedule is read
+    every run; one on a schedule is skipped on other days, and a skipped day is never a gap."""
+    from docket.config.models import Workflow
+    from docket.sources.cursors import schedule_skip
+    wf = Workflow.model_validate({"stages": ["collect", "close"], "sources": ["chat", "health", "audit"],
+                                  "schedule": {"health": {"weekdays": ["mon", "thu"]}, "audit": {"every_days": 7}}})
+    thu, fri = date(2026, 10, 15), date(2026, 10, 16)
+    assert schedule_skip(wf.schedule.get("chat"), thu, None) is None
+    assert schedule_skip(wf.schedule.get("health"), thu, None) is None
+    assert schedule_skip(wf.schedule.get("health"), fri, None) == "schedule: reads on mon, thu"
+    assert schedule_skip(wf.schedule.get("audit"), fri, None) is None                      # never read: read it
+    assert schedule_skip(wf.schedule.get("audit"), fri, "2026-10-12T08:00:00+00:00") == \
+        "schedule: every 7 day(s); last read 2026-10-12"
+    assert schedule_skip(wf.schedule.get("audit"), date(2026, 10, 19), "2026-10-12T08:00:00+00:00") is None
+
+
+def test_a_schedule_must_name_one_of_the_workflows_sources_and_say_when():
+    import pytest as _pytest
+    from pydantic import ValidationError
+    from docket.config.models import Workflow
+    with _pytest.raises(ValidationError):
+        Workflow.model_validate({"stages": ["collect", "close"], "sources": ["chat"], "schedule": {"mail": {"every_days": 7}}})
+    with _pytest.raises(ValidationError):
+        Workflow.model_validate({"stages": ["collect", "close"], "sources": ["chat"], "schedule": {"chat": {}}})

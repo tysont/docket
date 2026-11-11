@@ -80,3 +80,16 @@ def test_the_gap_must_be_a_duration():
     with pytest.raises(ValidationError):
         parse({"conversations": [{"unit": {"kind": "direct"}, "gap": "a while"}]})
     assert parse({"conversations": [{"unit": {"kind": "direct"}}]}).conversations[0].gap == "4h"
+
+
+def test_a_reply_anywhere_later_in_the_exchange_answers_an_earlier_message():
+    """In a unit without threads every message is its own thread, so "has the operator
+    replied since" must look at the exchange, not at the message's own thread."""
+    rules = [{"id": "open", "when": {"all": [{"to": "direct"}, {"unanswered": "0m"}]}, "then": {"tags": ["open"]}}]
+    cfg = parse({"rules": rules, "conversations": CONV})
+    e = SignalEnv(cfg, Profile.model_validate(PROFILE), ["t:1"], UNITS, {"dms": "codemode"}, instant(NOW),
+                  date(2026, 10, 15))
+    items = [dm("a", "09:00", text="can you review this?"), dm("b", "09:10", text="on it", handle="u/100"),
+             dm("c", "15:00", text="one more thing")]
+    out = {it["id"]: it["signals"]["tags"] for it in evaluate(items, e)}
+    assert out["a"] == [] and out["c"] == ["open"]          # a was answered at 09:10; c opens a new exchange

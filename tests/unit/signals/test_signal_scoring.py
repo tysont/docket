@@ -119,3 +119,20 @@ def test_agent_component_and_keep_false():
     assert by["a"]["components"] == {"importance": 50, "urgency": 50, "agent": 90} and by["a"]["score"] == 63
     assert by["b"]["status"] == "dropped" and by["b"]["reason"] == "assess: the agent kept nothing"
     assert by["c"]["agent_pending"] and "agent" not in by["c"]["components"]
+
+
+def test_a_decision_can_have_its_own_floor():
+    """What clears the floor depends on what would be done with it: an item only to be
+    monitored asks less of the operator than one to act on, so it may be kept at a lower
+    score."""
+    from docket.signals.models import Budgets, Scoring
+    from docket.signals.scoring import decide_keep
+
+    def cand(i, score, decision):
+        return {"id": i, "source": "chat", "score": score, "status": "pending", "trace": [],
+                "signals": {"surface": False, "surface_rules": []}, "agent": {"keep": True, "decision": decision}}
+    sc = Scoring.model_validate({"floor": 55, "decision_floors": {"monitor": 50}})
+    items = [cand("m", 52, "monitor"), cand("a", 52, "act"), cand("low", 48, "monitor"), cand("none", 52, None)]
+    decide_keep(items, sc, Budgets())
+    assert {it["id"]: it["status"] for it in items} == {"m": "kept", "a": "dropped", "low": "dropped", "none": "dropped"}
+    assert next(it for it in items if it["id"] == "low")["reason"] == "score 48 below floor 50"

@@ -375,6 +375,8 @@ workflows:
     options: triage
 ```
 
+A workflow says how often it reads each of its sources. A source it lists is read on every run unless `workflows.<id>.schedule` names it, with `weekdays` (read only on those days) or `every_days` (read at most that often, counted from the source's last read). A source off its schedule reports `skipped` with the reason; a skipped day is never a gap, because the source's cursor does not move. So one workflow can read chat and mail daily and a health report weekly, and another workflow can read the same sources on its own terms.
+
 `docket run start <workflow> [--date D] [--sandbox] [--new]` creates a run. Repeating it for the same workflow, date and sandbox mode returns the existing run unless `--new` is present. `--sandbox` binds every destination to its sandbox twin for the whole run. Sandbox runs may read live sources but write no durable cursors, dispositions or ledgers. Their hooks run only in declared `dry_run` form, or are skipped. `docket next` with no run open reports `done` with the command to start one. A paused run advances only through `docket run resume`.
 
 ## 6. Sources
@@ -555,7 +557,7 @@ Predicates are a closed set (FR-SIG-02):
 | `text` | Regex or phrase list over title and text, case options |
 | `field` | A mapped field: equals, in, regex, range |
 | `age` | Older or newer than a duration |
-| `unanswered` | No reply from the operator in the thread for a duration |
+| `unanswered` | No reply from the operator after the item, in its thread or, where the unit has no threads, its exchange, for a duration |
 | `thread` | Started by the operator, operator replied, reply count |
 | `reference` | Item carries a reference of a named pattern |
 | `plugin` | A named predicate from a plugin (the escape hatch) |
@@ -577,7 +579,7 @@ signals:
     budget: { questions: 15, review_pool: 40 }
 ```
 
-`score = sum(weight_k * component_k)` with components clamped to 0..100. `importance` and `urgency` are the rule contributions on a base of 50; `agent` is the assess task's score. Items below `floor` drop unless `surface: always`; items at or above `always_keep` bypass caps; per-source caps keep the top N by score. All numbers are configuration (FR-SIG-04, FR-SIG-05). The reference workspace sets the predecessor's values.
+`score = sum(weight_k * component_k)` with components clamped to 0..100. `importance` and `urgency` are the rule contributions on a base of 50; `agent` is the assess task's score. Items below `floor` drop unless `surface: always`; items at or above `always_keep` bypass caps; per-source caps keep the top N by score. All numbers are configuration (FR-SIG-04, FR-SIG-05). `decision_floors` gives the items recommended for a decision a floor of their own: an item only to be monitored asks less of the operator than one to act on, and may be kept at a lower score. The reference workspace sets the predecessor's values.
 
 ### 8.3 Coverage cross-references
 

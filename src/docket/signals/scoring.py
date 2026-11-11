@@ -78,6 +78,12 @@ def rank_key(it: dict[str, Any]) -> tuple[int, str]:
     return (-int(it.get("score") or 0), str(it["id"]))
 
 
+def floor_for(it: dict[str, Any], scoring: Scoring) -> int:
+    """The floor an item must clear: the one of the decision recommended for it, else the general one."""
+    decision = (it.get("agent") or {}).get("decision") or (it.get("assessment") or {}).get("decision")
+    return int(scoring.decision_floors.get(decision, scoring.floor)) if decision else int(scoring.floor)
+
+
 def decide_keep(cands: list[dict[str, Any]], scoring: Scoring, budgets: Budgets) -> None:
     """Set ``keep``/``status``/``reason`` on candidates (items not already dropped or suppressed)."""
     floor = scoring.floor
@@ -95,8 +101,9 @@ def decide_keep(cands: list[dict[str, Any]], scoring: Scoring, budgets: Budgets)
     for it in ranked:
         s, surface = it["score"], it["signals"]["surface"]
         bypass = surface or (ak is not None and s >= ak)
-        if s < floor and not surface:
-            _drop(it, "floor", f"score {s} below floor {floor}", floor=floor)
+        own = floor_for(it, scoring)
+        if s < own and not surface:
+            _drop(it, "floor", f"score {s} below floor {own}", floor=own)
             continue
         cap = scoring.caps.per_source.get(it["source"], scoring.caps.per_source.get("default"))
         pos = per_source.get(it["source"], 0)

@@ -20,7 +20,7 @@ from typing import Any, Mapping
 from docket.config.source_models import Source as SourceConfig
 from docket.shapes.unexpected import Shape, collecting, replay, unexpected
 from docket.sources.base import ALL_UNITS, Cursor, Outcome, Page, Unit
-from docket.sources.cursors import cadence_skip, interval_from
+from docket.sources.cursors import cadence_skip, interval_from, schedule_skip
 from docket.sources.declarative import DeclarativeSource, Limits
 from docket.transports.base import Secrets, raw_message
 
@@ -95,11 +95,13 @@ def aggregate(units: list[UnitResult]) -> Outcome:
 
 
 async def _read_one(src: DeclarativeSource, sid: str, cfg: SourceConfig, *, starts: Starts, instant: str,
-                    run_date: date, entry_limit: int | None, only_unit: str | None) -> SourceResult:
+                    run_date: date, entry_limit: int | None, only_unit: str | None,
+                    schedule: Any = None) -> SourceResult:
     model = cfg.cursor.effective
     kind = getattr(src.transport, "kind", "?")
     res = SourceResult(sid, kind, model, Outcome("read"))
-    skip = cadence_skip(cfg.cursor, run_date, starts.last_read(sid))
+    skip = cadence_skip(cfg.cursor, run_date, starts.last_read(sid)) or \
+        schedule_skip(schedule, run_date, starts.last_read(sid))
     if skip:
         res.outcome = Outcome("skipped", reason=skip)
         return res
@@ -253,7 +255,8 @@ def implicit_transport() -> Any:
 
 async def read_sources(ws: Any, sids: list[str], *, env: Mapping[str, str], instant: str, run_date: date,
                        starts: Starts, log_dir: Path | None, secrets: Secrets, entry_limit: int | None = None,
-                       only_unit: str | None = None) -> dict[str, SourceResult]:
+                       only_unit: str | None = None, schedule: Mapping[str, Any] | None = None
+                       ) -> dict[str, SourceResult]:
     from docket.transports.registry import build_transport
     named = {ws.config.sources[s].transport for s in sids if ws.config.sources[s].transport}
     transports = _build_transports(ws, {n for n in named if n}, env=env, log_dir=log_dir, secrets=secrets)
@@ -284,7 +287,8 @@ async def read_sources(ws: Any, sids: list[str], *, env: Mapping[str, str], inst
                 else:
                     src = DeclarativeSource(sid, cfg, t, secrets=secrets, limits=Limits(gsem, sem), env=dict(env))
                     out = await _read_one(src, sid, cfg, starts=starts, instant=instant, run_date=run_date,
-                                          entry_limit=entry_limit, only_unit=only_unit)
+                                          entry_limit=entry_limit, only_unit=only_unit,
+                                          schedule=(schedule or {}).get(sid))
                     out.kind = kind
             except Exception as e:  # the source boundary: isolate, keep the raw message
                 out = SourceResult(sid, "?", cfg.cursor.effective,

@@ -285,6 +285,8 @@ class Scoring(Strict):
                                                                        "agent": 1.0}
     base: int = Field(50, ge=0, le=100)
     floor: int = Field(0, ge=0, le=100)
+    # A floor of its own for items the assess task recommends a given decision for.
+    decision_floors: dict[str, int] = {}
     always_keep: int | None = Field(None, ge=0, le=100)
     surface_floor: int | None = Field(None, ge=0, le=100)
     caps: Caps = Caps()

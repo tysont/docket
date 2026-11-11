@@ -162,10 +162,24 @@ class WorkflowQuestions(Strict):
     batch_budget: int | None = None
 
 
+class SourceSchedule(Strict):
+    """How often a workflow reads one of its sources. A day off the schedule is skipped, never a gap."""
+    weekdays: list[Weekday] | None = None   # read only on these days
+    every_days: int | None = Field(None, ge=1)   # read at most every N days
+
+    @model_validator(mode="after")
+    def _one(self) -> "SourceSchedule":
+        if not self.weekdays and not self.every_days:
+            raise ValueError("a schedule needs weekdays or every_days")
+        return self
+
+
 class Workflow(Strict):
     description: str | None = None
     stages: list[StageName]
     sources: list[str] | None = None
+    # Sources read on a schedule. A source of the workflow that is not named here is read every run.
+    schedule: dict[str, SourceSchedule] = {}
     pause_before: StageName | None = None
     rehearse_at_pause: bool = False     # the pause step carries the rehearse command (TD §14.3)
     refresh_on_resume: list[str] = []
@@ -174,6 +188,14 @@ class Workflow(Strict):
     options: str | None = None
     journal: str | None = None
     hooks: dict[str, list[str]] = {}
+
+    @model_validator(mode="after")
+    def _schedule_names_sources(self) -> "Workflow":
+        if self.sources is not None:
+            unknown = sorted(set(self.schedule) - set(self.sources))
+            if unknown:
+                raise ValueError(f"schedule names {', '.join(unknown)}, which the workflow's sources do not list")
+        return self
 
 
 # --- sources, decisions, destinations -------------------------------------

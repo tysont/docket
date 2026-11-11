@@ -117,12 +117,18 @@ def references(it: dict[str, Any], cfg: SignalsConfig) -> list[dict[str, str]]:
     return out
 
 
+def thread_key(it: dict[str, Any]) -> tuple[str, str]:
+    """What an item's replies are counted in: its exchange when its unit has no threads
+    (``signals.conversations``), else its thread."""
+    return (it["source"], str(it.get("conversation") or it.get("thread") or ""))
+
+
 def _threads(items: list[dict[str, Any]], env: SignalEnv) -> dict[tuple[str, str], dict[str, Any]]:
     """Per (source, thread): who started it, whether and when the operator replied, how many records."""
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for it in items:
-        if it.get("thread"):
-            groups.setdefault((it["source"], it["thread"]), []).append(it)
+        if thread_key(it)[1]:
+            groups.setdefault(thread_key(it), []).append(it)
     out = {}
     for key, rows in groups.items():
         rows = sorted(rows, key=lambda r: (*at_key(r), r["id"]))
@@ -284,7 +290,7 @@ def match(w: When, it: dict[str, Any], env: SignalEnv, threads: dict[tuple[str, 
         return False
     if w.thread is not None:
         th = w.thread
-        st = threads.get((it["source"], it.get("thread") or ""), {"started_by_me": it["sender"]["is_me"],
+        st = threads.get(thread_key(it), {"started_by_me": it["sender"]["is_me"],
                                                                      "i_replied": it["sender"]["is_me"], "count": 1})
         replies = st["count"] - 1
         if th.started_by_me is not None and st["started_by_me"] != th.started_by_me:
@@ -331,7 +337,7 @@ def _unanswered(it: dict[str, Any], env: SignalEnv, threads: dict[tuple[str, str
     if it["sender"]["is_me"]:
         return False
     at = instant(it.get("at"))
-    st = threads.get((it["source"], it.get("thread") or ""))
+    st = threads.get(thread_key(it))
     if st and at is not None and any(t > at for t in st["my_times"]):
         return False
     if mins <= 0:

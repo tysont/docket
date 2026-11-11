@@ -102,6 +102,20 @@ def cadence_skip(cfg: CursorConfig, run_date: date, last_read: str | None) -> st
     return None
 
 
+def schedule_skip(schedule: Any, run_date: date, last_read: str | None) -> str | None:
+    """A workflow's schedule for one source (``workflows.<id>.schedule``): the reason this
+    run skips it, or None to read. No schedule means every run."""
+    if schedule is None:
+        return None
+    if schedule.weekdays and WEEKDAYS[run_date.weekday()] not in schedule.weekdays:
+        return f"schedule: reads on {', '.join(schedule.weekdays)}"
+    if schedule.every_days and last_read:
+        last = _as_instant(last_read)
+        if last is not None and (run_date - last.date()).days < schedule.every_days:
+            return f"schedule: every {schedule.every_days} day(s); last read {last.date().isoformat()}"
+    return None
+
+
 # --- proposals --------------------------------------------------------------------
 
 

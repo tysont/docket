@@ -149,6 +149,8 @@ def agent_rows(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 row["topic"] = assess["topic"]
             if assess.get("kind"):
                 row["kind"] = assess["kind"]  # merge reads it: a kept commitment keeps a topic open
+            if assess.get("decision"):
+                row["decision"] = assess["decision"]  # and the floor may depend on it
             out[it["id"]] = row
     return out
 

@@ -22,7 +22,8 @@ def read(rc: "RunContext", sids: list[str], *, refresh: bool) -> dict[str, Sourc
                     processed={s: processed_ids(db, s) for s in sids}, refresh=refresh)
     clock = rc.run.header.clock
     return asyncio.run(read_sources(rc.ws, sids, env=dict(rc.env), instant=clock.instant, run_date=run_date(clock),
-                                    starts=starts, log_dir=rc.run.dir / "logs", secrets=Secrets()))
+                                    starts=starts, log_dir=rc.run.dir / "logs", secrets=Secrets(),
+                                    schedule=rc.workflow.schedule))
 
 
 def execute_collect(rc: "RunContext") -> dict[str, Any]:
