@@ -1,0 +1,124 @@
+# Meetings held, through an MCP gateway's code-execution tool: one item per meeting, with the
+# record of the meeting as its text when the calendar event carries one. One script lists a
+# page of calendar events, keeps the ones that were meetings and are over, finds each one's
+# record among the event's attachments and reads it, so a page costs one request.
+#
+# A meeting is an event with a start time that was not cancelled, that the operator did not
+# decline, that ended at least `settle_minutes` ago (a record takes a while to appear), and
+# that had at least `min_attendees` people. Its record is the attachment whose title matches
+# `record_title` and that was created within `record_within_hours` of the meeting's start: a
+# recurring event carries the records of earlier occurrences too.
+#
+# The workspace names the gateway's tools and, where they differ from the defaults, the
+# argument names those tools take.
+source:
+  volatile: true
+  cursor: { model: incremental, position: order_key, lookback: 7d }
+  params:
+    events_tool: null
+    file_tool: null                # file metadata (createdTime); without it the first matching attachment is the record
+    content_tool: null
+    events_args: {}                # fixed arguments of the events tool, for example a calendar id
+    content_args: {}               # fixed arguments of the content tool, for example a format
+    from_arg: timeMin
+    to_arg: timeMax
+    size_arg: maxResults
+    token_arg: pageToken
+    id_arg: fileId
+    min_attendees: 2
+    settle_minutes: 30
+    record_title: "(?i)notes|transcript"
+    record_within_hours: 36
+    record_chars: 6000             # characters of the record kept per meeting
+  request:
+    read:
+      script: |
+        async () => {
+          const read = (r) => {
+            if (r && !Array.isArray(r) && Array.isArray(r.content)) r = r.content;
+            if (Array.isArray(r) && r.every(b => b && typeof b.text === "string")) r = r.map(b => b.text).join("");
+            if (typeof r !== "string") return r ?? {};
+            try { return JSON.parse(r); } catch (e) { return { content: r }; }
+          };
+          const given = (a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== null && x !== undefined && x !== ""));
+          const now = Date.now();
+          const page = read(await codemode[{{events_tool}}](given({ ...({{events_args}} ?? {}),
+            [{{from_arg}}]: {{after}}, [{{to_arg}}]: new Date(now).toISOString(),
+            [{{size_arg}}]: {{page_size}}, [{{token_arg}}]: {{token}} })));
+          const title = new RegExp(String({{record_title}}).replace(/^\(\?i\)/, ""), String({{record_title}}).startsWith("(?i)") ? "i" : "");
+          const within = Number({{record_within_hours}}) * 3600e3, settle = Number({{settle_minutes}}) * 60e3;
+          const limit = Number({{record_chars}}) || 6000;
+          const meetings = [];
+          for (const e of (page.items ?? page.events ?? [])) {
+            const start = e.start?.dateTime, end = e.end?.dateTime ?? start;
+            if (e.status === "cancelled" || !start) continue;                 // all-day entries are not meetings
+            if (Date.parse(end) + settle > now) continue;                     // not over, or its record may not be there yet
+            const people = (e.attendees ?? []).filter(a => !a.resource);
+            const self = people.find(a => a.self);
+            if (self && self.responseStatus === "declined") continue;
+            const others = people.filter(a => !a.self).map(a => a.email).filter(Boolean);
+            if (others.length + 1 < Number({{min_attendees}})) continue;
+            let record = null;
+            for (const a of (e.attachments ?? []).filter(a => a.fileId && title.test(a.title ?? ""))) {
+              if (!{{file_tool}}) { record = a; break; }
+              const meta = read(await codemode[{{file_tool}}]({ [{{id_arg}}]: a.fileId }));
+              const after = Date.parse(meta.createdTime ?? "") - Date.parse(start);
+              if (Number.isFinite(after) && after >= -3600e3 && after <= within) { record = a; break; }
+            }
+            let text = "";
+            if (record) {
+              const c = read(await codemode[{{content_tool}}]({ ...({{content_args}} ?? {}), [{{id_arg}}]: record.fileId }));
+              text = String(c.content ?? c.markdown ?? c.text ?? "").slice(0, limit);
+            }
+            meetings.push({ id: e.id, title: e.summary ?? "", start: new Date(start).toISOString(),
+              end: new Date(end).toISOString(), attendees: others, recurring: Boolean(e.recurringEventId),
+              url: e.htmlLink ?? null, record_url: record ? (record.fileUrl ?? null) : null, record: text });
+          }
+          meetings.sort((a, b) => a.start.localeCompare(b.start));
+          return JSON.stringify({ meetings, nextPageToken: page.nextPageToken ?? null });
+        }
+      args:
+        events_tool: "{params.events_tool}"
+        file_tool: "{params.file_tool}"
+        content_tool: "{params.content_tool}"
+        events_args: "{params.events_args}"
+        content_args: "{params.content_args}"
+        after: "{cursor.start}"
+        page_size: "{page.size}"
+        token: "{page.token}"
+        from_arg: "{params.from_arg}"
+        to_arg: "{params.to_arg}"
+        size_arg: "{params.size_arg}"
+        token_arg: "{params.token_arg}"
+        id_arg: "{params.id_arg}"
+        min_attendees: "{params.min_attendees}"
+        settle_minutes: "{params.settle_minutes}"
+        record_title: "{params.record_title}"
+        record_within_hours: "{params.record_within_hours}"
+        record_chars: "{params.record_chars}"
+  retry:
+    transient: ["timed out", "timeout", "stream ended", "connection (reset|closed|lost)", "temporar", "try again"]
+  paging:
+    kind: meeting
+    page_size: 10
+    min_page_size: 1
+    entries: "$.meetings"
+    next: "$.nextPageToken"
+    end_when: [token_absent]
+    order_key: "$.start"
+    too_large: ["too large", "truncat"]
+  contract:
+    meeting:
+      required: { id: str, start: timestamp }
+      optional: { title: str, end: timestamp, attendees: list, recurring: bool, url: str, record_url: str, record: str }
+  mapping: { id: "$.id", title: "$.title", text: "$.record", at: "$.start", url: "$.url",
+             fields.attendees: "$.attendees", fields.record_url: "$.record_url", fields.recurring: "$.recurring" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      meetings: { transport: gateway, params: { events_tool: list_events, file_tool: get_file, content_tool: get_content } }
+    transports:
+      gateway: { kind: codemode, command: [path/to/mcp-gateway], tool: execute_code }

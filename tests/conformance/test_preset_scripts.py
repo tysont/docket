@@ -211,3 +211,68 @@ def test_the_mail_mapping_carries_people_thread_and_link():
     m = _mail()["mapping"]
     assert (m["from"], m["from.handle"], m["to"], m["cc"]) == ("$.from.name", "$.from.address", "$.to", "$.cc")
     assert m["thread"] == "$.threadId" and m["url"] == "$.url" and m["at"] == "$.date"
+
+
+# --- meetings held, with their records ------------------------------------------------------
+
+def _event(i, start, end, **kw):
+    return {"id": i, "summary": kw.pop("summary", "Platform Sync"), "status": kw.pop("status", "confirmed"),
+            "start": {"dateTime": start}, "end": {"dateTime": end}, "htmlLink": f"https://cal.example.org/{i}",
+            "attendees": kw.pop("attendees", [{"email": "dana@northwind.example", "self": True, "responseStatus": "accepted"},
+                                              {"email": "kim@northwind.example"}]), **kw}
+
+
+NOTES = {"fileId": "f1", "title": "Notes by the recorder", "fileUrl": "https://docs.example.org/f1"}
+EVENTS = {"items": [
+    _event("held", "2026-10-14T15:00:00Z", "2026-10-14T15:30:00Z", recurringEventId="series", attachments=[
+        {"fileId": "f0", "title": "Slides", "fileUrl": "https://docs.example.org/f0"}, NOTES]),
+    _event("later", "2026-10-28T15:00:00Z", "2026-10-28T15:30:00Z", attachments=[NOTES]),   # the series' older record
+    _event("declined", "2026-10-14T16:00:00Z", "2026-10-14T16:30:00Z", attendees=[
+        {"email": "dana@northwind.example", "self": True, "responseStatus": "declined"}, {"email": "kim@northwind.example"}]),
+    _event("cancelled", "2026-10-14T17:00:00Z", "2026-10-14T17:30:00Z", status="cancelled"),
+    _event("alone", "2026-10-14T18:00:00Z", "2026-10-14T19:00:00Z", attendees=[]),
+    {"id": "allday", "summary": "Away", "status": "confirmed", "start": {"date": "2026-10-14"}, "end": {"date": "2026-10-15"}},
+    _event("future", "2999-01-01T15:00:00Z", "2999-01-01T15:30:00Z"),
+    _event("room", "2026-10-13T15:00:00Z", "2026-10-13T15:30:00Z", attendees=[
+        {"email": "dana@northwind.example", "self": True}, {"email": "room-4@northwind.example", "resource": True}]),
+], "nextPageToken": "p2"}
+MEET_ARGS = {"events_tool": "events_list", "file_tool": "file_get", "content_tool": "file_content",
+             "events_args": {"calendarId": "primary"}, "content_args": {"asMarkdown": True}, "after": "2026-10-08T00:00:00Z",
+             "page_size": 10, "token": None, "from_arg": "timeMin", "to_arg": "timeMax", "size_arg": "maxResults",
+             "token_arg": "pageToken", "id_arg": "fileId", "min_attendees": 2, "settle_minutes": 30,
+             "record_title": "(?i)^notes by", "record_within_hours": 36, "record_chars": 40}
+
+
+def _meetings() -> dict:
+    from importlib import resources
+    from ruamel.yaml import YAML
+    text = resources.files("docket.presets").joinpath("mcp/meetings-codemode.yaml").read_text(encoding="utf-8")
+    return YAML(typ="safe").load(text)["source"]
+
+
+@pytest.mark.parametrize("wrapping", WRAPPINGS)
+def test_meetings_read_keeps_the_meetings_held_and_reads_each_ones_own_record(wrapping):
+    """Of eight calendar entries, two were meetings that are over. The first has a record
+    made just after it; the second, of the same series, carries that same older record as an
+    attachment, which is not its own."""
+    src = _meetings()
+    got = run(src["request"]["read"]["script"], MEET_ARGS, wrapping, {
+        "events_list": EVENTS, "file_get": {"id": "f1", "createdTime": "2026-10-14T15:40:00Z"},
+        "file_content": {"content": "Capacity: agreed. " * 20}})
+    first, second = got["out"]["meetings"]
+    assert first == {"id": "held", "title": "Platform Sync", "start": "2026-10-14T15:00:00.000Z",
+                     "end": "2026-10-14T15:30:00.000Z", "attendees": ["kim@northwind.example"], "recurring": True,
+                     "url": "https://cal.example.org/held", "record_url": "https://docs.example.org/f1",
+                     "record": ("Capacity: agreed. " * 20)[:40]}
+    assert second["id"] == "later" and second["record"] == "" and second["record_url"] is None
+    assert got["out"]["nextPageToken"] == "p2"
+    names = [c[0] for c in got["calls"]]
+    assert names == ["events_list", "file_get", "file_content", "file_get"]      # one content read: the record
+    assert got["calls"][0][1]["calendarId"] == "primary" and got["calls"][0][1]["timeMin"] == "2026-10-08T00:00:00Z"
+    assert got["calls"][2][1] == {"asMarkdown": True, "fileId": "f1"}
+
+
+def test_the_meetings_mapping_carries_who_attended_and_the_record():
+    m = _meetings()["mapping"]
+    assert (m["text"], m["at"], m["fields.attendees"], m["fields.record_url"]) == (
+        "$.record", "$.start", "$.attendees", "$.record_url")
