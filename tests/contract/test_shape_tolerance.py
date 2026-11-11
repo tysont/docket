@@ -1,9 +1,9 @@
 """Shape tolerance (Test Plan §5.6, TD §14.1, FR-SRC-07, FR-ROB-01).
 
 Variants generated from each persona's recorded responses (``tests/fixtures/shapes``) run
-through collection in process. For every variant:
+through the source's read node in process. For every variant:
 
-- the run continues past the affected record or unit (collect succeeds);
+- the run continues past the affected record or unit (the read node succeeds);
 - the expected safe reading is taken (the affected unit ends as the contract says);
 - every new unexpected shape is one the variant may record, the one it must record is
   there, and no shape is recorded twice;
@@ -74,8 +74,8 @@ def sample() -> list[tuple[str, Variant]]:
     return out
 
 
-def collect(base: Path, sid: str, variant: Variant | None) -> dict[str, Any]:
-    persona, workflow, _ = SOURCES[sid]
+def read(base: Path, sid: str, variant: Variant | None) -> dict[str, Any]:
+    persona, graph, _ = SOURCES[sid]
     ws = base / ("variant" if variant else "baseline")
     shutil.copytree(PERSONAS / persona, ws)
     if variant is not None:
@@ -83,21 +83,21 @@ def collect(base: Path, sid: str, variant: Variant | None) -> dict[str, Any]:
         p.write_text("\n".join(variant.apply(p.read_text().splitlines())) + "\n")
     env = dict(os.environ)
     out = io.StringIO()
-    assert main(["run", "start", workflow, "--now", PINNED_NOW, "--workspace", str(ws), "--json"],
+    assert main(["run", "start", graph, "--now", PINNED_NOW, "--workspace", str(ws), "--json"],
                 stdout=out, env=env, cwd=str(ws)) == 0
     out = io.StringIO()
-    code = main(["collect", "--workspace", str(ws), "--json"], stdout=out, env=env, cwd=str(ws))
+    code = main(["do", f"read-{sid}", "--workspace", str(ws), "--json"], stdout=out, env=env, cwd=str(ws))
     envl = json.loads(out.getvalue())
     run_dir = next((state_root(ws, env) / "runs").iterdir())
     items: dict[str, list[dict[str, Any]]] = {}
-    p = run_dir / "gen-0" / "items" / f"{sid}.jsonl"
+    p = run_dir / "read" / sid / "items.jsonl"
     for ln in (p.read_text().splitlines() if p.is_file() else []):
         it = json.loads(ln)
         items.setdefault(it.get("unit") or "*", []).append({k: v for k, v in it.items() if k != "record_id"})
-    outcomes = json.loads((run_dir / "gen-0" / "outcomes.json").read_text())
+    outcome = json.loads((run_dir / "read" / sid / "outcome.json").read_text())
     rows = [json.loads(ln) for ln in (run_dir / "unexpected.jsonl").read_text().splitlines()] \
         if (run_dir / "unexpected.jsonl").is_file() else []
-    return {"code": code, "env": envl, "items": items, "outcome": outcomes.get(sid, {}),
+    return {"code": code, "env": envl, "items": items, "outcome": outcome,
             "shapes": [(r["area"], r["detail"]) for r in rows]}
 
 
@@ -106,13 +106,13 @@ _BASE: dict[str, dict[str, Any]] = {}
 
 def baseline(tmp_path_factory: Any, sid: str) -> dict[str, Any]:
     if sid not in _BASE:
-        _BASE[sid] = collect(tmp_path_factory.mktemp(f"base-{sid}"), sid, None)
+        _BASE[sid] = read(tmp_path_factory.mktemp(f"base-{sid}"), sid, None)
     return _BASE[sid]
 
 
 def check_variant(tmp_path: Path, tmp_path_factory: Any, sid: str, v: Variant) -> None:
     base = baseline(tmp_path_factory, sid)
-    got = collect(tmp_path, sid, v)
+    got = read(tmp_path, sid, v)
     assert got["code"] == 0, (v.name, got["env"].get("error"))  # the run continues
     dup = [s for s, n in Counter(got["shapes"]).items() if n > 1]
     assert dup == [], f"{v.name}: shapes recorded more than once: {dup}"

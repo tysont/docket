@@ -92,7 +92,7 @@ def test_the_item_view_names_the_source_as_configured(tmp_path):
 def test_a_must_surface_finding_can_be_asked_whatever_the_budget():
     """The budget limits how many findings are asked. A finding a rule marked must-surface
     sits at the floor by construction, so ranking by score alone cuts exactly the ones a
-    rule insisted on. A workflow can ask them first, inside or outside the budget."""
+    rule insisted on. An ask node can ask them first, inside or outside the budget."""
     from docket.decide.questions import select_asked
 
     def f(i, score, surface=False, keep=True):

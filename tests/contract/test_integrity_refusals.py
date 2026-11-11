@@ -85,8 +85,8 @@ def calendar_dest(tmp_path: Path, **cfg: Any) -> Any:
 
 def case_line_changed(tmp_path: Path, **_: Any) -> Refused:
     d = tasks_dest(tmp_path)
-    close = Action(kind="task.close", destination="backlog", target="- [ ] Review the runbook [source:: seed]")
-    [op] = d.preview(close, d.snapshot())
+    finish = Action(kind="task.close", destination="backlog", target="- [ ] Review the runbook [source:: seed]")
+    [op] = d.preview(finish, d.snapshot())
     (tmp_path / "tasks.md").write_text(BACKLOG.replace("Review the runbook", "Review the edited runbook"))
     return expect(lambda: d.apply(op))
 
@@ -211,15 +211,16 @@ def case_plan_invalid(persona: Any, cli: Any, pinned_now: str, monkeypatch: Any,
     from docket.plan import build as plan_build
     ws = persona("reference-like")
     cli("run", "start", "week-plan", "--now", pinned_now, "--workspace", str(ws))
-    run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "plan")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "plan")
+    assert res.failures == [] and res.final["node"] == "plan", res.final
     monkeypatch.setattr(plan_build, "validate", lambda res: ["block dk_t_x: injected violation"])
-    return cli_refusal(*cli("plan", "build", "--workspace", str(ws)))
+    return cli_refusal(*cli("do", "plan", "--workspace", str(ws)))
 
 
 def _to_approve(persona: Any, cli: Any, pinned_now: str) -> tuple[Path, dict[str, Any]]:
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
     return ws, res.final["questions"][0]
 
 
@@ -241,7 +242,7 @@ def case_stale_inputs(persona: Any, cli: Any, pinned_now: str, **_: Any) -> Refu
 def case_stale_artifact(persona: Any, cli: Any, pinned_now: str, **_: Any) -> Refused:
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "assess")
     t = res.final["tasks"][0]
     pack = json.loads(Path(t["pack_path"]).read_text())
     pack["items"] = pack["items"][:1]  # someone trimmed the pack after it was issued

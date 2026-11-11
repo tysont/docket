@@ -159,7 +159,7 @@ def test_surface_always_beats_dismiss_and_the_trace_records_it():
     keep, drop = run(rules, [item("a", text="Compliance training due"), item("b", text="deploy done")])
     assert not keep["signals"]["dismissed"] and keep["signals"]["surface"]
     over = [e for e in keep["trace"] if e["step"] == "surface_over_dismiss"]
-    assert over == [{"stage": "signals", "step": "surface_over_dismiss", "surface_rules": ["must"],
+    assert over == [{"verb": "merge", "step": "surface_over_dismiss", "surface_rules": ["must"],
                      "dismissed_by": ["bots"], "reason": "Automated"}]
     assert drop["signals"]["dismissed"]
     assert needs_agent(keep) and not needs_agent(drop)

@@ -24,11 +24,11 @@ def run_context(ws: Path):
     return RunContext(load_workspace(ws), resolve_run(store, None, start_hint="-"), os.environ)
 
 
-def to_apply(persona, cli, pinned_now, name="support-lead", workflow="shift"):
+def to_apply(persona, cli, pinned_now, name="support-lead", graph="shift"):
     ws = persona(name)
-    cli("run", "start", workflow, "--now", pinned_now, "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "apply")
-    assert res.failures == [] and res.final["stage"] == "apply"
+    cli("run", "start", graph, "--now", pinned_now, "--workspace", str(ws))
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "apply")
+    assert res.failures == [] and res.final["node"] == "apply", res.final
     return ws, res.final
 
 
@@ -72,8 +72,8 @@ def test_dependants_of_a_refused_operation_are_blocked(persona, cli, pinned_now)
     assert [r["outcome"] for r in rows] == ["refused", "blocked"] and rows[1]["blocked_by"] == [bad.op_id]
 
 
-@pytest.mark.parametrize("hook", ["AFTER_WRITE", "AFTER_RECEIPT"])
-def test_crash_after_each_operation_resumes_without_duplicates(persona, cli, pinned_now, monkeypatch, hook):
+@pytest.mark.parametrize("seam", ["AFTER_WRITE", "AFTER_RECEIPT"])
+def test_crash_after_each_operation_is_repeated_without_duplicates(persona, cli, pinned_now, monkeypatch, seam):
     ws, step = to_apply(persona, cli, pinned_now)
     crashed: set[str] = set()
 
@@ -82,7 +82,7 @@ def test_crash_after_each_operation_resumes_without_duplicates(persona, cli, pin
             crashed.add(op.op_id)
             raise RuntimeError(f"injected crash after {op.op_id}")
 
-    monkeypatch.setattr(executor, hook, crash)
+    monkeypatch.setattr(executor, seam, crash)
     argv = step["command"]["argv"][1:]
     codes = []
     for _ in range(40):
@@ -93,7 +93,7 @@ def test_crash_after_each_operation_resumes_without_duplicates(persona, cli, pin
         assert env["error"]["code"] == "internal.bug"
     n_ops = len(crashed)
     assert n_ops == 12 and codes.count(70) == n_ops and codes[-1] == 0
-    monkeypatch.setattr(executor, hook, None)
+    monkeypatch.setattr(executor, seam, None)
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done"
     lines = [ln for ln in (ws / "worklog" / "todo.md").read_text().splitlines() if ln.startswith("TODO")]
@@ -105,7 +105,7 @@ def test_crash_after_each_operation_resumes_without_duplicates(persona, cli, pin
     db.close()
     assert len(rows) == n_ops and {v for _, v in rows} == {"verified"}
     # after the receipt commit the repeat keeps "applied"; before it, the repeat finds the line in place
-    assert {o for o, _ in rows} == ({"applied"} if hook == "AFTER_RECEIPT" else {"already_present"})
+    assert {o for o, _ in rows} == ({"applied"} if seam == "AFTER_RECEIPT" else {"already_present"})
 
 
 def test_external_failure_waits_with_apply_partial_and_retries(persona, cli, pinned_now):
@@ -114,11 +114,12 @@ def test_external_failure_waits_with_apply_partial_and_retries(persona, cli, pin
     blocker.mkdir(parents=True)  # writes fail until the operator fixes it
     code, env = cli(*step["command"]["argv"][1:])
     assert code == 5 and env["error"]["code"] == "dest.apply_failed"
-    assert env["next"]["command"][1] == "apply"
+    assert env["next"]["command"][1:3] == ["do", "apply"]
     code, env = cli("next", "--workspace", str(ws))
-    assert env["data"]["step"]["kind"] == "wait" and env["data"]["step"]["reason"] == "apply_partial"
+    (wait,) = env["data"]["steps"]
+    assert (wait["kind"], wait["node"], wait["reason"]) == ("wait", "apply", "apply_partial")
     blocker.rmdir()
-    code, env = cli(*step["command"]["argv"][1:])  # the retry command from the wait step
+    code, env = cli(*wait["command"]["argv"][1:])  # the retry command from the wait step
     assert code == 0, env
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done"

@@ -60,7 +60,7 @@ def test_merge_across_sources_by_reference_keeps_the_strongest():
     assert top["signals"]["tags"] == ["chain", "chat"]
     assert {e["item_id"] for e in top["evidence"]} == {"chat1", "mail1"}
     assert data["merged"] == {"chat1": "mail1"} and data["counts"]["merged"] == 1
-    assert top["members"][0]["trace"][-1] == {"stage": "merge", "step": "merged_into", "into": "mail1",
+    assert top["members"][0]["trace"][-1] == {"verb": "merge", "step": "merged_into", "into": "mail1",
                                               "topic": "ref:incident:INC-2041"}
 
 
@@ -84,7 +84,7 @@ def test_dismissed_items_are_dropped_with_the_rule_and_not_assessed():
     rules = [{"id": "noise", "when": {"text": "lunch"}, "then": {"dismiss": "Social chatter"}}]
     by, _ = merge([item("a", text="lunch at noon")], rules)
     assert by["a"]["status"] == "dropped" and by["a"]["reason"] == "dismissed: Social chatter"
-    assert {"stage": "assess", "step": "dismissed", "rules": ["noise"]} in by["a"]["trace"]
+    assert {"verb": "merge", "step": "dismissed", "rules": ["noise"], "reason": "Social chatter"} in by["a"]["trace"]
 
 
 # --- suppression ------------------------------------------------------------------------
@@ -172,7 +172,7 @@ def test_a_reply_that_promises_something_is_a_commitment_not_an_answer():
 
 def test_the_assess_output_hands_merge_the_kind_of_each_kept_item():
     from docket.signals.node import agent_rows
-    # ``assessment`` is where the assess stage puts the accepted row (tasks/runner.py: combine_assess).
+    # ``assessment`` is where the assess judge puts the accepted row (tasks/runner.py: combine_assess).
     rows = agent_rows([{"id": "a", "keep": True, "score": 80, "assessment": {"kind": "commitment", "topic": "renewal"}},
                        {"id": "b", "keep": False, "score": 5, "assess": {}}, {"id": "c"}])
     assert rows == {"a": {"keep": True, "score": 80, "kind": "commitment", "topic": "renewal"},

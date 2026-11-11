@@ -9,8 +9,8 @@ from docket.config import check
 from docket.signals import plugins
 
 BASE = """version: 1
-workflows:
-  daily: { stages: [collect, assess, merge, decide, close], sources: [chat] }
+graphs:
+  daily: { read-chat: { read: chat } }
 profile:
   me: { name: Rae Holm, handles: { chat: u/100 } }
   people: [ { id: tam, name: Tam Ober, reports_to: me } ]

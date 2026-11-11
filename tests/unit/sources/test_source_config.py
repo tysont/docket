@@ -14,9 +14,8 @@ pytestmark = pytest.mark.smoke
 
 BASE = """\
 version: 1
-workflows:
-  daily:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+graphs:
+  daily: { touch: { run: ["true"] } }
 profile:
   timezone: UTC
   me: { name: Dana Reyes }

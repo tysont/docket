@@ -35,7 +35,6 @@ FR-SRC-04:
 FR-SRC-05:
   - tests/unit/shapes/test_unexpected.py::test_shapes_reach_envelope_run_file_db_and_report
   - tests/scenario/test_task_scenarios.py::test_evidence_is_checked_against_the_latest_version_of_a_record
-  - tests/scenario/test_rehearse.py::test_rehearsal_replays_records_when_collect_reruns
 FR-SRC-06:
   - tests/scenario/test_collection.py::test_isolation_one_failing_one_unavailable_one_partial
   - tests/unit/sources/test_auth_resolve_units.py::test_exceptions_at_the_source_boundary_are_isolated
@@ -90,7 +89,7 @@ FR-SIG-06:
 FR-SIG-07:
   - tests/unit/signals/test_signal_merge.py::test_merge_across_sources_by_reference_keeps_the_strongest
   - tests/unit/signals/test_signal_merge.py::test_suppression_paths
-  - tests/scenario/test_close_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
+  - tests/scenario/test_seal_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
 FR-SIG-08:
   - tests/unit/signals/test_signal_merge.py::test_coverage_cross_reference_miss_and_hit
 FR-SIG-09:
@@ -141,7 +140,6 @@ FR-DEC-05:
   - tests/scenario/test_decisions_scenario.py::test_reconcile_at_the_carry_limit_offers_rescope_instead_of_another_carry
   - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
 FR-DEC-06:
-  - tests/scenario/test_decisions_scenario.py::test_refresh_keeps_unchanged_answers_and_reasks_changed_items_with_previous
   - tests/unit/decide/test_answers.py::test_bind_keeps_unchanged_answers_and_moves_changed_ones_to_previous
 FR-DEC-07:
   - tests/scenario/test_decisions_scenario.py::test_verify_questions_come_from_resolve
@@ -156,7 +154,7 @@ FR-ACT-01:
   - tests/unit/destinations/test_markdown.py::test_carry_close_and_update_replace_exactly_one_line
   - tests/unit/destinations/test_calendar.py::test_create_move_delete_keep_unowned_events_byte_identical
   - tests/unit/destinations/test_markdown.py::test_journal_entry_is_written_once_and_an_edit_is_refused
-  - tests/scenario/test_close_scenarios.py::test_message_drafts_flow_through_apply_and_there_is_no_send
+  - tests/scenario/test_seal_scenarios.py::test_message_drafts_flow_through_apply_and_there_is_no_send
 FR-ACT-02:
   - tests/unit/destinations/test_destination_config.py::test_destination_validation
   - tests/conformance/test_destinations.py::test_builtin_adapter_conforms
@@ -175,7 +173,7 @@ FR-ACT-05:
   tests:
     - tests/unit/destinations/test_calendar.py::test_message_drafts_never_send
     - tests/unit/destinations/test_destination_config.py::test_send_policy_is_not_in_v1
-    - tests/scenario/test_close_scenarios.py::test_message_drafts_flow_through_apply_and_there_is_no_send
+    - tests/scenario/test_seal_scenarios.py::test_message_drafts_flow_through_apply_and_there_is_no_send
 FR-ACT-06:
   - tests/unit/destinations/test_calendar.py::test_shared_calendar_redacts_and_refuses_a_protected_entity_leak
   - tests/unit/destinations/test_calendar.py::test_private_calendar_keeps_full_detail
@@ -218,27 +216,27 @@ FR-PLN-08:
   - tests/unit/plan/test_plan_scheduler.py::test_explain_of_an_unschedulable_task
   - tests/scenario/test_planning_scenario.py::test_week_plan_schedules_over_the_flight_keeps_releases_and_mirrors
 
-# --- approve, apply, close -----------------------------------------------------------------------------
+# --- approve, apply, seal -----------------------------------------------------------------------------
 FR-APP-01:
   - tests/scenario/test_agent_loop.py::test_approval_is_bound_to_the_plan_digest
   - tests/contract/test_integrity_refusals.py::test_integrity_code_refuses_with_code_kind_exit_and_hint
 FR-APP-02:
-  - tests/scenario/test_close_scenarios.py::test_calendar_change_between_build_and_approval_refuses_with_the_rebuild_command
-  - tests/scenario/test_close_scenarios.py::test_unchanged_destinations_approve_after_any_delay
+  - tests/scenario/test_seal_scenarios.py::test_calendar_change_between_build_and_approval_refuses_with_the_rebuild_command
+  - tests/scenario/test_seal_scenarios.py::test_unchanged_destinations_approve_after_any_delay
 FR-APP-03:
-  - tests/scenario/test_close_scenarios.py::test_crash_after_verify_of_each_operation_resumes_without_duplicates
-  - tests/scenario/test_apply_destinations.py::test_crash_after_each_operation_resumes_without_duplicates
+  - tests/scenario/test_seal_scenarios.py::test_crash_after_verify_of_each_operation_is_repeated_without_duplicates
+  - tests/scenario/test_apply_destinations.py::test_crash_after_each_operation_is_repeated_without_duplicates
 FR-APP-04:
   - tests/unit/seal/test_seal_units.py::test_gap_holds_while_others_advance_and_regressions_are_recorded
   - tests/scenario/test_agent_loop.py::test_cursors_advance_at_seal_and_next_run_reads_only_new
-  - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
-  - tests/scenario/test_close_scenarios.py::test_hooks_run_once_per_event_even_when_commands_repeat
+  - tests/scenario/test_seal_scenarios.py::test_journal_sections_render_for_both_personas
+  - tests/scenario/test_seal_scenarios.py::test_run_nodes_run_once_even_when_commands_repeat
 FR-APP-05:
   - tests/unit/seal/test_seal_units.py::test_dispositions_by_topic_from_outcomes_answers_and_routes
-  - tests/scenario/test_close_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
+  - tests/scenario/test_seal_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
 FR-APP-06:
-  - tests/scenario/test_close_scenarios.py::test_close_resumes_after_a_crash_between_steps_without_repeating
-  - tests/scenario/test_close_scenarios.py::test_hook_failure_under_warn_does_not_block_close_and_is_not_repeated
+  - tests/scenario/test_seal_scenarios.py::test_a_seal_repeated_after_a_crash_repeats_no_step
+  - tests/scenario/test_seal_scenarios.py::test_a_failing_run_node_stops_there_and_repeating_it_runs_only_that_node
 
 # --- robustness -------------------------------------------------------------------------------------------
 FR-ROB-01:
@@ -248,17 +246,17 @@ FR-ROB-01:
 FR-ROB-02:
   - tests/unit/shapes/test_unexpected.py::test_shapes_reach_envelope_run_file_db_and_report
   - tests/unit/shapes/test_unexpected.py::test_config_acceptance_hides_a_shape_and_all_shows_it
-  - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
-  - tests/scenario/test_rehearse.py::test_both_personas_rehearse_to_close_writing_nothing_outside
+  - tests/scenario/test_seal_scenarios.py::test_journal_sections_render_for_both_personas
+  - tests/scenario/test_sandbox.py::test_both_personas_run_a_sandbox_to_the_seal_writing_nothing_live
 FR-ROB-03:
-  - tests/scenario/test_rehearse.py::test_both_personas_rehearse_to_close_writing_nothing_outside
-  - tests/scenario/test_rehearse.py::test_recorded_and_file_answers_and_refusals_are_reported
-  - tests/scenario/test_rehearse.py::test_rehearsal_synthesizes_tasks_and_reuses_accepted_results
+  - tests/scenario/test_sandbox.py::test_both_personas_run_a_sandbox_to_the_seal_writing_nothing_live
+  - tests/scenario/test_sandbox.py::test_a_sandbox_run_moves_no_cursor_and_writes_no_disposition
+  - tests/scenario/test_sandbox.py::test_a_sandbox_run_uses_a_run_nodes_dry_run_form_or_skips_it
 FR-ROB-04:
-  - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_declared_stages
-  - tests/scenario/test_engine_properties.py::test_stage_schema_bump_recomputes_exactly_that_stage
+  - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_nodes_that_read_it
+  - tests/scenario/test_engine_properties.py::test_a_verb_schema_bump_recomputes_exactly_that_node
   - tests/scenario/test_engine_properties.py::test_repeating_every_command_is_safe
-  - tests/scenario/test_close_scenarios.py::test_upstream_change_after_apply_waits_with_post_apply_change
+  - tests/scenario/test_seal_scenarios.py::test_upstream_change_after_apply_waits_with_post_apply_change
 FR-ROB-05:
   - tests/scenario/test_engine_properties.py::test_lease_held_adopted_and_stolen
 FR-ROB-06:
@@ -341,7 +339,7 @@ CFG-03:
 CFG-04:
   - tests/scenario/test_agent_loop.py::test_triage_graph_and_sandbox_write_nothing_live
   - tests/scenario/test_agent_loop.py::test_reference_daily_reviews_and_writes_backlog
-  - tests/scenario/test_planning_scenario.py::test_planning_inactive_workflows_plan_as_before
+  - tests/scenario/test_planning_scenario.py::test_a_plan_node_that_schedules_no_tasks_plans_as_before
 CFG-05:
   - tests/unit/text/test_templates.py::test_render_table
   - tests/unit/text/test_templates.py::test_rendering_is_total
@@ -349,7 +347,7 @@ CFG-05:
   - tests/scenario/test_task_store_identity.py::test_a_windowed_block_is_kept_on_run_two
 CFG-06:
   - tests/unit/config/test_config.py::test_digest_ignores_file_split_and_partials_move_per_section
-  - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_declared_stages
+  - tests/scenario/test_engine_properties.py::test_config_edit_mid_run_stales_exactly_the_nodes_that_read_it
 CFG-07:
   - tests/scenario/test_signals_scenario.py::test_config_test_shows_a_score_change_after_a_weight_edit_without_writing
 
@@ -370,10 +368,10 @@ NFR-03:
   - tests/unit/plan/test_plan_properties.py::test_plan_build_is_deterministic
 NFR-04:
   - tests/scenario/test_signals_scenario.py::test_item_why_explains_kept_dropped_merged_and_suppressed
-  - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
+  - tests/scenario/test_seal_scenarios.py::test_journal_sections_render_for_both_personas
 NFR-05:
   - tests/unit/sources/test_auth_resolve_units.py::test_an_auth_check_that_waits_is_treated_as_interactive
-  - tests/scenario/test_close_scenarios.py::test_a_hook_that_hangs_times_out_and_reports_the_command
+  - tests/scenario/test_seal_scenarios.py::test_a_run_node_that_hangs_times_out_and_reports_the_command
   - tests/unit/destinations/test_calendar.py::test_exec_program_that_hangs_times_out
   - tests/unit/engine/test_doctor.py::test_a_hanging_auth_check_is_reported_as_interactive_or_hung
 NFR-06:
@@ -384,7 +382,7 @@ NFR-07:
   - tests/contract/test_portability.py::test_adapters_load_lazily_from_the_registry
 NFR-08:
   - tests/contract/test_envelope.py::test_no_command_reads_process_environment_home
-  - tests/scenario/test_rehearse.py::test_both_personas_rehearse_to_close_writing_nothing_outside
+  - tests/scenario/test_sandbox.py::test_both_personas_run_a_sandbox_to_the_seal_writing_nothing_live
   - tests/unit/sources/test_recordings_fresh.py::test_recordings_are_fresh
 NFR-09:
   - tests/unit/store/test_store.py::test_refuses_newer_database

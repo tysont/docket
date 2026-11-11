@@ -32,7 +32,10 @@ def setup(ws: Path) -> Path:
                         f"  shift-calendar:\n    adapter: calendar_file\n    path: cal.ics\n"
                         f"    calendar: work\n    marker: \"{MARKER}\"\n"
                         "  worklog:\n", 1)
-    text += ("\nplanning:\n  workflows: [shift]\n"
+    shift = text.split("  isolation:\n")[0]
+    text = text.replace(shift, shift.replace("    plan: { plan: [decide] }\n",
+                                             "    plan: { plan: [decide], schedule_tasks: true }\n", 1), 1)
+    text += ("\nplanning:\n"
              "  calendar: { provider: destination, destination: shift-calendar, calendar: work }\n"
              "  tasks: { destination: worklog }\n")
     cfg.write_text(text)
@@ -121,8 +124,13 @@ def test_the_inline_fields_preset_line_carries_the_window(persona, cli, pinned_n
     assert "line_template" not in text.split("  agendas:")[0]  # the backlog uses the preset's line
     dests.write_text(text + f"  work-calendar:\n    adapter: calendar_file\n    path: cal.ics\n"
                             f"    calendar: work\n    marker: \"{MARKER}\"\n")
+    cfg = ws / "docket.yaml"
+    text = cfg.read_text()
+    triage = text.split("  triage:\n")[1].split("  isolation:\n")[0]
+    cfg.write_text(text.replace(triage, triage.replace("    plan: { plan: [decide] }\n",
+                                                       "    plan: { plan: [decide], schedule_tasks: true }\n"), 1))
     plan = ws / "planning.yaml"
-    plan.write_text(plan.read_text().replace("workflows: [week-plan]", "workflows: [triage]").replace(
+    plan.write_text(plan.read_text().replace(
         "calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: work-calendar }",
         "calendar: { provider: destination, destination: work-calendar, calendar: work }"))
     ics = ws / "cal.ics"

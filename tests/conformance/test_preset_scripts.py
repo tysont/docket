@@ -161,12 +161,12 @@ FOUND = {"messages": [{"id": "m2", "threadId": "t1"}, {"id": "m1", "threadId": "
 GOT = [
     {"id": "m2", "message": {"id": "m2", "threadId": "t1", "internalDate": "1792054800000", "labelIds": ["UNREAD"],
                              "snippet": "Second message", "body": "y" * 5000,
-                             "headers": {"From": "Kim Osei <kim@northwind.example>", "To": "dana@northwind.example",
-                                         "Cc": '"Park, Lee" <lee@northwind.example>, sam@northwind.example',
+                             "headers": {"From": "Kim Osei <kim@example.org>", "To": "dana@example.org",
+                                         "Cc": '"Park, Lee" <lee@example.org>, sam@example.org',
                                          "Subject": "Re: Budget", "Date": "Wed, 15 Oct 2026 09:00:00 +0000"}}},
     {"id": "m1", "message": {"id": "m1", "threadId": "t1", "internalDate": "1792051200000", "snippet": "First message",
-                             "payload": {"headers": [{"name": "From", "value": "casey@acme-corp.example"},
-                                                     {"name": "To", "value": "Dana Reyes <dana@northwind.example>"},
+                             "payload": {"headers": [{"name": "From", "value": "casey@example.org"},
+                                                     {"name": "To", "value": "Dana Reyes <dana@example.org>"},
                                                      {"name": "Subject", "value": "Budget"}]}}},
 ]
 MAIL_ARGS = {"search_tool": "mail_search", "get_tool": "mail_get", "query": "is:unread", "after": "2026-10-14T00:00:00Z",
@@ -190,11 +190,11 @@ def test_mail_read_searches_then_fetches_in_one_script_and_projects_each_message
                             ["mail_get", {"format": "full", "messageIds": ["m2", "m1"]}]]
     first, second = got["out"]["messages"]                                   # oldest first
     assert first == {"id": "m1", "threadId": "t1", "date": "2026-10-15T08:00:00.000Z", "subject": "Budget",
-                     "from": {"name": "casey@acme-corp.example", "address": "casey@acme-corp.example"},
-                     "to": ["dana@northwind.example"], "cc": [], "snippet": "First message", "body": "First message",
+                     "from": {"name": "casey@example.org", "address": "casey@example.org"},
+                     "to": ["dana@example.org"], "cc": [], "snippet": "First message", "body": "First message",
                      "labels": [], "url": "https://mail.example.org/#all/t1"}
-    assert second["from"] == {"name": "Kim Osei", "address": "kim@northwind.example"}
-    assert second["cc"] == ["lee@northwind.example", "sam@northwind.example"]  # a quoted name with a comma stays one person
+    assert second["from"] == {"name": "Kim Osei", "address": "kim@example.org"}
+    assert second["cc"] == ["lee@example.org", "sam@example.org"]  # a quoted name with a comma stays one person
     assert len(second["body"]) == 100 and second["labels"] == ["UNREAD"]
     assert got["out"]["nextPageToken"] == "p2"
 
@@ -218,8 +218,8 @@ def test_the_mail_mapping_carries_people_thread_and_link():
 def _event(i, start, end, **kw):
     return {"id": i, "summary": kw.pop("summary", "Platform Sync"), "status": kw.pop("status", "confirmed"),
             "start": {"dateTime": start}, "end": {"dateTime": end}, "htmlLink": f"https://cal.example.org/{i}",
-            "attendees": kw.pop("attendees", [{"email": "dana@northwind.example", "self": True, "responseStatus": "accepted"},
-                                              {"email": "kim@northwind.example"}]), **kw}
+            "attendees": kw.pop("attendees", [{"email": "dana@example.org", "self": True, "responseStatus": "accepted"},
+                                              {"email": "kim@example.org"}]), **kw}
 
 
 NOTES = {"fileId": "f1", "title": "Notes by the recorder", "fileUrl": "https://docs.example.org/f1"}
@@ -228,13 +228,13 @@ EVENTS = {"items": [
         {"fileId": "f0", "title": "Slides", "fileUrl": "https://docs.example.org/f0"}, NOTES]),
     _event("later", "2026-10-28T15:00:00Z", "2026-10-28T15:30:00Z", attachments=[NOTES]),   # the series' older record
     _event("declined", "2026-10-14T16:00:00Z", "2026-10-14T16:30:00Z", attendees=[
-        {"email": "dana@northwind.example", "self": True, "responseStatus": "declined"}, {"email": "kim@northwind.example"}]),
+        {"email": "dana@example.org", "self": True, "responseStatus": "declined"}, {"email": "kim@example.org"}]),
     _event("cancelled", "2026-10-14T17:00:00Z", "2026-10-14T17:30:00Z", status="cancelled"),
     _event("alone", "2026-10-14T18:00:00Z", "2026-10-14T19:00:00Z", attendees=[]),
     {"id": "allday", "summary": "Away", "status": "confirmed", "start": {"date": "2026-10-14"}, "end": {"date": "2026-10-15"}},
     _event("future", "2999-01-01T15:00:00Z", "2999-01-01T15:30:00Z"),
     _event("room", "2026-10-13T15:00:00Z", "2026-10-13T15:30:00Z", attendees=[
-        {"email": "dana@northwind.example", "self": True}, {"email": "room-4@northwind.example", "resource": True}]),
+        {"email": "dana@example.org", "self": True}, {"email": "room-4@example.org", "resource": True}]),
 ], "nextPageToken": "p2"}
 MEET_ARGS = {"events_tool": "events_list", "file_tool": "file_get", "content_tool": "file_content",
              "events_args": {"calendarId": "primary"}, "content_args": {"asMarkdown": True}, "after": "2026-10-08T00:00:00Z",
@@ -261,7 +261,7 @@ def test_meetings_read_keeps_the_meetings_held_and_reads_each_ones_own_record(wr
         "file_content": {"content": "Capacity: agreed. " * 20}})
     first, second = got["out"]["meetings"]
     assert first == {"id": "held", "title": "Platform Sync", "start": "2026-10-14T15:00:00.000Z",
-                     "end": "2026-10-14T15:30:00.000Z", "attendees": ["kim@northwind.example"], "recurring": True,
+                     "end": "2026-10-14T15:30:00.000Z", "attendees": ["kim@example.org"], "recurring": True,
                      "url": "https://cal.example.org/held", "record_url": "https://docs.example.org/f1",
                      "record": ("Capacity: agreed. " * 20)[:40]}
     assert second["id"] == "later" and second["record"] == "" and second["record_url"] is None

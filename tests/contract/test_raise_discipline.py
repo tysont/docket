@@ -25,7 +25,7 @@ pytestmark = pytest.mark.smoke
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "docket"
 DATA_PACKAGES = ("sources", "transports", "items", "signals", "tasks", "decide", "destinations", "plan", "apply",
-                 "close")
+                 "seal")
 ERROR_CLASSES = {"IntegrityError": "integrity", "InputError": "input", "StateError": "state",
                  "ConfigError": "config", "ExternalError": "external", "LeaseError": "lease"}
 
@@ -117,6 +117,7 @@ def violations(path: Path, shared: dict[str, str | None] | None = None) -> list[
 
 
 def test_data_packages_raise_only_catalogued_errors():
+    assert [p for p in DATA_PACKAGES if not (SRC / p).is_dir()] == []  # a renamed package must stay scanned
     found: list[str] = []
     shared = _global_helpers()
     for f in _modules():

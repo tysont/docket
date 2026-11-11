@@ -33,12 +33,12 @@ def test_item_why_explains_kept_dropped_merged_and_suppressed(persona, cli, pinn
         db.execute("INSERT INTO dispositions (topic_id, decision, run_id, item, until, note) VALUES (?,?,?,?,?,?)",
                    (offsite, "dismiss", "2026-10-14-daily", offsite, "2026-10-30", None))
     db.close()
-    res = run_agent(ws, resume_paused=False)
-    assert res.failures == [] and res.final["reason"] == "paused"
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "decide")
+    assert res.failures == [] and res.final["kind"] == "ask", res.final
 
     kept = why(cli, ws, "Design review: ingest service v2 #12")
     assert kept["status"] == "kept" and kept["keep"] and "chain-on-owned-topic" in kept["rules"]
-    assert any(ln.startswith("[signals] rule chain-on-owned-topic (workspace:signals.yaml:") for ln in kept["lines"])
+    assert any(ln.startswith("[merge] rule chain-on-owned-topic (workspace:signals.yaml:") for ln in kept["lines"])
     assert any(ln.startswith("[merge] score ") for ln in kept["lines"])
 
     dropped = why(cli, ws, "quarterly goals is ready for comments. (follow-up 19)")
@@ -94,7 +94,7 @@ def test_assess_issues_tasks_only_for_items_that_need_them(persona, cli, pinned_
 
     p1 = why(cli, ws, "ESC-310")
     assert p1["status"] == "kept" and "escalation-p1" in p1["rules"]
-    assert any(ln == "[assess] rules_only: rules escalation-p1" for ln in p1["lines"])
+    assert any(ln == "[judge] rules_only: rules escalation-p1" for ln in p1["lines"])
     assert all("agent" not in e.get("components", {}) for e in p1["trace"] if e.get("step") == "score")
     closed = why(cli, ws, "ESC-313")
     assert closed["status"] == "dropped" and closed["reason"] == "dismissed: Escalation closed"
@@ -104,7 +104,7 @@ def test_assess_issues_tasks_only_for_items_that_need_them(persona, cli, pinned_
     code, env = cli("item", "list", "--filter", "topic=ref:incident:INC-2041", "--workspace", str(ws))
     [inc] = env["data"]["items"]
     assert inc["id"] == esc["id"] and inc["source"] == "escalations"
-    assert any(ln.startswith("[signals] rule escalation-deadline") and ln.endswith("extracted deadline 2026-10-20")
+    assert any(ln.startswith("[merge] rule escalation-deadline") and ln.endswith("extracted deadline 2026-10-20")
                for ln in esc["lines"])
 
 
@@ -115,9 +115,9 @@ def test_support_lead_rules_are_queue_rules(persona, cli, pinned_now):
     assert res.failures == [] and res.final["kind"] == "done"
     closure = why(cli, ws, "Request to close account (case 15)")    # a P1 ticket: surface beats dismiss
     assert closure["status"] == "kept"
-    assert any(ln.startswith("[signals] surface: always (p1-ticket) overrides dismiss by account-closure")
+    assert any(ln.startswith("[merge] surface: always (p1-ticket) overrides dismiss by account-closure")
                for ln in closure["lines"])
-    assert any(ln.startswith("[decide] question: question q_") for ln in closure["lines"])  # later stages too
+    assert any(ln.startswith("[ask] question: node decide; question q_") for ln in closure["lines"])  # later nodes too
     plain = why(cli, ws, "Request to close account (case 25)")
     assert plain["status"] == "dropped" and plain["rules"] == ["p2-ticket", "account-closure"]
     page = why(cli, ws, "Export queue backlog growing")
@@ -129,7 +129,7 @@ def test_support_lead_rules_are_queue_rules(persona, cli, pinned_now):
 def test_config_test_shows_a_score_change_after_a_weight_edit_without_writing(persona, cli, pinned_now):
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "decide")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "decide")
     assert res.failures == []
     root = state_root(ws, os.environ)
     before = tree(root)
@@ -190,9 +190,9 @@ def test_reference_rule_file_expresses_the_predecessor_signal_categories():
         it("dm-unknown", unit="spaces/dm", handle="users/9999", text="quick question"),
         it("bots", unit="spaces/bots", handle="users/5005", text="deploy 42 finished"),
         it("alerts", unit="spaces/alerts", text="threshold crossed"),
-        it("auto-mail", source="mail", handle="noreply@tools.example", title="Your weekly digest"),
+        it("auto-mail", source="mail", handle="noreply@example.org", title="Your weekly digest"),
         it("invite", source="mail", handle="lee@northwind.example", title="Invitation: Platform Sync"),
-        it("compliance", source="mail", handle="noreply@hr.example", title="Mandatory training due Friday"),
+        it("compliance", source="mail", handle="noreply@example.org", title="Mandatory training due Friday"),
         it("customer", text="Acme Corp asked about an outage"),
         it("ask", text="Dana, can you sign off?", handle="users/2002"),
         it("mine-1", thread="t/1", handle="users/1001", at="2026-10-15T08:00:00+00:00", text="kicking this off"),

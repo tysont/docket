@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 from datetime import date, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -56,7 +55,7 @@ def test_week_plan_schedules_over_the_flight_keeps_releases_and_mirrors(persona,
                     "--title", "Draft the offsite memo", "--workspace", str(ws))
     assert code == 0, env
     assert env["data"]["answer"]["overrides"]["when"] == "event:Flight"
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == [], res.failures
 
     code, env = cli("plan", "diff", "--workspace", str(ws))
@@ -107,31 +106,34 @@ def test_week_plan_schedules_over_the_flight_keeps_releases_and_mirrors(persona,
     assert done.failures == [] and done.final["kind"] == "done"
 
 
-def test_plan_build_is_current_after_build_and_stale_after_a_calendar_change(persona, cli, pinned_now):
+def test_the_plan_node_is_current_after_it_runs_and_stale_after_a_calendar_change(persona, cli, pinned_now):
     ws = persona("reference-like")
     _start(cli, ws, pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == []
-    code, env = cli("plan", "build", "--workspace", str(ws))
+    code, env = cli("do", "plan", "--workspace", str(ws))
     assert code == 0 and env["data"]["status"] == "current"   # the mirror ledger write does not stale it
+    assert env["data"]["changed"] is False
     p = ws / "data" / "calendar.json"
     data = json.loads(p.read_text())
     data["events"].append({"id": "new", "title": "Late add", "start": "2026-10-16T13:00:00",
                            "end": "2026-10-16T14:00:00", "attendees": 3})
     p.write_text(json.dumps(data))
     code, env = cli("next", "--workspace", str(ws))
-    assert env["data"]["step"]["kind"] == "run" and env["data"]["step"]["stage"] == "plan"
+    assert [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "plan")]
+    assert {n["node"]: n["state"] for n in env["data"]["nodes"]}["plan"] == "stale"
 
 
-def test_window_too_small_fails_plan_build_with_free_minutes(persona, cli, pinned_now):
+def test_window_too_small_fails_the_plan_node_with_free_minutes(persona, cli, pinned_now):
     ws = persona("reference-like")
     _start(cli, ws, pinned_now)
     res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask")
     q = res.final["questions"][0]
     code, env = cli("ask", "answer", q["id"], "task", "--when", "fri 14:00-14:45", "--est", "90", "--workspace", str(ws))
     assert code == 0, env
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "plan")
-    code, env = cli("plan", "build", "--workspace", str(ws))
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "plan")
+    assert res.failures == [] and res.final["node"] == "plan", res.final
+    code, env = cli(*res.final["command"]["argv"][1:])
     assert code == 2 and env["error"]["code"] == "plan.window_too_small"
     w = env["error"]["details"]["windows"][0]
     assert w["free_minutes"] == 10 and w["est"] == 90 and w["question_id"] == q["id"]   # a 1:1 and its 5m buffer
@@ -144,8 +146,9 @@ def test_unknown_named_event_window_is_refused(persona, cli, pinned_now):
     res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask")
     q = res.final["questions"][0]
     cli("ask", "answer", q["id"], "task", "--when", "Moon landing", "--workspace", str(ws))
-    run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "plan")
-    code, env = cli("plan", "build", "--workspace", str(ws))
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "plan")
+    assert res.failures == [] and res.final["node"] == "plan", res.final
+    code, env = cli(*res.final["command"]["argv"][1:])
     assert code == 2 and env["error"]["code"] == "plan.window_unresolved"
 
 
@@ -158,16 +161,16 @@ def test_ask_answer_still_refuses_a_malformed_day_window(persona, cli, pinned_no
     assert code == 2 and env["error"]["code"] == "input.bad_window"
 
 
-def test_planning_inactive_workflows_plan_as_before(persona, cli, pinned_now):
+def test_a_plan_node_that_schedules_no_tasks_plans_as_before(persona, cli, pinned_now):
+    """triage's plan node has no schedule_tasks: it plans the answers and places nothing."""
     ws = persona("reference-like")
     cli("run", "start", "triage", "--now", pinned_now, "--sandbox", "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
     assert res.failures == []
     q = res.final["questions"][0]
     assert q["details"]["operations"] == 8
     code, env = cli("plan", "explain", "anything", "--workspace", str(ws))
     assert code == 3 and env["error"]["code"] == "plan.no_calendar"
-    Path(ws)  # the triage workflow is not in planning.workflows
 
 
 def test_a_stored_task_whose_window_has_passed_is_planned_without_it(persona, cli, pinned_now):
@@ -179,7 +182,7 @@ def test_a_stored_task_whose_window_has_passed_is_planned_without_it(persona, cl
     p.write_text(p.read_text().replace("- [ ] Review the ingest service runbook [source:: seed]",
                                        "- [ ] Review the ingest service runbook [source:: seed] [when:: 2026-10-01 14:00-14:30]"))
     run_id = _start(cli, ws, pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == []
     code, env = cli("plan", "diff", "--workspace", str(ws))
     assert code == 0, env
@@ -190,19 +193,23 @@ def test_a_stored_task_whose_window_has_passed_is_planned_without_it(persona, cl
 
 
 def test_blocks_carry_the_labels_the_label_task_wrote_and_a_line_is_labelled_once(persona, cli, pinned_now):
-    """With a label stage before plan, every task planning may place is labelled by a judged
-    task, and the block's title is that label, not the words of the private line. A closed
-    run remembers its labels: the next run asks for none while the lines stand as they were."""
+    """With a label judge on the decisions, feeding plan, every task planning may place is
+    labelled by a judged task, and the block's title is that label, not the words of the
+    private line. A sealed run remembers its labels: the next run asks for none while the
+    lines stand as they were."""
     ws = persona("reference-like")
     y = ws / "docket.yaml"
-    y.write_text(y.read_text().replace("stages: [collect, assess, merge, decide, plan, close]",
-                                       "stages: [collect, assess, merge, decide, label, plan, close]"))
+    text = y.read_text()
+    assert "    plan: { plan: [decide], schedule_tasks: true }\n" in text
+    y.write_text(text.replace("    plan: { plan: [decide], schedule_tasks: true }\n",
+                              "    label: { judge: label, from: [decide] }\n"
+                              "    plan: { plan: [decide, label], schedule_tasks: true }\n"))
     p = ws / "planning.yaml"
     p.write_text(p.read_text() + '  titles: { task: "{label|default:Task}", notes: "notes://find?q={id}" }\n')
     run_id = _start(cli, ws, pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == []
-    labelled = [t for s in res.steps if s["kind"] == "dispatch" and s["stage"] == "label" for t in s["tasks"]]
+    labelled = [t for s in res.steps if s["kind"] == "dispatch" and s["node"] == "label" for t in s["tasks"]]
     assert labelled and all(t["kind"] == "label" for t in labelled)
     code, env = cli("plan", "diff", "--workspace", str(ws))
     assert code == 0, env
@@ -216,4 +223,4 @@ def test_blocks_carry_the_labels_the_label_task_wrote_and_a_line_is_labelled_onc
     assert code == 0, env
     again = run_agent(ws)
     assert again.failures == []
-    assert [s for s in again.steps if s["kind"] == "dispatch" and s["stage"] == "label"] == []
+    assert [s for s in again.steps if s["kind"] == "dispatch" and s["node"] == "label"] == []

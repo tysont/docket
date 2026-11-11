@@ -67,9 +67,8 @@ def test_a_file_without_json_path_is_still_read_whole(tmp_path):
 
 BASE = """\
 version: 1
-workflows:
-  daily:
-    stages: [collect, close]
+graphs:
+  daily: { touch: { run: ["true"] } }
 profile:
   timezone: UTC
   me: { name: Dana Reyes }

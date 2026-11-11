@@ -236,6 +236,8 @@ class Node(Strict):
             raise ValueError(f"{v} works on nothing another node hands it; use after to order it")
         if v == "write" and not self.to:
             raise ValueError("write needs to: the destination it writes")
+        if self.schedule is not None and v != "read":
+            raise ValueError("schedule says how often a source is read; only a read node takes one")
         return self
 
     @property

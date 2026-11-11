@@ -1,6 +1,6 @@
-"""Approve, apply and close scenarios (IP M8 exit, TP §6.2; TD §5.4, §13).
+"""Approve, apply and seal scenarios (IP M8 exit, TP §6.2; TD §5.4, §13).
 
-Every hook here runs ``tests/fixtures/bin/hook_stub.py``, which writes only to the
+Every run node here runs ``tests/fixtures/bin/cmd_stub.py``, which writes only to the
 paths it is given under the test's temporary directory.
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -32,8 +33,8 @@ def run_dir(ws: Path, run_id: str) -> Path:
     return state_root(ws, os.environ) / "runs" / run_id
 
 
-def start(cli, ws: Path, workflow: str, now: str, *extra: str) -> str:
-    code, env = cli("run", "start", workflow, "--now", now, "--workspace", str(ws), *extra)
+def start(cli, ws: Path, graph: str, now: str, *extra: str) -> str:
+    code, env = cli("run", "start", graph, "--now", now, "--workspace", str(ws), *extra)
     assert code == 0, env
     return env["data"]["run"]
 
@@ -43,25 +44,38 @@ def append_yaml(ws: Path, text: str) -> None:
     cfg.write_text(cfg.read_text() + "\n" + text.strip("\n") + "\n")
 
 
-def hook_yaml(hid: str, *args: str, events=("after_close",), policy="warn", env=(), dry_run=None) -> str:
-    cmd = json.dumps([sys.executable, str(STUB), *args])
-    out = f"  {hid}:\n    command: {cmd}\n    events: {json.dumps(list(events))}\n    on_failure: {policy}\n"
+def run_node(name: str, *args: str, after=(), env=(), dry_run=None, timeout_s=None) -> str:
+    """One run node of the shift graph, as YAML, running the stub with ``args``."""
+    out = f"    {name}:\n      run: {json.dumps([sys.executable, str(STUB), *args])}\n"
+    if after:
+        out += f"      after: {json.dumps(list(after))}\n"
     if env:
-        out += f"    env: {json.dumps(list(env))}\n"
+        out += f"      env: {json.dumps(list(env))}\n"
     if dry_run is not None:
-        out += f"    dry_run: {json.dumps([sys.executable, str(STUB), *dry_run])}\n"
+        out += f"      dry_run: {json.dumps([sys.executable, str(STUB), *dry_run])}\n"
+    if timeout_s is not None:
+        out += f"      timeout_s: {timeout_s}\n"
     return out
+
+
+def add_nodes(ws: Path, nodes: str) -> None:
+    """Add nodes to the support-lead shift graph, after its apply node."""
+    cfg = ws / "docket.yaml"
+    text = cfg.read_text()
+    anchor = "    apply: { apply: approve }\n  isolation:\n"
+    assert anchor in text
+    cfg.write_text(text.replace(anchor, "    apply: { apply: approve }\n" + nodes + "  isolation:\n", 1))
 
 
 # --- executor: crash after every operation ------------------------------------------------
 
 
-@pytest.mark.parametrize("name,workflow,n_ops", [("reference-like", "triage", 8), ("support-lead", "shift", 12)])
-def test_crash_after_verify_of_each_operation_resumes_without_duplicates(persona, cli, pinned_now, monkeypatch,
-                                                                         name, workflow, n_ops):
+@pytest.mark.parametrize("name,graph,n_ops", [("reference-like", "triage", 8), ("support-lead", "shift", 12)])
+def test_crash_after_verify_of_each_operation_is_repeated_without_duplicates(persona, cli, pinned_now, monkeypatch,
+                                                                         name, graph, n_ops):
     ws = persona(name)
-    start(cli, ws, workflow, pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "apply")
+    start(cli, ws, graph, pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "apply")
     assert res.failures == []
     crashed: set[str] = set()
 
@@ -93,7 +107,6 @@ def test_crash_after_verify_of_each_operation_resumes_without_duplicates(persona
 
 PLANNING = """
 planning:
-  workflows: [shift]
   calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: calendar }
   tasks: { destination: worklog }
 """
@@ -111,7 +124,8 @@ EVENT = ("BEGIN:VEVENT\r\nUID:{uid}\r\nSUMMARY:{title}\r\nDTSTART:20261020T{h}00
 def with_calendar(ws: Path) -> Path:
     cfg = ws / "docket.yaml"
     text = cfg.read_text().replace("\ndestinations:\n", "\ndestinations:\n" + CAL_DEST.lstrip("\n"), 1)
-    cfg.write_text(text + PLANNING)
+    text = text.replace("    plan: { plan: [decide] }\n", "    plan: { plan: [decide], schedule_tasks: true }\n", 1)
+    cfg.write_text(text + PLANNING)  # the first plan node is the shift graph's
     ics = ws / "cal.ics"
     ics.write_text(ICS.format(events=""))
     return ics
@@ -121,7 +135,7 @@ def test_calendar_change_between_build_and_approval_refuses_with_the_rebuild_com
     ws = persona("support-lead")
     ics = with_calendar(ws)
     run_id = start(cli, ws, "shift", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
     assert res.failures == [], res.failures
     q = res.final["questions"][0]
     old = q["details"]["digest"]
@@ -136,20 +150,24 @@ def test_calendar_change_between_build_and_approval_refuses_with_the_rebuild_com
     assert code == 4 and env["error"]["code"] == "apply.stale_inputs", env
     change = env["error"]["details"]["destinations"]
     assert list(change) == ["calendar"] and change["calendar"]["summary"] == "2 calendar events added since build"
-    assert env["next"]["command"][1:3] == ["plan", "build"]
+    assert env["next"]["command"][1:3] == ["do", "plan"]
     assert "approve" not in json.loads((run_dir(ws, run_id) / "answers.json").read_text())
 
     code, env = cli("next", "--workspace", str(ws))
-    assert env["data"]["step"]["kind"] == "run" and env["data"]["step"]["command"]["argv"][1:3] == ["plan", "build"]
-    code, env = cli("plan", "build", "--workspace", str(ws))
+    assert [(s["kind"], s["node"], s["command"]["argv"][1:3]) for s in env["data"]["steps"]] == \
+        [("run", "plan", ["do", "plan"])]
+    code, env = cli("do", "plan", "--workspace", str(ws))
     assert code == 0, env
-    q2 = env["data"]["step"]["questions"][0]
+    (step,) = env["data"]["steps"]
+    assert step["kind"] == "ask" and step["node"] == "approve"
+    q2 = step["questions"][0]
     new = q2["details"]["digest"]
     assert new != old
     code, env = cli("ask", "answer", "approve", "yes", "--digest", old, "--workspace", str(ws))
     assert code == 4 and env["error"]["code"] == "approve.digest_mismatch"
     code, env = cli("ask", "answer", "approve", "yes", "--digest", new, "--workspace", str(ws))
-    assert code == 0 and env["data"]["step"]["command"]["argv"][1] == "apply", env
+    assert code == 0 and [(s["node"], s["command"]["argv"][1:3]) for s in env["data"]["steps"]] == \
+        [("apply", ["do", "apply"])], env
     rec = json.loads((run_dir(ws, run_id) / "answers.json").read_text())["approve"]
     assert rec["digest"] == new and set(rec["destinations"]) == {"calendar", "worklog"}
     done = run_agent(ws)
@@ -161,7 +179,7 @@ def test_unchanged_destinations_approve_after_any_delay(persona, cli, pinned_now
     """No clock check: an approval long after the build passes when nothing changed (TD §13.2)."""
     ws = persona("support-lead")
     run_id = start(cli, ws, "shift", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
     pd = res.final["questions"][0]["details"]["digest"]
     plan_json = run_dir(ws, run_id) / "plan" / pd / "plan.json"
     os.utime(plan_json, (1, 1))  # built "decades" ago
@@ -175,25 +193,25 @@ def test_unchanged_destinations_approve_after_any_delay(persona, cli, pinned_now
 def test_upstream_change_after_apply_waits_with_post_apply_change(persona, cli, pinned_now):
     ws = persona("support-lead")
     start(cli, ws, "shift", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == []
-    append_yaml(ws, "planning:\n  policy: { granularity: 30m }")  # a plan-stage section changes after apply
+    append_yaml(ws, "planning:\n  policy: { granularity: 30m }")  # a section the plan node reads changes after apply
     code, env = cli("next", "--workspace", str(ws))
-    step = env["data"]["step"]
-    assert step["kind"] == "wait" and step["reason"] == "post_apply_change" and step["stage"] == "plan"
+    (step,) = env["data"]["steps"]
+    assert step["kind"] == "wait" and step["reason"] == "post_apply_change" and step["node"] == "plan"
     inspect = [c["argv"][1:3] for c in step["inspect"]]
     assert ["run", "status"] in inspect and ["plan", "diff"] in inspect
     assert step["command"]["argv"][1:3] == ["run", "continue"]
-    st = {s["stage"]: s for s in env["data"]["stages"]}
+    st = {n["node"]: n for n in env["data"]["nodes"]}
     assert st["plan"]["state"] == "current" and st["apply"]["state"] == "current"  # the plan is not staled
-    code, env = cli("close", "--workspace", str(ws))
-    assert code == 7 and env["error"]["code"] == "stage.post_apply_change"
+    code, env = cli("seal", "--workspace", str(ws))
+    assert code == 7 and env["error"]["code"] == "node.post_apply_change"
     assert env["next"]["command"][1:3] == ["run", "continue"]
     code, env = cli("plan", "diff", "--workspace", str(ws))
     assert code == 0  # the approved plan is still inspectable
     code, env = cli("run", "continue", "--workspace", str(ws))
     assert code == 0 and env["data"]["changed"] is True
-    assert env["data"]["step"]["kind"] == "run" and env["data"]["step"]["stage"] == "close"
+    assert [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "seal")]
     done = run_agent(ws)
     assert done.failures == [] and done.final["kind"] == "done"
 
@@ -204,14 +222,14 @@ def test_upstream_change_after_apply_waits_with_post_apply_change(persona, cli, 
 def test_abandoned_run_advances_nothing_and_the_next_run_rereads(persona, cli, pinned_now):
     ws = persona("support-lead")
     run_id = start(cli, ws, "shift", pinned_now)
-    code, env = cli("collect", "--workspace", str(ws))
+    code, env = cli("do", "read-tickets", "--workspace", str(ws))
     first = env["data"]["result"]["sources"]["tickets"]["records"]
     assert db_rows(ws, "SELECT COUNT(*) FROM cursor_proposals WHERE run_id=?", run_id)[0][0] > 0
     code, env = cli("run", "abandon", run_id, "--workspace", str(ws))
     assert code == 0
     assert db_rows(ws, "SELECT COUNT(*) FROM cursors")[0][0] == 0
     start(cli, ws, "shift", "2026-10-16T18:00:00+01:00", "--date", "2026-10-17")
-    code, env = cli("collect", "--workspace", str(ws))
+    code, env = cli("do", "read-tickets", "--workspace", str(ws))
     assert env["data"]["result"]["sources"]["tickets"]["records"] == first  # re-read from the start
 
 
@@ -231,78 +249,46 @@ def test_sandbox_run_leaves_cursors_and_dispositions_untouched(persona, cli, pin
     assert res.failures == [] and res.final["kind"] == "done"
     assert db_rows(ws, "SELECT * FROM cursors ORDER BY source, unit") == cursors
     assert db_rows(ws, "SELECT * FROM dispositions ORDER BY topic_id") == disp
-    art = json.loads(next((run_dir(ws, run_id) / "artifacts" / "close").glob("*.json")).read_text())["data"]
+    art = json.loads(next((run_dir(ws, run_id) / "artifacts" / "seal").glob("*.json")).read_text())["data"]
     assert art["cursors_advanced"] == [] and "sandbox" in art["cursors_skipped"]
 
 
-# --- hooks --------------------------------------------------------------------------------
+# --- run nodes ----------------------------------------------------------------------------
 
 
-def test_hook_failure_under_warn_does_not_block_close_and_is_not_repeated(persona, cli, pinned_now, tmp_path,
-                                                                          monkeypatch):
-    ws = persona("support-lead")
-    count = tmp_path / "hook-count.txt"
-    append_yaml(ws, "hooks:\n" + hook_yaml("notify", "--count", str(count), "--label", "notify", "--exit", "3")
-                + hook_yaml("archive", "--count", str(count), "--label", "archive"))
-    run_id = start(cli, ws, "shift", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
-    from docket.engine.stages import STAGE_IMPLS
-    impl = STAGE_IMPLS["close"]
-    real = impl.finish
-    calls = {"n": 0}
-
-    def crash_once(*a, **kw):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise RuntimeError("injected crash after the close steps, before the artifact")
-        return real(*a, **kw)
-
-    monkeypatch.setattr(impl, "finish", crash_once)
-    argv = res.final["command"]["argv"][1:]
-    code, env = cli(*argv)
-    assert code == 70  # crashed after hooks ran
-    lines = count.read_text().splitlines()
-    assert sorted(ln.split()[0] for ln in lines) == ["archive", "notify"]
-    code, env = cli(*argv)  # resume
-    assert code == 0, env
-    assert len(count.read_text().splitlines()) == 2  # neither hook ran again
-    hooks = {h["id"]: h for h in env["data"]["result"]["hooks"]}
-    assert hooks["notify"]["outcome"] == "warned" and hooks["notify"]["exit"] == 3 and hooks["notify"]["repeated"]
-    assert hooks["archive"]["outcome"] == "ok"
-    assert env["data"]["step"]["kind"] == "done" and env["data"]["step"]["summary"]["status"] == "sealed"
-    log = run_dir(ws, run_id) / "logs" / "hooks" / "after_close-notify.log"
-    assert "stub hook notify ran" in log.read_text()
-    # state steps did not repeat either: one ledger row set, one journal receipt
-    steps = db_rows(ws, "SELECT step, outcome FROM step_receipts WHERE run_id=? ORDER BY step", run_id)
-    assert ("close:state", "ok") in steps and ("hook:after_close:notify", "warned") in steps
-
-
-def test_hook_failure_under_fail_stops_close_and_retries_only_that_hook(persona, cli, pinned_now, tmp_path):
+def test_a_failing_run_node_stops_there_and_repeating_it_runs_only_that_node(persona, cli, pinned_now, tmp_path):
     ws = persona("support-lead")
     count, flag = tmp_path / "count.txt", tmp_path / "ready.flag"
-    append_yaml(ws, "hooks:\n" + hook_yaml("commit", "--count", str(count), "--label", "commit",
-                                           "--fail-unless", str(flag), policy="fail")
-                + hook_yaml("index", "--count", str(count), "--label", "index", "--exit", "1"))
-    start(cli, ws, "shift", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    add_nodes(ws, run_node("commit", "--count", str(count), "--label", "commit", "--fail-unless", str(flag),
+                           after=["apply"])
+              + run_node("index", "--count", str(count), "--label", "index", after=["commit"]))
+    run_id = start(cli, ws, "shift", pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["node"] == "commit")
     argv = res.final["command"]["argv"][1:]
+    assert argv[:2] == ["do", "commit"]
     code, env = cli(*argv)
-    assert code == 5 and env["error"]["code"] == "hook.failed" and env["error"]["details"]["hook"] == "commit"
-    assert env["next"]["command"][1] == "close"
+    assert code == 5 and env["error"]["code"] == "node.command_failed" and env["error"]["details"]["node"] == "commit"
+    assert env["error"]["details"]["exit"] == 3 and env["next"]["command"][1:3] == ["do", "commit"]
     code, env = cli("next", "--workspace", str(ws))
-    assert env["data"]["step"]["kind"] == "run" and env["data"]["step"]["stage"] == "close"
+    assert [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "commit")]  # index waits on it
+    nodes = {n["node"]: n for n in env["data"]["nodes"]}
+    assert nodes["index"]["state"] == "blocked" and nodes["seal"]["state"] == "blocked"
     flag.write_text("ok")
     code, env = cli(*argv)
     assert code == 0, env
+    done = run_agent(ws)
+    assert done.failures == [] and done.final["kind"] == "done"
     labels = [ln.split()[0] for ln in count.read_text().splitlines()]
-    assert labels == ["commit", "commit", "index"]  # commit retried; index ran once, after commit
+    assert labels == ["commit", "commit", "index"]  # commit repeated; index ran once, after commit
+    log = run_dir(ws, run_id) / "logs" / "run" / "commit.log"
+    assert "stub command commit ran" in log.read_text()
 
 
-def test_hook_environment_is_scrubbed_and_stdin_closed(persona, cli, pinned_now, tmp_path):
+def test_run_node_environment_is_scrubbed_and_stdin_closed(persona, cli, pinned_now, tmp_path):
     ws = persona("support-lead")
     count, envout = tmp_path / "count.txt", tmp_path / "env.txt"
-    append_yaml(ws, "hooks:\n" + hook_yaml("reindex", "--count", str(count), "--env-out", str(envout),
-                                           "--run", "{run.id}", env=["DOCKET_TEST_INDEX_DIR"]))
+    add_nodes(ws, run_node("reindex", "--count", str(count), "--env-out", str(envout), "--run", "{run.id}",
+                           env=["DOCKET_TEST_INDEX_DIR"], after=["apply"]))
     run_id = start(cli, ws, "shift", pinned_now)
     extra = {"DOCKET_TEST_INDEX_DIR": "/tmp/invented-index", "VAULT_API_TOKEN": "invented-not-a-secret",
              "UNDECLARED_PLAIN": "x"}
@@ -312,66 +298,66 @@ def test_hook_environment_is_scrubbed_and_stdin_closed(persona, cli, pinned_now,
     assert seen["DOCKET_TEST_INDEX_DIR"] == "/tmp/invented-index"
     assert "VAULT_API_TOKEN" not in seen and "UNDECLARED_PLAIN" not in seen
     assert seen["DOCKET_NONINTERACTIVE"] == "1" and seen["DOCKET_RUN_ID"] == run_id
+    assert seen["DOCKET_NODE"] == "reindex"
     assert "invented-not-a-secret" not in envout.read_text()
     assert "#stdin_tty=False stdin_bytes=0" in envout.read_text() and "#controlling_tty=False" in envout.read_text()
-    assert count.read_text().split() == ["hook", "--run", run_id]  # argv templates over run facts
+    assert count.read_text().split() == ["command", "--run", run_id]  # argv templates over run facts
 
 
-def test_a_hook_that_hangs_times_out_and_reports_the_command(persona, cli, pinned_now, tmp_path):
+def test_a_run_node_that_hangs_times_out_and_reports_the_command(persona, cli, pinned_now, tmp_path):
     ws = persona("support-lead")
     count = tmp_path / "count.txt"
-    (ws / "scripts").mkdir()
-    append_yaml(ws, "hooks:\n" + hook_yaml("slow", "--count", str(count), "--sleep", "20")
-                + "    timeout_s: 0.5\n    cwd: scripts\n")
+    add_nodes(ws, run_node("slow", "--count", str(count), "--sleep", "20", after=["apply"], timeout_s=0.5))
     start(cli, ws, "shift", pinned_now)
-    res = run_agent(ws)
-    assert res.failures == [] and res.final["kind"] == "done"
-    [row] = db_rows(ws, "SELECT outcome, json FROM step_receipts WHERE step='hook:after_close:slow'")
-    body = json.loads(row[1])
-    assert row[0] == "warned" and body["exit"] is None and "timed out after" in body["message"]
-    assert str(STUB) in body["message"] and body["elapsed_s"] < 10
+    res = run_agent(ws, stop_at=lambda s: s["node"] == "slow")
+    t0 = time.monotonic()
+    code, env = cli(*res.final["command"]["argv"][1:])
+    assert time.monotonic() - t0 < 10
+    err = env["error"]
+    assert code == 5 and err["code"] == "node.command_failed" and err["retryable"] is True
+    assert err["details"]["exit"] is None and "timed out after 0.5s" in err["message"]
+    assert str(STUB) in err["details"]["argv"] and Path(err["details"]["log"]).is_file()
+    code, env = cli("next", "--workspace", str(ws))
+    assert [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "slow")]  # the seal waits on it
 
 
-def test_hooks_run_once_per_event_even_when_commands_repeat(persona, cli, pinned_now, tmp_path):
+def test_run_nodes_run_once_even_when_commands_repeat(persona, cli, pinned_now, tmp_path):
     ws = persona("support-lead")
     count = tmp_path / "count.txt"
-    append_yaml(ws, "hooks:\n" + hook_yaml("collected", "--count", str(count), "--label", "collected",
-                                           events=("after_collect",))
-                + hook_yaml("applied", "--count", str(count), "--label", "applied", events=("after_apply",))
-                + hook_yaml("closed", "--count", str(count), "--label", "closed", events=("after_close",)))
+    add_nodes(ws, run_node("after-read", "--count", str(count), "--label", "read", after=["read-tickets"])
+              + run_node("after-apply", "--count", str(count), "--label", "applied", after=["apply"]))
     start(cli, ws, "shift", pinned_now)
     res = run_agent(ws, repeat_commands=True)
     assert res.failures == [] and res.final["kind"] == "done"
-    assert [ln.split()[0] for ln in count.read_text().splitlines()] == ["collected", "applied", "closed"]
+    assert [ln.split()[0] for ln in count.read_text().splitlines()] == ["read", "applied"]
 
 
-def test_close_dry_run_runs_only_declared_dry_run_forms(persona, cli, pinned_now, tmp_path):
+def test_seal_dry_run_previews_and_writes_nothing(persona, cli, pinned_now):
     ws = persona("support-lead")
-    count = tmp_path / "count.txt"
-    append_yaml(ws, "hooks:\n" + hook_yaml("commit", "--count", str(count), "--label", "commit",
-                                           dry_run=["--count", str(count), "--label", "commit-dry"])
-                + hook_yaml("reindex", "--count", str(count), "--label", "reindex"))
     run_id = start(cli, ws, "shift", pinned_now)
-    run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
-    code, env = cli("close", "--dry-run", "--workspace", str(ws))
+    res = run_agent(ws, stop_at=lambda s: s["node"] == "seal")
+    assert res.failures == []
+    before = sorted(p.relative_to(run_dir(ws, run_id)).as_posix() for p in run_dir(ws, run_id).rglob("*"))
+    code, env = cli("seal", "--dry-run", "--workspace", str(ws))
     assert code == 0 and env["data"]["dry_run"] is True
-    hooks = {h["id"]: h for h in env["data"]["preview"]["hooks"]}
-    assert hooks["commit"]["outcome"] == "ok" and hooks["commit"]["dry_run"] is True
-    assert hooks["reindex"]["outcome"] == "skipped"
-    assert [ln.split()[0] for ln in count.read_text().splitlines()] == ["commit-dry"]
-    assert db_rows(ws, "SELECT COUNT(*) FROM step_receipts WHERE run_id=?", run_id)[0][0] == 0
+    preview = env["data"]["preview"]
+    assert preview["steps_done"] == {"seal:state": False, "seal:journal": False} and preview["cursor_proposals"] > 0
+    assert db_rows(ws, "SELECT COUNT(*) FROM step_receipts WHERE run_id=? AND step LIKE 'seal:%'", run_id)[0][0] == 0
     assert db_rows(ws, "SELECT COUNT(*) FROM cursors")[0][0] == 0
+    assert sorted(p.relative_to(run_dir(ws, run_id)).as_posix() for p in run_dir(ws, run_id).rglob("*")) == before
+    code, env = cli("next", "--workspace", str(ws))
+    assert [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "seal")]
 
 
-# --- close resumes without repeating a step ------------------------------------------------
+# --- a seal repeated after a crash repeats no step ------------------------------------------
 
 
-def test_close_resumes_after_a_crash_between_steps_without_repeating(persona, cli, pinned_now, monkeypatch):
+def test_a_seal_repeated_after_a_crash_repeats_no_step(persona, cli, pinned_now, monkeypatch):
     ws = persona("reference-like")
     run_id = start(cli, ws, "triage", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
-    from docket.close import run as close_run
-    real = close_run.journal_step
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
+    from docket.seal import run as seal_run
+    real = seal_run.journal_step
     state = {"n": 0}
 
     def crash_once(rc, st):
@@ -380,7 +366,7 @@ def test_close_resumes_after_a_crash_between_steps_without_repeating(persona, cl
             raise RuntimeError("injected crash after the state step")
         return real(rc, st)
 
-    monkeypatch.setattr(close_run, "journal_step", crash_once)
+    monkeypatch.setattr(seal_run, "journal_step", crash_once)
     argv = res.final["command"]["argv"][1:]
     assert cli(*argv)[0] == 70
     ledger_rows = db_rows(ws, "SELECT COUNT(*) FROM ledgers WHERE run_id=? AND ledger='surfaced'", run_id)[0][0]
@@ -388,7 +374,7 @@ def test_close_resumes_after_a_crash_between_steps_without_repeating(persona, cl
     code, env = cli(*argv)
     assert code == 0, env
     assert db_rows(ws, "SELECT COUNT(*) FROM ledgers WHERE run_id=? AND ledger='surfaced'", run_id)[0][0] == 8
-    assert cli(*argv)[0] == 0  # close again: current, no-op
+    assert cli(*argv)[0] == 0  # seal again: current, no-op
     journal = (ws / "Daylog.md").read_text()
     assert journal.count(f"## 2026-10-15 {run_id}") == 1
 
@@ -454,7 +440,7 @@ def test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id(persona, c
                                  "requester": {"email": "pat@customer-one.example"},
                                  "queue": "tier1", "priority": "P2", "created": "2026-10-16T09:00:00Z"}) + "\n")
     start(cli, ws, "shift", "2026-10-16T18:00:00+01:00", "--date", "2026-10-17")
-    res = run_agent(ws, stop_at=lambda s: s["kind"] in ("ask", "done", "wait"))
+    res = run_agent(ws, stop_at=lambda s: s["kind"] in ("ask", "wait"))
     code, env = cli("item", "list", "--workspace", str(ws))
     new = [it for it in env["data"]["items"] if it["topic"] == topic]
     assert len(new) == 1 and new[0]["id"] != item_id
@@ -470,7 +456,7 @@ def test_message_drafts_flow_through_apply_and_there_is_no_send(persona, cli, pi
     from docket.destinations.mcp import MemoryDrafts, MessageMcp
     ws = persona("support-lead")
     start(cli, ws, "shift", pinned_now)
-    run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "apply")
+    run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "apply")
     from tests.scenario.test_apply_destinations import run_context
     rc = run_context(ws)
     cfg = DestConfig.model_validate({"adapter": "message_mcp", "tools": {"list": "l", "draft": "d"},
@@ -493,8 +479,8 @@ def test_message_drafts_flow_through_apply_and_there_is_no_send(persona, cli, pi
     assert rows[0]["outcome"] == "refused" and rows[0]["error"]["code"] == "dest.unsupported"
 
 
-def test_closing_a_run_writes_the_item_ledger_and_a_sandbox_run_does_not(persona, cli, pinned_now):
-    """After a run closes, every item it put forward is in the ledger with its key, its
+def test_sealing_a_run_writes_the_item_ledger_and_a_sandbox_run_does_not(persona, cli, pinned_now):
+    """After a run is sealed, every item it put forward is in the ledger with its key, its
     state and where it landed; a sandbox run leaves the ledger as it was."""
     import json as _json
     ws = persona("reference-like")

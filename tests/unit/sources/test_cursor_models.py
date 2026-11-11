@@ -218,18 +218,18 @@ def test_positions_compare_by_number_then_instant_else_incomparable():
     assert compare("tokA", "tokB") is None
 
 
-def test_proposals_move_forward_and_close_applies_forward_only(tmp_path):
+def test_proposals_move_forward_and_the_seal_applies_forward_only(tmp_path):
     db = open_db(tmp_path / "d.db")
     db.row_factory = sqlite3.Row
     with db:
         db.execute("INSERT INTO cursors (source, unit, position, coverage_end, updated_run) VALUES "
                    "('feed','a','2026-10-15T05:00:00+00:00',NULL,'old'), ('feed','gap','7',NULL,'old')")
-        assert write_proposal(db, "r1", "feed", "a", "2026-10-15T09:00:00+00:00", INSTANT, generation=0,
+        assert write_proposal(db, "r1", "feed", "a", "2026-10-15T09:00:00+00:00", INSTANT,
                               model="units", complete=True)
-        assert not write_proposal(db, "r1", "feed", "a", "2026-10-15T08:00:00+00:00", INSTANT, generation=1,
-                                  model="units", complete=True)  # a later generation never moves it back
-        write_proposal(db, "r1", "feed", "b", "4", None, generation=0, model="units", complete=False)
-        write_proposal(db, "r1", "feed", "gap", "3", None, generation=0, model="units", complete=False)
+        assert not write_proposal(db, "r1", "feed", "a", "2026-10-15T08:00:00+00:00", INSTANT,
+                                  model="units", complete=True)  # a later proposal never moves it back
+        write_proposal(db, "r1", "feed", "b", "4", None, model="units", complete=False)
+        write_proposal(db, "r1", "feed", "gap", "3", None, model="units", complete=False)
         moved = apply_proposals(db, "r1")
     rows = {r["unit"]: r["position"] for r in db.execute("SELECT unit, position FROM cursors")}
     assert rows == {"a": "2026-10-15T09:00:00+00:00", "b": "4", "gap": "7"}
@@ -286,17 +286,17 @@ def test_a_unit_read_and_found_empty_keeps_its_proven_coverage(tmp_path):
     with db:
         db.execute("INSERT INTO cursors (source, unit, position, coverage_end, updated_run) VALUES "
                    "('feed','held','2026-10-15T05:00:00+00:00','2026-10-15T06:00:00+00:00','old')")
-        assert write_proposal(db, "r1", "feed", "empty", None, INSTANT, generation=0, model="units", complete=True)
-        assert not write_proposal(db, "r1", "feed", "partial", None, INSTANT, generation=0, model="units",
+        assert write_proposal(db, "r1", "feed", "empty", None, INSTANT, model="units", complete=True)
+        assert not write_proposal(db, "r1", "feed", "partial", None, INSTANT, model="units",
                                   complete=False)                       # coverage not proven: nothing to keep
-        assert not write_proposal(db, "r1", "feed", "nothing", None, None, generation=0, model="units", complete=True)
-        assert write_proposal(db, "r1", "feed", "empty", None, later, generation=1, model="units", complete=True)
-        assert not write_proposal(db, "r1", "feed", "empty", None, INSTANT, generation=2, model="units",
+        assert not write_proposal(db, "r1", "feed", "nothing", None, None, model="units", complete=True)
+        assert write_proposal(db, "r1", "feed", "empty", None, later, model="units", complete=True)
+        assert not write_proposal(db, "r1", "feed", "empty", None, INSTANT, model="units",
                                   complete=True)                        # coverage only moves forward
-        assert write_proposal(db, "r1", "feed", "empty2", None, INSTANT, generation=0, model="units", complete=True)
-        assert write_proposal(db, "r1", "feed", "empty2", "2026-10-16T09:00:00+00:00", later, generation=1,
+        assert write_proposal(db, "r1", "feed", "empty2", None, INSTANT, model="units", complete=True)
+        assert write_proposal(db, "r1", "feed", "empty2", "2026-10-16T09:00:00+00:00", later,
                               model="units", complete=True)             # a record arrived: a position replaces none
-        assert write_proposal(db, "r1", "feed", "held", None, later, generation=0, model="units", complete=True)
+        assert write_proposal(db, "r1", "feed", "held", None, later, model="units", complete=True)
         apply_proposals(db, "r1")
     rows = {r["unit"]: (r["position"], r["coverage_end"]) for r in db.execute("SELECT * FROM cursors")}
     assert rows == {"empty": (None, later), "empty2": ("2026-10-16T09:00:00+00:00", later),
@@ -304,28 +304,30 @@ def test_a_unit_read_and_found_empty_keeps_its_proven_coverage(tmp_path):
     db.close()
 
 
-def test_a_workflow_reads_some_sources_every_run_and_others_on_a_schedule():
-    """A workflow says how often it reads each of its sources. One with no schedule is read
-    every run; one on a schedule is skipped on other days, and a skipped day is never a gap."""
-    from docket.config.models import Workflow
+def test_a_graph_reads_some_sources_every_run_and_others_on_a_schedule():
+    """Each read node says how often it reads its source. One with no schedule reads every
+    run; one on a schedule is skipped on other days, and a skipped day is never a gap."""
+    from docket.config.models import Node
     from docket.sources.cursors import schedule_skip
-    wf = Workflow.model_validate({"stages": ["collect", "close"], "sources": ["chat", "health", "audit"],
-                                  "schedule": {"health": {"weekdays": ["mon", "thu"]}, "audit": {"every_days": 7}}})
+    g = {name: Node.model_validate(node) for name, node in {
+        "read-chat": {"read": "chat"},
+        "read-health": {"read": "health", "schedule": {"weekdays": ["mon", "thu"]}},
+        "read-audit": {"read": "audit", "schedule": {"every_days": 7}}}.items()}
     thu, fri = date(2026, 10, 15), date(2026, 10, 16)
-    assert schedule_skip(wf.schedule.get("chat"), thu, None) is None
-    assert schedule_skip(wf.schedule.get("health"), thu, None) is None
-    assert schedule_skip(wf.schedule.get("health"), fri, None) == "schedule: reads on mon, thu"
-    assert schedule_skip(wf.schedule.get("audit"), fri, None) is None                      # never read: read it
-    assert schedule_skip(wf.schedule.get("audit"), fri, "2026-10-12T08:00:00+00:00") == \
+    assert schedule_skip(g["read-chat"].schedule, thu, None) is None
+    assert schedule_skip(g["read-health"].schedule, thu, None) is None
+    assert schedule_skip(g["read-health"].schedule, fri, None) == "schedule: reads on mon, thu"
+    assert schedule_skip(g["read-audit"].schedule, fri, None) is None                      # never read: read it
+    assert schedule_skip(g["read-audit"].schedule, fri, "2026-10-12T08:00:00+00:00") == \
         "schedule: every 7 day(s); last read 2026-10-12"
-    assert schedule_skip(wf.schedule.get("audit"), date(2026, 10, 19), "2026-10-12T08:00:00+00:00") is None
+    assert schedule_skip(g["read-audit"].schedule, date(2026, 10, 19), "2026-10-12T08:00:00+00:00") is None
 
 
-def test_a_schedule_must_name_one_of_the_workflows_sources_and_say_when():
+def test_a_schedule_belongs_on_a_read_node_and_says_when():
     import pytest as _pytest
     from pydantic import ValidationError
-    from docket.config.models import Workflow
+    from docket.config.models import Node
     with _pytest.raises(ValidationError):
-        Workflow.model_validate({"stages": ["collect", "close"], "sources": ["chat"], "schedule": {"mail": {"every_days": 7}}})
+        Node.model_validate({"run": ["true"], "schedule": {"every_days": 7}})
     with _pytest.raises(ValidationError):
-        Workflow.model_validate({"stages": ["collect", "close"], "sources": ["chat"], "schedule": {"chat": {}}})
+        Node.model_validate({"read": "chat", "schedule": {}})

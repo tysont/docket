@@ -1,4 +1,4 @@
-"""Decisions (IP M5, TD §10): questions, options, answers with every override, merges, undo, refresh,
+"""Decisions (IP M5, TD §10): questions, options, answers with every override, merges, undo,
 reconcile, verification and day load, driven through the CLI with invented persona data."""
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from tests.agent_loop import run_agent
 REF_NOW = "2026-10-15T18:00:00-05:00"   # a Thursday in Chicago
 
 
-def start(cli, ws, workflow="week-plan", now=REF_NOW):
-    code, env = cli("run", "start", workflow, "--now", now, "--workspace", str(ws))
+def start(cli, ws, graph="week-plan", now=REF_NOW):
+    code, env = cli("run", "start", graph, "--now", now, "--workspace", str(ws))
     assert code == 0, env
     return env["data"]["run"]
 
@@ -74,7 +74,7 @@ def test_structured_answers_that_forced_hand_edits_are_one_command_each(persona,
     assert prev["schedule"] == {"title": "Draft the offsite memo", "est": 90, "when": "event:Flight"}
     assert prev["day_load"][0]["date"] == "2026-10-21" and prev["day_load"][0]["committed_minutes"] == 180
 
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == [], res.failures
     code, env = cli("plan", "diff", "--workspace", str(ws))
     plan = plan_json(ws, run_id, env["data"]["plan_digest"])
@@ -153,7 +153,7 @@ def test_custom_option_set_with_guards_for_the_support_lead(persona, cli, pinned
     assert env["data"]["preview"]["line"].endswith("| due=2026-10-20")
     code, env = answer(cli, ws, t["id"], "close", "--note", "duplicate of an older ticket")
     assert code == 0 and env["data"]["action_preview"]["outcome"]["decision"] == "dismiss"
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
     assert res.failures == []
     plan = plan_json(ws, run_id, res.final["questions"][0]["details"]["digest"])
     assert {"question": t["id"], "item": t["details"]["item_id"], "topic": plan["outcomes"][0]["topic"],
@@ -218,11 +218,12 @@ def test_undo_and_merge_with(persona, cli):
     qa, qb, qc = [q["id"] for q in ask(ws)["questions"]]
     assert answer(cli, ws, qa, "task", "--merge-with", qb)[0] == 0
     code, env = answer(cli, ws, qc, "dismiss")
-    assert code == 0 and env["data"]["step"]["kind"] == "run"       # all three answered: plan is next
+    assert code == 0 and [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "plan")]  # all answered
     code, env = cli("ask", "undo", qa, "--workspace", str(ws))
     assert code == 0 and env["data"]["removed"] == [qa, qb]
-    step = env["data"]["step"]
-    assert step["kind"] == "ask" and sorted(step["question_ids"]) == sorted([qa, qb])  # a brief, not the burst
+    (step,) = env["data"]["steps"]
+    assert (step["kind"], step["node"]) == ("ask", "decide")
+    assert sorted(step["question_ids"]) == sorted([qa, qb])  # a brief, not the burst
     assert answer(cli, ws, qa, "task", "--merge-with", qb)[0] == 0
     code, env = cli("ask", "undo", qb, "--workspace", str(ws))
     assert code == 0 and env["data"]["removed"] == [qb]
@@ -252,45 +253,7 @@ def test_batch_answers_from_a_file_are_all_or_nothing(persona, cli, tmp_path):
     rows = env["data"]["answers"]
     assert [r["question_id"] for r in rows] == [qa, qc]
     assert rows[1]["action_preview"]["outcome"]["decision"] == "watch"
-    assert env["data"]["step"]["kind"] == "run"
-
-
-def test_refresh_keeps_unchanged_answers_and_reasks_changed_items_with_previous(persona, cli, pinned_now):
-    ws = persona("support-lead")
-    cfg = ws / "docket.yaml"
-    cfg.write_text(cfg.read_text().replace("workflows:\n", "workflows:\n" + """\
-  reviewed:
-    stages: [collect, assess, merge, review, decide, plan, approve, apply, close]
-    sources: [tickets]
-    questions: { kinds: [finding], budget: 40 }
-    options: queue
-""", 1))
-    start(cli, ws, "reviewed", pinned_now)
-    step = ask(ws)
-    for q in step["questions"]:
-        assert answer(cli, ws, q["id"], "take")[0] == 0
-    asked = {q["id"] for q in step["questions"]}
-
-    feed = ws / "data" / "tickets.jsonl"
-    rows = [json.loads(x) for x in feed.read_text().splitlines()]
-    changed = rows[0]
-    with feed.open("a") as fh:
-        fh.write(json.dumps({**changed, "description": "Customer report 0: the customer replied with a new date."})
-                 + "\n")
-    code, env = cli("collect", "--refresh", "--sources", "tickets", "--workspace", str(ws))
-    assert code == 0, env
-    step = ask(ws)
-    reasked = {q["id"]: q for q in step["questions"]}
-    assert len(reasked) == 1, list(reasked)
-    (qid, q), = reasked.items()
-    assert qid in asked and q["details"]["previous"]["option"] == "take"
-    assert "re-asked" in step["why"]
-    code, env = answer(cli, ws, qid, "close")
-    assert code == 0 and env["data"]["step"]["kind"] == "run"
-    stored = json.loads((state_root(ws, os.environ) / "runs" / env["data"]["step"]["command"]["argv"][
-        env["data"]["step"]["command"]["argv"].index("--run") + 1] / "answers.json").read_text())
-    assert stored[qid]["previous"]["option"] == "take"
-    assert sum(1 for k, v in stored.items() if k in asked and v["option"] == "take") == len(asked) - 1
+    assert [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("run", "plan")]
 
 
 # --- reconcile -------------------------------------------------------------------------------------
@@ -344,7 +307,7 @@ def test_reconcile_options_map_to_task_store_operations(persona, cli):
     assert moved[0]["line"] == "- Review the ingest service runbook"
 
     ops("done")
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == [], res.failures
     code, env = cli("plan", "diff", "--workspace", str(ws))
     plan = plan_json(ws, run_id, env["data"]["plan_digest"])
@@ -458,7 +421,7 @@ def test_verify_questions_come_from_resolve(persona, cli):
     assert code == 0 and env["data"]["action_preview"]["operations"] == []
     cache = json.loads((state_root(ws, os.environ) / "runs" / run_id / "decide" / "resolutions.json").read_text())
     assert sorted(cache) == ["TRK-42", "TRK-43", "TRK-44"] and cache["TRK-42"]["state"] == "closed"
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == [], res.failures
     code, env = cli("plan", "diff", "--workspace", str(ws))
     plan = plan_json(ws, run_id, env["data"]["plan_digest"])
@@ -504,7 +467,7 @@ def test_a_draft_answer_previews_and_plans_a_message_draft(persona, cli, monkeyp
     op = env["data"]["action_preview"]["operations"][0]
     assert (op["destination"], op["verb"], op["to"]) == ("replies", "draft", ["users/3003"])
     assert op["subject"].startswith("Re: Please approve the headcount") and op["body"].startswith("Approved;")
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "seal")
     assert res.failures == [], res.failures
     code, env = cli("plan", "diff", "--workspace", str(ws))
     plan = plan_json(ws, run_id, env["data"]["plan_digest"])
@@ -529,8 +492,8 @@ def test_an_option_can_fix_fields_of_its_action_and_the_line_uses_the_ask(person
     ws = persona("reference-like")
     cfg = ws / "docket.yaml"
     text = cfg.read_text()
-    assert "    options: standard" in text
-    cfg.write_text(text.replace("    options: standard", "    options: filing").replace("decisions:\n", """decisions:
+    assert "decide: { ask: standard," in text
+    cfg.write_text(text.replace("decide: { ask: standard,", "decide: { ask: filing,").replace("decisions:\n", """decisions:
   option_sets:
     filing:
       finding:

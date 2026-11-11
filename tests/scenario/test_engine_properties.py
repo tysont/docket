@@ -19,10 +19,10 @@ def tree(root: Path, *, skip: tuple[str, ...] = ("session",)) -> dict[str, bytes
             if p.is_file() and p.name not in skip and ".tmp" not in p.name}
 
 
-def full_run(persona, cli, pinned_now, name, workflow, under, state, **kw):
+def full_run(persona, cli, pinned_now, name, graph, under, state, **kw):
     ws = persona(name, under=under)
     env = {"DOCKET_STATE_ROOT": str(state)}
-    code, out = cli("run", "start", workflow, "--now", pinned_now, "--workspace", str(ws), env=env)
+    code, out = cli("run", "start", graph, "--now", pinned_now, "--workspace", str(ws), env=env)
     assert code == 0, out
     res = run_agent(ws, env={**os.environ, **env}, **kw)
     assert res.failures == [] and res.final["kind"] == "done", res.final
@@ -41,10 +41,10 @@ def located(files: dict[str, bytes], *roots: Path) -> dict[str, bytes]:
     return out
 
 
-@pytest.mark.parametrize("name,workflow", CASES)
-def test_two_runs_in_separate_state_roots_are_byte_identical(persona, cli, pinned_now, tmp_path, name, workflow):
-    ws_a, run_a = full_run(persona, cli, pinned_now, name, workflow, "a", tmp_path / "state-a")
-    ws_b, run_b = full_run(persona, cli, pinned_now, name, workflow, "b", tmp_path / "state-b")
+@pytest.mark.parametrize("name,graph", CASES)
+def test_two_runs_in_separate_state_roots_are_byte_identical(persona, cli, pinned_now, tmp_path, name, graph):
+    ws_a, run_a = full_run(persona, cli, pinned_now, name, graph, "a", tmp_path / "state-a")
+    ws_b, run_b = full_run(persona, cli, pinned_now, name, graph, "b", tmp_path / "state-b")
     ta = located(tree(run_a), run_a.parent.parent, ws_a)
     tb = located(tree(run_b), run_b.parent.parent, ws_b)
     assert ta.keys() == tb.keys()
@@ -70,16 +70,19 @@ def test_reordered_records_give_the_same_artifacts(persona, cli, pinned_now, tmp
 def _status(cli, ws):
     code, env = cli("run", "status", "--workspace", str(ws))
     assert code == 0
-    return {s["stage"]: s for s in env["data"]["stages"]}
+    return {n["node"]: n for n in env["data"]["nodes"]}
 
 
-def test_config_edit_mid_run_stales_exactly_the_declared_stages(persona, cli, pinned_now):
+UPSTREAM = ("read-tickets", "read-pager", "assess", "sla-check", "merge", "decide")
+
+
+def test_config_edit_mid_run_stales_exactly_the_nodes_that_read_it(persona, cli, pinned_now):
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
     assert res.failures == []
     st = _status(cli, ws)
-    assert [st[s]["state"] for s in ("collect", "assess", "merge", "decide", "plan")] == ["current"] * 5
+    assert [st[s]["state"] for s in (*UPSTREAM, "plan")] == ["current"] * 7
     assert st["approve"]["state"] == "waiting"
     assert not any(s["config_changed"] for s in st.values())
 
@@ -87,37 +90,38 @@ def test_config_edit_mid_run_stales_exactly_the_declared_stages(persona, cli, pi
     cfg.write_text(cfg.read_text() + "\nplanning:\n  policy: { granularity: 30m }\n")
     st = _status(cli, ws)
     assert {k for k, s in st.items() if s["config_changed"]} == {"plan"}
-    assert [st[s]["state"] for s in ("collect", "assess", "merge", "decide")] == ["current"] * 4
+    assert [st[s]["state"] for s in UPSTREAM] == ["current"] * 6
     assert st["plan"]["state"] == "stale"
     assert st["approve"]["state"] == "blocked"
 
     cfg.write_text(cfg.read_text().replace("scoring: { floor: 40 }", "scoring: { floor: 40 }\n  budgets: { daily: 3 }"))
     st = _status(cli, ws)
-    assert {k for k, s in st.items() if s["config_changed"]} == {"assess", "merge", "decide", "plan"}
-    assert st["collect"]["state"] == "current"
+    assert {k for k, s in st.items() if s["config_changed"]} == {"assess", "sla-check", "merge", "decide", "plan"}
+    assert st["read-tickets"]["state"] == st["read-pager"]["state"] == "current"
     assert st["assess"]["state"] == "current"  # unchanged packs: accepted results carry forward
     assert st["merge"]["state"] == "stale"
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done"
     kinds = [s["kind"] for s in res.steps]
     assert "dispatch" not in kinds  # no task was re-issued
-    assert sum(1 for s in res.steps if s["kind"] == "ask" and s["stage"] == "decide") == 0  # answers kept
+    assert sum(1 for s in res.steps if s["kind"] == "ask" and s["node"] == "decide") == 0  # answers kept
 
 
-def test_stage_schema_bump_recomputes_exactly_that_stage(persona, cli, pinned_now, monkeypatch):
-    from docket.engine.stages import STAGE_IMPLS
+def test_a_verb_schema_bump_recomputes_exactly_that_node(persona, cli, pinned_now, monkeypatch):
+    from docket.engine.nodes import KINDS
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["stage"] == "approve")
-    monkeypatch.setattr(STAGE_IMPLS["merge"], "schema_version", STAGE_IMPLS["merge"].schema_version + 1)
+    run_agent(ws, stop_at=lambda s: s["kind"] == "ask" and s["node"] == "approve")
+    monkeypatch.setattr(KINDS["merge"], "schema_version", KINDS["merge"].schema_version + 1)
     st = _status(cli, ws)
-    assert st["assess"]["state"] == "current" and st["merge"]["state"] == "stale"
+    assert st["assess"]["state"] == st["sla-check"]["state"] == "current" and st["merge"]["state"] == "stale"
+    assert st["decide"]["state"] == "blocked"
 
 
-@pytest.mark.parametrize("name,workflow", CASES)
-def test_repeating_every_command_is_safe(persona, cli, pinned_now, tmp_path, name, workflow):
-    ws_once, run_once = full_run(persona, cli, pinned_now, name, workflow, "once", tmp_path / "s1")
-    ws_twice, run_twice = full_run(persona, cli, pinned_now, name, workflow, "twice", tmp_path / "s2",
+@pytest.mark.parametrize("name,graph", CASES)
+def test_repeating_every_command_is_safe(persona, cli, pinned_now, tmp_path, name, graph):
+    ws_once, run_once = full_run(persona, cli, pinned_now, name, graph, "once", tmp_path / "s1")
+    ws_twice, run_twice = full_run(persona, cli, pinned_now, name, graph, "twice", tmp_path / "s2",
                                    repeat_commands=True)
     assert tree(ws_once) == tree(ws_twice)
     a, b = tree(run_once), tree(run_twice)
@@ -136,8 +140,9 @@ def test_commands_after_completion_are_no_ops(persona, cli, pinned_now):
     w = ["--workspace", str(ws), "--run", run_id]
     task_calls = [c for c in res.calls if c[:2] == ["task", "submit"]]
     answer_calls = [c for c in res.calls if c[:2] == ["ask", "answer"]]
-    for argv in (["collect", *w], ["merge", *w], ["plan", "build", *w], ["apply", *w], ["close", *w],
-                 ["task", "issue", *w], ["run", "resume", *w], task_calls[-1], answer_calls[0], answer_calls[-1],
+    nodes = ("read-tickets", "read-pager", "merge", "plan", "apply")
+    for argv in (*(["do", n, *w] for n in nodes), ["seal", *w],
+                 ["task", "issue", *w], task_calls[-1], answer_calls[0], answer_calls[-1],
                  ["run", "start", "shift", "--now", pinned_now, "--workspace", str(ws)]):
         code, env = cli(*argv)
         assert code == 0, (argv, env)
@@ -152,30 +157,33 @@ def test_lease_held_adopted_and_stolen(persona, cli, pinned_now):
     code, env = cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
     run_id = env["data"]["run"]
     other = {"DOCKET_SESSION": "agent-b"}
-    code, env = cli("collect", "--workspace", str(ws), env=other)
+    code, env = cli("do", "read-tickets", "--workspace", str(ws), env=other)
     assert code == 6 and env["error"]["code"] == "lease.held"
     assert env["error"]["details"]["steal"][1:4] == ["run", "steal", run_id]
     code, env = cli("next", "--workspace", str(ws), env=other)
-    assert env["data"]["step"]["kind"] == "wait" and env["data"]["step"]["reason"] == "lease_held"
-    code, env = cli("collect", "--dry-run", "--workspace", str(ws), env=other)
+    assert [(s["kind"], s["reason"]) for s in env["data"]["steps"]] == [("wait", "lease_held")]
+    code, env = cli("do", "read-tickets", "--dry-run", "--workspace", str(ws), env=other)
     assert code == 0  # a dry run takes no lease
     code, env = cli("run", "steal", run_id, "--workspace", str(ws), env=other)
     assert code == 0 and env["data"]["owner"] == "agent-b"
     assert [w["code"] for w in env["warnings"]] == ["lease.stolen"]
-    code, env = cli("collect", "--workspace", str(ws))  # the first session (token file) is now foreign
+    code, env = cli("do", "read-tickets", "--workspace", str(ws))  # the first session (token file) is now foreign
     assert code == 6
     db = sqlite3.connect(state_root(ws, os.environ) / "docket.db")
     with db:
         db.execute("UPDATE leases SET heartbeat_at='2000-01-01T00:00:00+00:00' WHERE run_id=?", (run_id,))
     db.close()
-    code, env = cli("collect", "--workspace", str(ws))
+    code, env = cli("do", "read-tickets", "--workspace", str(ws))
     assert code == 0 and [w["code"] for w in env["warnings"]] == ["lease.adopted"]
+    code, env = cli("do", "read-pager", "--workspace", str(ws))
+    assert code == 0
     db = sqlite3.connect(state_root(ws, os.environ) / "docket.db")
     with db:
         db.execute("UPDATE leases SET owner='agent-c', pid=999999 WHERE run_id=?", (run_id,))
     db.close()
     code, env = cli("next", "--workspace", str(ws))
-    task = env["data"]["step"]["tasks"][0]  # dead owners do not block next either
+    (step,) = [s for s in env["data"]["steps"] if s["node"] == "assess"]  # dead owners do not block next either
+    task = step["tasks"][0]
     import json
     pack = json.loads(Path(task["pack_path"]).read_text())
     result = {"items": [{"id": it["id"], "source": it["source"], "keep": False, "score": 60}
@@ -198,8 +206,8 @@ def test_next_is_read_only_except_heartbeat(persona, cli, pinned_now):
     code, env = cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
     run_id = env["data"]["run"]
     root = state_root(ws, os.environ)
-    for stop in ("dispatch", "wait"):
-        run_agent(ws, resume_paused=False, stop_at=lambda s, k=stop: s["kind"] == k)
+    for stop in ("dispatch", "ask"):
+        run_agent(ws, stop_at=lambda s, k=stop: s["kind"] == k)
         rows_before = _db_rows(root / "docket.db")
         files_before = tree(root, skip=("docket.db", "docket.db-wal", "docket.db-shm"))
         ws_before = tree(ws)

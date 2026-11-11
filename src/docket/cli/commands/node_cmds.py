@@ -254,10 +254,13 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
     from docket.tasks.runner import submit_argv, validate_submission
     rc = ctx.run_context()
     found = None
-    for ev in _judged(rc):
+    # A judge pinned by a write that has begun is looked up too, so repeating a submit that
+    # was accepted stays a no-op; a different result for it is refused below.
+    for ev in _judged_all(rc):
         for p in ev.extra["packs"]:
             if p["task_id"] == ns.task_id:
                 found = (ev, p)
+    pinned = found is not None and "packs" not in rc.eval(found[0].name).extra
     if found is None:
         blocked = [ev for ev in rc.evaluate() if ev.state == "blocked"]
         known = [r["task_id"] for r in _task_rows(rc)]
@@ -289,6 +292,9 @@ def cmd_task_submit(ctx: Any, ns: Any) -> Result:
         return Result({"task_id": ns.task_id, "accepted": True, "changed": False, "steps": _dump(steps)},
                       f"{ns.task_id} already accepted with this result\n{steps_summary(steps)}", next=steps_next(steps))
     _guard_mutable(rc)
+    if pinned:
+        raise InputError("input.unknown_task", f"No current task {ns.task_id!r}: its node was pinned when a write began.",
+                         hint="docket next", details={"known": [r["task_id"] for r in _task_rows(rc)][:50]})
     if ctx.dry_run:
         return Result({"dry_run": True, "task_id": ns.task_id, "valid": True, "rows": len(body["items"])},
                       f"{ns.task_id}: result is valid (not written)")

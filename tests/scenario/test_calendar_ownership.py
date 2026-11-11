@@ -17,7 +17,7 @@ from tests.agent_loop import run_agent
 
 ICS = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Invented//Fixture//EN\r\n"
        "BEGIN:VEVENT\r\nUID:sync-1@fixture\r\nSUMMARY:Platform Sync\r\nDTSTART:20261016T150000Z\r\n"
-       "DTEND:20261016T153000Z\r\nATTENDEE:mailto:sam@team.example\r\nEND:VEVENT\r\n"
+       "DTEND:20261016T153000Z\r\nATTENDEE:mailto:sam@example.org\r\nEND:VEVENT\r\n"
        "END:VCALENDAR\r\n")
 MARKER = "(planned by docket: {key})"
 
@@ -25,14 +25,18 @@ MARKER = "(planned by docket: {key})"
 def setup(ws: Path) -> Path:
     cfg = ws / "docket.yaml"
     text = cfg.read_text()
-    text = text.replace("    questions: { kinds: [finding], budget: 8 }",
-                        "    questions: { kinds: [reconcile, finding], budget: 8 }", 1)
+    triage = ("    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8 } }\n"
+              "    plan: { plan: [decide] }\n")
+    assert triage in text
+    # the triage graph also places tasks on the calendar, and asks about the blocks it placed
+    text = text.replace(triage, "    decide: { ask: basic, from: [merge], questions: { kinds: [reconcile, finding], budget: 8 } }\n"
+                                "    plan: { plan: [decide], schedule_tasks: true }\n", 1)
     cfg.write_text(text)
     dests = ws / "destinations.yaml"
     dests.write_text(dests.read_text() + f"  work-calendar:\n    adapter: calendar_file\n    path: cal.ics\n"
                                          f"    calendar: work\n    marker: \"{MARKER}\"\n")
     plan = ws / "planning.yaml"
-    plan.write_text(plan.read_text().replace("workflows: [week-plan]", "workflows: [week-plan, triage]").replace(
+    plan.write_text(plan.read_text().replace(
         "calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: work-calendar }",
         "calendar: { provider: destination, destination: work-calendar, calendar: work }"))
     ics = ws / "cal.ics"

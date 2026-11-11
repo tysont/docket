@@ -21,9 +21,13 @@ pytestmark = pytest.mark.smoke
 
 BASE = """\
 version: 1
-workflows:
+graphs:
   week:
-    stages: [collect, assess, merge, decide, plan, close]
+    read-inbox: { read: inbox }
+    decide: { ask: default, from: [read-inbox] }
+    plan: { plan: [decide], schedule_tasks: true }
+sources:
+  inbox: { kind: files, path: inbox.jsonl }
 profile:
   timezone: UTC
   me: { name: Test Person }
@@ -68,7 +72,6 @@ def test_policy_values_parse(tmp_path):
     ("planning:\n  policy: { granularty: 15m }\n", "config.unknown_key", "planning.policy.granularty"),
     ("planning:\n  policy: { granularity: lots }\n", "config.bad_type", "planning.policy.granularity"),
     ("planning:\n  policy: { lunch: noon }\n", "config.bad_type", "planning.policy.lunch"),
-    ("planning:\n  workflows: [weak]\n", "config.bad_reference", "planning.workflows[0]"),
     ("planning:\n  tasks: { destination: nowhere }\n", "config.bad_reference", "planning.tasks.destination"),
     ("planning:\n  calendar: { path: c.json, marker_regex: '(' }\n", "config.unknown_key", "planning.calendar.marker_regex"),
     ("planning:\n  calendar: { provider: destination, destination: nowhere }\n", "config.bad_reference",
@@ -88,6 +91,14 @@ def test_bad_planning_configuration_is_reported(tmp_path, extra, code, path):
     (tmp_path / "docket.yaml").write_text(text, encoding="utf-8")
     got = codes(tmp_path)
     assert any(c == code and p == path for c, p, _ in got), got
+
+
+def test_a_plan_node_that_names_a_missing_node_is_reported_at_the_node(tmp_path):
+    root = ws(tmp_path, "")
+    text = (root / "docket.yaml").read_text(encoding="utf-8")
+    (root / "docket.yaml").write_text(text.replace("plan: { plan: [decide],", "plan: { plan: [weak],"), encoding="utf-8")
+    got = codes(root)
+    assert any(c == "config.bad_graph" and p == "graphs.week.plan" for c, p, _ in got), got
 
 
 def test_unknown_key_suggests_the_closest(tmp_path):

@@ -4,7 +4,7 @@ An ask step is compact by default: per question its id, kind, prompt and option 
 labels, with one answer template for the whole step whose only placeholders are the
 question id and the option. ``docket next --full`` keeps every option's command and the
 question details. Answer responses carry the recorded answer, its preview and a brief of
-the next step, never the whole burst.
+the ready steps, never the whole burst.
 """
 from __future__ import annotations
 
@@ -14,17 +14,22 @@ from tests.agent_loop import fill_template, run_agent
 
 BURST = """\
   burst:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    sources: [tickets, pager]
-    questions: { kinds: [finding], budget: 15 }
-    options: queue
+    read-tickets: { read: tickets }
+    read-pager: { read: pager }
+    assess: { judge: assess, from: [read-tickets, read-pager] }
+    sla-check: { judge: sla_check, from: [read-tickets] }
+    merge: { merge: [assess, sla-check] }
+    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 15 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
 """
 
 
 def burst_ws(persona, cli, pinned_now):
     ws = persona("support-lead")
     cfg = ws / "docket.yaml"
-    cfg.write_text(cfg.read_text().replace("workflows:\n", "workflows:\n" + BURST, 1))
+    cfg.write_text(cfg.read_text().replace("graphs:\n", "graphs:\n" + BURST, 1))
     code, env = cli("run", "start", "burst", "--now", pinned_now, "--workspace", str(ws))
     assert code == 0, env
     res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask")
@@ -32,17 +37,24 @@ def burst_ws(persona, cli, pinned_now):
     return ws
 
 
+def ask_step(env):
+    """The one ask step of a round (the decide node is the only ready node)."""
+    (step,) = [s for s in env["data"]["steps"] if s["kind"] == "ask"]
+    assert step["node"] == "decide"
+    return step
+
+
 def test_an_ask_step_with_15_questions_is_under_12_kb(persona, cli, pinned_now):
     ws = burst_ws(persona, cli, pinned_now)
     code, env = cli("next", "--workspace", str(ws))
-    assert code == 0 and len(env["data"]["step"]["questions"]) == 15
+    assert code == 0 and len(ask_step(env)["questions"]) == 15
     assert len(cli.last_stdout.encode("utf-8")) < 12 * 1024, len(cli.last_stdout)
 
 
 def test_ask_step_is_compact_with_one_concrete_template(persona, cli, pinned_now):
     ws = burst_ws(persona, cli, pinned_now)
     code, env = cli("next", "--workspace", str(ws))
-    step = env["data"]["step"]
+    step = ask_step(env)
     for q in step["questions"]:
         assert set(q) <= {"id", "kind", "prompt", "options", "details"}, set(q)
         assert all(set(o) == {"id", "label"} for o in q["options"]), q["options"]
@@ -56,7 +68,7 @@ def test_ask_step_is_compact_with_one_concrete_template(persona, cli, pinned_now
     assert "{question}" in step["why"] and "{option}" in step["why"] and "ask show" in step["why"]
     # the template, filled, is exactly the command --full gives for that option
     code, full = cli("next", "--full", "--workspace", str(ws))
-    fq = full["data"]["step"]["questions"][0]
+    fq = ask_step(full)["questions"][0]
     assert fq["details"]["evidence"] and fq["options"][0]["answer"]["argv"] == \
         fill_template(tpl, step["questions"][0]["id"], step["questions"][0]["options"][0]["id"])
     code, shown = cli(*fill_template(step["show"]["argv"], fq["id"], "")[1:])
@@ -66,17 +78,17 @@ def test_ask_step_is_compact_with_one_concrete_template(persona, cli, pinned_now
 def test_answer_response_is_the_answer_its_preview_and_a_brief_of_the_next_step(persona, cli, pinned_now):
     ws = burst_ws(persona, cli, pinned_now)
     code, env = cli("next", "--workspace", str(ws))
-    step = env["data"]["step"]
+    step = ask_step(env)
     q = step["questions"][0]
     code, env = cli(*fill_template(step["answer"]["argv"], q["id"], "take")[1:])
     assert code == 0, env
     data = env["data"]
     assert data["question_id"] == q["id"] and data["answer"]["option"] == "take"
     assert data["preview"]["line"].startswith("TODO ")
-    brief = data["step"]
+    (brief,) = data["steps"]
     assert brief["kind"] == "ask" and brief["counts"] == {"questions": 14}
     assert len(brief["question_ids"]) == 14 and "questions" not in brief
-    assert brief["next"]["argv"][1] == "next"
+    assert set(brief) == {"kind", "node", "counts", "question_ids"} and brief["node"] == "decide"
     assert len(cli.last_stdout.encode("utf-8")) < 4 * 1024, len(cli.last_stdout)
 
 
@@ -99,7 +111,7 @@ def test_answers_file_accepts_question_id_and_names_the_schema_when_a_row_has_ne
                                                                                        tmp_path):
     ws = burst_ws(persona, cli, pinned_now)
     code, env = cli("next", "--workspace", str(ws))
-    qa, qb = [q["id"] for q in env["data"]["step"]["questions"][:2]]
+    qa, qb = [q["id"] for q in ask_step(env)["questions"][:2]]
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps([{"question_id": qa, "option": "take"}, {"option": "watch"}]))
     code, env = cli("ask", "answer", "--file", str(bad), "--workspace", str(ws))

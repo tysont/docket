@@ -18,8 +18,8 @@ pytestmark = pytest.mark.smoke
 
 CONFIG = """\
 version: 1
-workflows:
-  daily: { stages: [collect, close] }
+graphs:
+  daily: { touch: { run: ["true"] } }
 profile:
   timezone: UTC
   me: { name: Dana Reyes }

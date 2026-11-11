@@ -35,9 +35,13 @@ _KEYS = ("option", "action", "overrides", "digest", "destinations", "merged_into
 
 def _questions(rc: Any) -> list[tuple[Any, dict[str, Any], dict[str, Any] | None]]:
     """(node eval, question, current answer) for every question reachable now: the questions of
-    every evaluated ask node and the question of every evaluated approve node."""
+    every evaluated ask node and the question of every evaluated approve node. A node pinned by a
+    write that has begun is evaluated again from what it was pinned on, so its questions can be
+    read and an answer repeated unchanged; ``_guard_pinned`` refuses a change to them."""
     out = []
     for ev in rc.evaluate():
+        if ev.extra.get("pinned") and ev.verb in ("ask", "approve"):
+            ev = rc.impls[ev.name].evaluate(rc, rc.upstream(ev.name))
         if ev.verb == "ask" and "questions" in ev.extra:
             for q in ev.extra["questions"]:
                 out.append((ev, q, ev.extra["answers"].get(q["id"])))

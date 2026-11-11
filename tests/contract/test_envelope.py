@@ -54,15 +54,15 @@ def test_state_error(cli, persona):
     ws = persona("support-lead")
     code, env = cli("run", "status", "--workspace", str(ws))
     assert_error(code, env, "run.none_open", "state")
-    assert env["error"]["hint"] == "docket run start shift"
+    assert env["error"]["hint"] == "docket run start isolation"  # the first graph by name
 
 
 def test_integrity_error(cli, persona, pinned_now):
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    cli("collect", "--workspace", str(ws))
-    code, env = cli("next", "--workspace", str(ws))
-    task = env["data"]["step"]["tasks"][0]
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "assess")
+    assert res.failures == []
+    task = res.final["tasks"][0]
     pack = json.loads(Path(task["pack_path"]).read_text())
     rows = [{"id": it["id"], "source": it["source"], "keep": False, "score": 50} for it in pack["items"]][1:]
     rows.append({"id": "not-in-pack", "source": "tickets", "keep": False, "score": 1})
@@ -80,7 +80,7 @@ def test_external_error(cli, persona, pinned_now):
     ws = persona("support-lead")
     (ws / "worklog" / "todo.md").mkdir(parents=True)  # the task store path is a directory: writes fail
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "apply")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["node"] == "apply")
     assert res.failures == []
     code, env = cli(*res.final["command"]["argv"][1:])
     assert_error(code, env, "dest.apply_failed", "external")
@@ -90,7 +90,7 @@ def test_external_error(cli, persona, pinned_now):
 def test_lease_error(cli, persona, pinned_now):
     ws = persona("support-lead")
     cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    code, env = cli("collect", "--workspace", str(ws), env={"DOCKET_SESSION": "other-agent"})
+    code, env = cli("do", "read-tickets", "--workspace", str(ws), env={"DOCKET_SESSION": "other-agent"})
     assert_error(code, env, "lease.held", "lease")
     assert env["next"]["command"][:3] == ["docket", "run", "steal"]
 
@@ -117,7 +117,7 @@ def test_human_output_has_summary_and_next(cli, persona, pinned_now):
     assert code == 0
     lines = out.strip().splitlines()
     assert lines[0].startswith("started run 2026-10-16-shift")  # Lisbon is past midnight
-    assert lines[-1].startswith("next: docket collect")
+    assert lines[-1].startswith("next: docket do read-")
 
 
 def test_every_kind_has_an_exit_code_and_catalog_is_consistent(cli):
@@ -163,7 +163,7 @@ def test_schema_list_prints_every_model(cli):
     code, env = cli("schema", "list")
     assert code == 0
     names = env["data"]["schemas"]
-    for required in ("envelope", "error", "step", "config", "profile", "workflow", "assess-result",
+    for required in ("envelope", "error", "step", "config", "profile", "node", "node-status", "assess-result",
                      "review-result", "plan", "answer", "run-header", "record"):
         assert required in names
     for n in names:

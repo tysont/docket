@@ -139,7 +139,7 @@ def test_ambiguous_destination_names_both_candidates():
 
 
 def test_guards():
-    it = {"source": "tickets", "sender": {"handle": "pat@customer.example", "relation": "external",
+    it = {"source": "tickets", "sender": {"handle": "pat@example.org", "relation": "external",
                                           "relations": ["external"], "is_me": False}}
     with_forum = {"forum": "platform-sync", "due_source": "deadline"}
     none = {"forum": None, "due_source": "lead_days"}

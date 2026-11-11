@@ -1,4 +1,4 @@
-"""An MCP session that dies mid-collect is reopened once and the call repeated (TD §6.3).
+"""An MCP session that dies mid-read is reopened once and the call repeated (TD §6.3).
 
 The SDK reports a dead stream as an exception from ``call_tool``. A tool result flagged as
 an error is the server answering: the session is alive and is left alone.

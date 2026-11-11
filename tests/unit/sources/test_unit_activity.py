@@ -76,7 +76,7 @@ def source(**discover):
         "contract": {"entry": {"required": {"id": "str", "ts": "timestamp"}}}})
 
 
-def collect(cfg, server, durable=None, *, entry_limit=None, only_unit=None):
+def read_once(cfg, server, durable=None, *, entry_limit=None, only_unit=None):
     async def go():
         src = DeclarativeSource("chat", cfg, server, secrets=Secrets(),
                                 limits=Limits(asyncio.Semaphore(4), asyncio.Semaphore(4)), env={})
@@ -97,7 +97,7 @@ def test_a_unit_read_recently_with_no_activity_since_its_cursor_is_not_read():
     durable = {"busy": ("2026-10-14T12:00:00+00:00", YESTERDAY),      # position, coverage end
                "quiet": ("2026-10-10T09:00:00+00:00", YESTERDAY),     # at its last message
                "still": (None, YESTERDAY)}                             # read before, held nothing
-    res, shapes = collect(source(), server, durable)
+    res, shapes = read_once(source(), server, durable)
     assert server.read_units() == ["busy"]
     assert [u.unit.id for u in res.units] == ["busy"] and res.quiet == ["quiet", "still"]
     assert res.outcome.status == "read" and res.outcome.entries == 2 and shapes == []
@@ -106,7 +106,7 @@ def test_a_unit_read_recently_with_no_activity_since_its_cursor_is_not_read():
 
 def test_a_unit_never_read_is_read_once_so_its_cursor_exists():
     server = Rooms({"old": QUIET})
-    res, _ = collect(source(), server)
+    res, _ = read_once(source(), server)
     assert server.read_units() == ["old"] and res.quiet == []
     assert res.units[0].outcome.status == "empty" and res.units[0].proposal[1] == INSTANT  # coverage proven to now
 
@@ -115,7 +115,7 @@ def test_past_the_verify_window_a_quiet_unit_is_read_and_a_wrong_activity_time_i
     wrong = ("2026-10-10T09:00:00+00:00", ["2026-10-10T09:00:00+00:00", "2026-10-12T07:00:00+00:00"])
     server = Rooms({"honest": QUIET, "wrong": wrong})
     durable = {"honest": ("2026-10-10T09:00:00+00:00", LONG_AGO), "wrong": ("2026-10-10T09:00:00+00:00", LONG_AGO)}
-    res, shapes = collect(source(verify_every="7d"), server, durable)
+    res, shapes = read_once(source(verify_every="7d"), server, durable)
     assert server.read_units() == ["honest", "wrong"] and res.quiet == []
     assert [(s.area, s.detail) for s in shapes] == [
         ("source.unit_activity", "chat unit wrong held 1 record(s) newer than its reported last activity")]
@@ -124,23 +124,23 @@ def test_past_the_verify_window_a_quiet_unit_is_read_and_a_wrong_activity_time_i
 
 def test_without_a_verify_window_the_activity_time_is_always_trusted():
     server = Rooms({"quiet": QUIET})
-    res, _ = collect(source(verify_every=None), server, {"quiet": ("2026-10-10T09:00:00+00:00", LONG_AGO)})
+    res, _ = read_once(source(verify_every=None), server, {"quiet": ("2026-10-10T09:00:00+00:00", LONG_AGO)})
     assert server.read_units() == [] and res.quiet == ["quiet"] and res.outcome.status == "empty"
 
 
 def test_a_unit_with_no_activity_time_is_read():
     server = Rooms({"untimed": (None, ["2026-10-15T08:00:00+00:00"])})
-    res, _ = collect(source(), server, {"untimed": (None, YESTERDAY)})
+    res, _ = read_once(source(), server, {"untimed": (None, YESTERDAY)})
     assert server.read_units() == ["untimed"] and res.outcome.entries == 1
 
 
 def test_discovery_asks_for_its_own_page_size():
     server = Rooms({f"u{i}": QUIET for i in range(5)})
     durable = {f"u{i}": (None, YESTERDAY) for i in range(5)}
-    collect(source(page_size=5), server, durable)
+    read_once(source(page_size=5), server, durable)
     assert [p["args"]["size"] for p in server.requests if p["op"] == "discover"] == [5]
     server = Rooms({f"u{i}": QUIET for i in range(5)})
-    collect(source(), server, durable)
+    read_once(source(), server, durable)
     assert all("size" not in p["args"] for p in server.requests if p["op"] == "discover")  # the system's default
 
 
@@ -148,7 +148,7 @@ def test_discovery_steps_down_from_a_cut_page_and_still_lists_every_unit():
     server = Rooms({f"u{i:02d}": QUIET for i in range(12)}, cut_above=5)
     cfg = source(page_size=16)
     cfg.paging.too_large = ["truncat"]
-    res, shapes = collect(cfg, server, {f"u{i:02d}": (None, YESTERDAY) for i in range(12)})
+    res, shapes = read_once(cfg, server, {f"u{i:02d}": (None, YESTERDAY) for i in range(12)})
     sizes = [p["args"]["size"] for p in server.requests if p["op"] == "discover"]
     assert sizes[:3] == [16, 8, 4] and set(sizes[2:]) == {4}
     assert len(res.discovered) == 12 and shapes == []
@@ -158,14 +158,14 @@ def test_a_discovery_page_that_is_cut_at_the_smallest_size_fails_the_source_with
     server = Rooms({f"u{i:02d}": QUIET for i in range(12)}, cut_above=0)  # even one unit is too much
     cfg = source(page_size=4)
     cfg.paging.too_large = ["truncat"]
-    res, _ = collect(cfg, server)
+    res, _ = read_once(cfg, server)
     assert res.outcome.status == "failed" and res.outcome.cause["code"] == "source.truncated"
 
 
 def test_a_sample_stops_reading_units_once_it_has_enough_and_starts_with_the_most_active():
     units = {f"u{i}": (f"2026-10-15T0{i}:00:00+00:00", [f"2026-10-15T0{i}:00:00+00:00"]) for i in range(8)}
     server = Rooms(units)
-    res, _ = collect(source(), server, entry_limit=2)
+    res, _ = read_once(source(), server, entry_limit=2)
     assert server.read_units() == ["u6", "u7"]
     assert res.outcome.status == "partial" and "6 unit(s) not read" in res.outcome.reason
 
@@ -173,7 +173,7 @@ def test_a_sample_stops_reading_units_once_it_has_enough_and_starts_with_the_mos
 def test_a_named_unit_is_read_even_when_quiet():
     server = Rooms({"quiet": QUIET, "busy": BUSY})
     durable = {"quiet": ("2026-10-10T09:00:00+00:00", YESTERDAY)}
-    collect(source(), server, durable, only_unit="quiet")
+    read_once(source(), server, durable, only_unit="quiet")
     assert server.read_units() == ["quiet"]
 
 
@@ -181,13 +181,13 @@ def test_a_source_can_take_only_the_units_of_some_types():
     """Two sources over one system: rooms in one, direct conversations in the other."""
     units = {"dm-kim": BUSY, "dm-sam": BUSY, "ops": BUSY}
     server = Rooms(units)
-    res, shapes = collect(source(types=["direct"]), server)
+    res, shapes = read_once(source(types=["direct"]), server)
     assert [u.id for u in res.discovered] == ["dm-kim", "dm-sam"] and server.read_units() == ["dm-kim", "dm-sam"]
     server = Rooms(units)
-    res, shapes = collect(source(types=["room"]), server)
+    res, shapes = read_once(source(types=["room"]), server)
     assert [u.id for u in res.discovered] == ["ops"] and shapes == []
     server = Rooms(units)
-    res, _ = collect(source(), server)
+    res, _ = read_once(source(), server)
     assert len(res.discovered) == 3  # no filter: every unit
 
 
@@ -197,8 +197,8 @@ def test_verify_every_must_be_a_duration(tmp_path):
     root.mkdir()
     (root / "docket.yaml").write_text("""\
 version: 1
-workflows:
-  daily: { stages: [collect, close] }
+graphs:
+  daily: { touch: { run: ["true"] } }
 profile:
   timezone: UTC
   me: { name: Dana Reyes }

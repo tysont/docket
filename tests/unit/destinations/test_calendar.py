@@ -139,7 +139,7 @@ def test_message_drafts_never_send():
               DestEnv(root=Path("."), profile=PROFILE, call_tool=lambda _id: srv))
     assert d.verbs == frozenset({"draft"}) and d.capabilities == frozenset({"message.draft"})
     [op] = d.preview(Action(kind="message.draft", destination="mail", key="m1",
-                            fields={"title": "Hello", "note": "Body", "to": ["x@team.example"]}), d.snapshot())
+                            fields={"title": "Hello", "note": "Body", "to": ["x@example.org"]}), d.snapshot())
     d.apply(op)
     assert set(srv.calls) == {"list_drafts", "create_draft"} and srv.calls.count("create_draft") == 1
 

@@ -24,7 +24,7 @@ pytestmark = pytest.mark.smoke
 def auth_source(check, timeout=15.0):  # generous: a busy parallel run starts processes slowly
     cfg = Source.model_validate({"transport": "t", "request": {"read": {"op": "read"}},
                                  "auth": {"check": check, "timeout_s": timeout,
-                                          "instructions": "Run stub-login, then collect again."}})
+                                          "instructions": "Run stub-login, then read again."}})
     return DeclarativeSource("s", cfg, None, secrets=Secrets(), limits=Limits(asyncio.Semaphore(1),
                                                                               asyncio.Semaphore(1)),
                              env=dict(os.environ))
@@ -40,7 +40,7 @@ def test_auth_checks_run_unattended(flag, ok, needle):
     st = asyncio.run(auth_source(["docket-stub-auth", flag]).check_auth())
     assert st.ok is ok
     if needle:
-        assert needle in st.reason and st.instructions == "Run stub-login, then collect again."
+        assert needle in st.reason and st.instructions == "Run stub-login, then read again."
 
 
 def test_an_auth_check_that_waits_is_treated_as_interactive():
@@ -55,7 +55,7 @@ def test_resolve_claims_by_pattern_and_reports_unclaimed_refs(tmp_path):
     (ws_dir / "rec").mkdir(parents=True)
     (ws_dir / "docket.yaml").write_text(textwrap.dedent("""\
         version: 1
-        workflows: { daily: { stages: [collect, assess, merge, decide, plan, approve, apply, close] } }
+        graphs: { daily: { touch: { run: ["true"] } } }
         profile: { timezone: UTC, me: { name: Dana Reyes } }
         destinations: { backlog: { adapter: markdown_tasks, path: tasks.md } }
         transports: { bridge: { kind: replay, path: rec/bridge.jsonl } }

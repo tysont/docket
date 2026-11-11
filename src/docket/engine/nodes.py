@@ -155,9 +155,13 @@ class BaseNode:
     def settings(self) -> Any:
         return self.cfg.model_dump(mode="json", by_alias=True, exclude={"description"}) if self.cfg is not None else None
 
+    def sections(self, run: "RunContext") -> tuple[str, ...]:
+        """The configuration sections this node reads; a change to any other leaves it current."""
+        return self.config_sections
+
     def node_digest(self, run: "RunContext", inputs: list[InputRef], answers: str | None = None,
                     extra: Any = None) -> tuple[str, str]:
-        cfg = digest([run.partial_config(self.config_sections), self.settings()])
+        cfg = digest([run.partial_config(self.sections(run)), self.settings()])
         body = {
             "verb": self.verb, "schema": self.schema_version, "config": cfg,
             "inputs": [i.digest for i in inputs], "answers": answers,
@@ -190,7 +194,7 @@ class BaseNode:
         return art.get("config_digest") if art else None
 
     def current_config_digest(self, run: "RunContext") -> str:
-        return digest([run.partial_config(self.config_sections), self.settings()])
+        return digest([run.partial_config(self.sections(run)), self.settings()])
 
     def up_input(self, up: Eval | None) -> list[InputRef]:
         return list(up.inputs) if up is not None else []
@@ -322,6 +326,18 @@ class JudgeNode(BaseNode):
     verb = "judge"
     how = "judged"
     config_sections = ("profile", "signals", "tasks", "planning", "destinations")
+
+    def sections(self, run: "RunContext") -> tuple[str, ...]:
+        # An item kind reads the rules that select its items (recap also the agendas it reads
+        # beside them), review only the tasks, and label the task lines planning may place.
+        kind = self.kind(run)
+        if kind.family == "review":
+            return ("profile", "tasks")
+        if kind.family == "label":
+            return ("profile", "tasks", "planning", "destinations")
+        if kind.name == "recap":
+            return ("profile", "signals", "tasks", "destinations")
+        return ("profile", "signals", "tasks")
 
     @property
     def task(self) -> str:

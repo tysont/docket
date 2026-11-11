@@ -117,7 +117,7 @@ def test_the_ledger_follows_what_happened_in_a_destination(db):
         ledger.write(db, ledger.derive("r1", T1, kept=[a, b, c, d], decided=[
             routed("topic-a"), routed("topic-b"), routed("topic-c"), {"topic": "topic-d", "decision": "watch"}]))
     key = {t: ledger.item_key(f"topic-{t}") for t in "abcd"}
-    with db:   # at close every line is there and open; a destination that never wrote a key says nothing
+    with db:   # at the seal every line is there and open; a destination that never wrote a key says nothing
         assert ledger.observe(db, {"backlog": {key["a"]: "open", key["c"]: "open"}}, run_id="r1", at=T1) == []
     assert ledger.get(db, key["b"])["state"] == "backlog"
     seen = {"backlog": {key["a"]: "open", key["b"]: "done"}}          # c is no longer there

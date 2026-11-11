@@ -253,9 +253,9 @@ def test_mcp_names_authentication_when_the_handshake_is_rejected(mcp_world, tmp_
 
 BASE = """\
 version: 1
-workflows:
+graphs:
   daily:
-    stages: [collect, close]
+    touch: { run: ["true"] }
 profile:
   timezone: UTC
   me: { name: Dana Reyes }

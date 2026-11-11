@@ -10,9 +10,23 @@ pytestmark = pytest.mark.smoke
 BASE = """\
 version: 1
 {presets}
-workflows:
+graphs:
   daily:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    read-inbox:
+      read: inbox
+    decide:
+      ask: default
+      from: [read-inbox]
+    plan:
+      plan: [decide]
+    approve:
+      approve: plan
+    apply:
+      apply: approve
+sources:
+  inbox:
+    kind: files
+    path: inbox.jsonl
 profile:
   me:
     name: Robin Vale

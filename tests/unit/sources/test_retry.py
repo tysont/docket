@@ -60,7 +60,7 @@ def source(**retry):
         "contract": {"entry": {"required": {"id": "str", "ts": "timestamp"}}}})
 
 
-def collect(cfg, server):
+def read_once(cfg, server):
     async def go():
         src = DeclarativeSource("feed", cfg, server, secrets=Secrets(),
                                 limits=Limits(asyncio.Semaphore(4), asyncio.Semaphore(4)), env={})
@@ -75,7 +75,7 @@ def ids(res):
 
 def test_a_retryable_failure_is_repeated_and_the_read_completes():
     server = Flaky({2: Failure("timeout", "read timed out after 30s", retryable=True)})
-    res = collect(source(), server)
+    res = read_once(source(), server)
     assert res.outcome.status == "read" and ids(res) == [r["id"] for r in ROWS]
     assert res.outcome.retries == 1 and len(server.requests) == 4  # three pages and one repeat
     assert server.requests[1] == server.requests[2]                # the same request, same position
@@ -84,13 +84,13 @@ def test_a_retryable_failure_is_repeated_and_the_read_completes():
 def test_a_message_matching_a_transient_pattern_is_repeated():
     server = Flaky({1: Failure("error", "Error: The operation was aborted due to timeout"),
                     3: Failure("error", "SSE stream ended and reconnection attempts were exhausted")})
-    res = collect(source(transient=["aborted due to timeout", "stream ended"]), server)
+    res = read_once(source(transient=["aborted due to timeout", "stream ended"]), server)
     assert res.outcome.status == "read" and ids(res) == [r["id"] for r in ROWS] and res.outcome.retries == 2
 
 
 def test_a_failure_that_is_not_transient_is_not_repeated():
     server = Flaky({1: Failure("error", "Invalid arguments for tool: expected string")})
-    res = collect(source(transient=["stream ended"]), server)
+    res = read_once(source(transient=["stream ended"]), server)
     assert res.outcome.status == "failed" and len(server.requests) == 1 and res.outcome.retries == 0
     assert "Invalid arguments" in res.outcome.cause["message"]
 
@@ -98,14 +98,14 @@ def test_a_failure_that_is_not_transient_is_not_repeated():
 def test_repeats_are_bounded_and_the_last_failure_is_kept():
     always = {n: Failure("status", "HTTP 503: shard 7 offline", 503, retryable=True) for n in range(1, 10)}
     server = Flaky(always)
-    res = collect(source(attempts=2), server)
+    res = read_once(source(attempts=2), server)
     assert res.outcome.status == "failed" and len(server.requests) == 3  # the request and two repeats
     assert res.outcome.cause["message"] == "HTTP 503: shard 7 offline" and res.outcome.retries == 2
 
 
 def test_attempts_zero_turns_repeating_off():
     server = Flaky({1: Failure("timeout", "read timed out", retryable=True)})
-    res = collect(source(attempts=0), server)
+    res = read_once(source(attempts=0), server)
     assert res.outcome.status == "failed" and len(server.requests) == 1
 
 
@@ -113,12 +113,12 @@ def test_a_truncation_is_stepped_down_from_never_repeated():
     cfg = source(transient=["too large"])  # even when a pattern would match it
     cfg.paging.page_size = 8
     server = Flaky({})
-    res = collect(cfg, server)
+    res = read_once(cfg, server)
     assert res.outcome.status == "read" and res.outcome.retries == 0 and res.outcome.stepdowns == 1
     assert [q["args"]["size"] for q in server.requests[:2]] == [8, 4]
 
 
 def test_an_authentication_rejection_is_not_repeated():
     server = Flaky({1: Failure("unavailable", "authentication rejected (HTTP 401): no refresh command", 401)})
-    res = collect(source(transient=["rejected"]), server)
+    res = read_once(source(transient=["rejected"]), server)
     assert res.outcome.status == "unavailable" and len(server.requests) == 1
