@@ -236,33 +236,3 @@ def test_the_reviewers_decision_replaces_the_first_recommendation():
     assert out["a"]["assessment"]["decision"] == "note" and out["a"]["review"]["decision"] == "note"
     assert out["a"]["trace"][-1]["decision"] == "note" and out["a"]["trace"][-1]["was"] == "act"
     assert out["b"]["assessment"]["decision"] == "act" and "decision" not in out["b"]["review"]
-
-
-def test_a_workspace_can_ask_for_a_label_fit_for_others_to_read():
-    """An item's ask is written for the operator. A workspace whose destinations are read
-    by others can ask the assessment for a second, short label written for them, in its own
-    words; the label travels with the item to every template."""
-    cfg = TasksConfig.model_validate({"assess": {"label": "The kind of work, with no name of a person or customer."}})
-    kind = registry(cfg)["assess"]
-    spec = {f.name: f for f in kind.fields}["label"]
-    assert "no name of a person or customer" in spec.description and spec.max_length == 60
-    assert any("label" in r.require for r in kind.rules), "a kept item needs its label"
-    assert "label" not in {f.name for f in persona_kinds("reference-like")["assess"].fields}    # only when asked for
-    from docket.tasks.packs import PROPOSAL_FIELDS
-    assert "label" in PROPOSAL_FIELDS                                                           # the reviewer sees it
-
-
-def test_the_label_reaches_templates():
-    from types import SimpleNamespace
-    from docket.config import contexts
-    from docket.decide import options
-    assert "label" in contexts._ITEM
-    rc = SimpleNamespace(ws=SimpleNamespace(config=SimpleNamespace(sources={}, profile=None)))
-    real = options.area_for, options.forum_for
-    options.area_for = lambda _rc, _it: ""
-    options.forum_for = lambda _rc, _it: None
-    try:
-        view = options.item_view(rc, {"id": "a", "source": "s", "assessment": {"ask": "Reply", "label": "Reply on a plan"}})
-    finally:
-        options.area_for, options.forum_for = real
-    assert view["label"] == "Reply on a plan"

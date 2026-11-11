@@ -295,10 +295,10 @@ A run pins its clock at creation: date, timezone and a reference instant. Stages
 The stage order is fixed:
 
 ```
-collect -> assess -> merge -> review -> decide -> plan -> approve -> apply -> close
+collect -> assess -> merge -> review -> decide -> label -> plan -> approve -> apply -> close
 ```
 
-A workflow may omit stages but may not reorder them. `collect` must be first and `close` last. `apply` requires `approve`, `approve` requires `plan`, and `plan` requires `decide`. `decide`, `review` and `merge` require `assess`. These rules keep approval bound to a concrete plan. Each stage is a module implementing:
+A workflow may omit stages but may not reorder them. `collect` must be first and `close` last. `apply` requires `approve`, `approve` requires `plan`, and `plan` requires `decide`. `decide`, `review` and `merge` require `assess`, and `label` requires `plan`. These rules keep approval bound to a concrete plan. Each stage is a module implementing:
 
 ```python
 class Stage(Protocol):
@@ -597,9 +597,10 @@ A task kind is a named triple of input model, output model and instructions. Cor
 
 | Kind | Input | Output |
 |---|---|---|
-| `assess` | A batch of items with evidence, unit context, the operator's profile summary and the vocabulary | Per item: `keep`, `score` 0..100, `kind` (request, commitment, decision, risk, fyi, or a configured value), `owner`, `ask` (one-line imperative), `evidence` (verbatim quotes), `deadline`, `topic`, and, when `tasks.assess.label` says what it should be, a short `label` that others may read |
+| `assess` | A batch of items with evidence, unit context, the operator's profile summary and the vocabulary | Per item: `keep`, `score` 0..100, `kind` (request, commitment, decision, risk, fyi, or a configured value), `owner`, `ask` (one-line imperative), `evidence` (verbatim quotes), `deadline`, `topic` |
 | `extract` | A document (for example a transcript) split into sections | Commitments and requests with owner, verbatim evidence and deadline |
 | `review` | Candidates without scores, with evidence and the decision first recommended | Per item: `verdict` (ask, merge, drop, needs_verification), `against` (strongest argument against asking), `merge_with`, `reason`, and `decision` when the reviewer recommends a different one, which replaces the first recommendation |
+| `label` | Task lines planning may place, as written in the private list | Per task: `label`, the words that stand for it where others can read them (§12.7) |
 | `classify` | Units or items needing a class | Per entry: `class`, `tier`, `reason` |
 
 A workspace may define a further kind by declaring its input selection, output fields (from a closed field-type set) and instructions; Docket renders and validates it like a core kind (FR-TSK-01).
@@ -748,10 +749,6 @@ Sandbox twins are the real adapter with its I/O layer swapped: Markdown adapters
 
 Each destination declares `visibility`. For a `shared` destination, every rendered title and note passes through `text/redact.py`: protected entity aliases, people's names (when `redact.people: true`), figures matching configured patterns, and any item with a sensitivity class render through that class's redacted template (for example `"{area} follow-up"`). Validation then scans the rendered text for any alias of any protected entity and any person name; a hit refuses the operation (`dest.redaction_leak`). The private record (the task store and the journal) keeps full detail (FR-ACT-06, NFR-02).
 
-A profile cannot list every person, prospect and project, so two further rules work from the other side. `redact.names` replaces every word written like a name (one with a capital letter) unless the workspace allows it: `names.allow` lists the words and phrases that may be shown, matched whole and without regard to case, so the list says what is safe and everything else is taken out. Links and the placeholders are left alone, and two names in a row become one placeholder. `redact.private` names patterns for matters that should not be described at all: text that matches one, in itself or in what it was made from, is replaced whole by `private.title`.
-
-Blocks the planner places from the task store go through the same redaction. Their templates (`planning.titles`) see the task's `id` and the `fields` of its line, so a line can carry the words meant for the calendar and the notes can link back to the line by its id; the detail stays where only the operator can open it. A private task shows the private title in place of every word of its own, alone and as a member of a batch.
-
 ### 11.5 Task quality rules
 
 ```yaml
@@ -826,6 +823,16 @@ Each run lists source events in the horizon, compares them with owned mirror hol
 ### 12.6 Plan artifact, diff and explain
 
 A plan is `{inputs: {task_store_digest, calendar_digest, answers_digest, config_digest}, operations: [...], schedule: [...], unschedulable: [...], notes: [...]}` with digest `plan_digest`. `docket plan diff` renders operations in human terms grouped by day and destination ("Thu 13:00-14:00 new block: Draft pricing memo", "Backlog: close 'Review ingest SLO doc'"). `docket plan explain <item>` prints the task's ordering key, its candidate days and, for each rejected slot, the first violated constraint (FR-PLN-08).
+
+### 12.7 Labels
+
+A task line is written for the operator: what to do, who asked, why. A block on a shared calendar is read by other people. Whether a title is safe to show them is a judgment about the matter and not about its words: the same name is ordinary in one task and private in another, and no list of words or patterns separates them. So the words for a shared place are written by a judged task.
+
+The `label` stage sits between `decide` and `plan`. Its candidates are the tasks planning may place: the open lines of the task store in the planned sections, and this run's answers that add a task or place a block. The `label` task reads each line and writes one short `label` for it, under the workspace's `tasks.label.guidance` and `tasks.label.examples`. The stage's output is the decide output with `labels` added, so the stages after it read what they always read.
+
+`planning.titles` templates see `label` and the task's `id` beside `title`. A workspace with a shared calendar titles its blocks with `{label}`, and can build a link back to the private line from `{id}` in the notes, so the detail stays where only the operator can open it. A task with no label renders the template's default.
+
+A label is written once per line. A durable close remembers each label against the digest of its line's words (`task_labels`); a later run reuses it and labels only lines that are new or changed, so titles do not drift from run to run. A sandbox run remembers nothing. The destination's exact-list redaction (§11.4) still runs over the rendered title as a backstop.
 
 ## 13. Approve, apply and close
 

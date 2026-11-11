@@ -190,7 +190,7 @@ def item_view(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
         "score": it.get("score"), "fields": it.get("fields") or {}, "forum": forum or {},
         "area": area_for(rc, it), "topic": it.get("topic") or "", "ask": a.get("ask") or "",
         "owner": a.get("owner") or "", "kind": a.get("kind") or "", "deadline": deadline_of(it) or "",
-        "quote": _first_quote(a), "label": a.get("label") or "",
+        "quote": _first_quote(a),
     }
 
 

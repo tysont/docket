@@ -249,7 +249,6 @@ class Task:
     question_id: str | None = None
     defaulted_est: bool = False
     elapsed_window: str | None = None   # the stored window, when every day of it was behind the run
-    fields: Any = field(default_factory=dict, hash=False, compare=False)   # the task line's own fields, by name
 
     def with_flags(self, today: date, imminent_days: int) -> "Task":
         overdue = self.due is not None and self.due < today

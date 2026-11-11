@@ -43,6 +43,15 @@ def _decided(rc: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | Non
     return decide, outcomes, ops, recs
 
 
+def durable_texts(rc: Any, lab: Any) -> dict[str, str]:
+    """The words each labelled task had when its label was written: the label stage's packs."""
+    out: dict[str, str] = {}
+    for p in (lab.extra or {}).get("packs") or []:
+        for it in p.get("items") or []:
+            out[it["id"]] = "\n".join(ln["text"] for ln in it.get("lines") or [])
+    return out
+
+
 def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any]],
                  dispositions: list[Any]) -> list[dict[str, Any]]:
     """The run's rows for the item ledger: every item merge kept, with the decision made on it."""
@@ -95,11 +104,19 @@ def state_step(rc: Any) -> dict[str, Any]:
     durable = not r.header.sandbox  # a sandbox run leaves cursors, dispositions and ledgers as they were
     items = _ledger_rows(rc, decide, ops, rows)
     observed: list[dict[str, Any]] = []
+    lab = rc.eval_or_none("label")
+    labels_now = dict((lab.output or {}).get("labels") or {}) if lab is not None else {}
+    label_texts: dict[str, str] = {}
+    if labels_now and durable_texts(rc, lab):
+        label_texts = durable_texts(rc, lab)
     with db:
         moved = close_cursors.advance(db, r)
         if durable:
             disp_mod.write(db, rows)
             item_ledger.write(db, items)
+            if labels_now:
+                from docket.plan import labels as plan_labels
+                plan_labels.remember(db, labels_now, label_texts, run_id=r.id)
             # after the run's own writes: follow what the operator did in the destinations
             observed = item_ledger.observe(db, item_ledger.read_back(rc.ws, run=r, env=rc.env), run_id=r.id,
                                            at=r.header.clock.instant)

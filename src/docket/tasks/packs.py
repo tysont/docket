@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from docket.tasks.kinds import TaskKind
 
 ITEM_FIELDS = ("id", "source", "unit", "thread", "title", "from", "at", "url")
-PROPOSAL_FIELDS = ("kind", "owner", "ask", "evidence", "deadline", "topic", "decision", "est", "label")
+PROPOSAL_FIELDS = ("kind", "owner", "ask", "evidence", "deadline", "topic", "decision", "est")
 
 
 # --- the pack model (``docket schema <kind>-input``) -------------------------

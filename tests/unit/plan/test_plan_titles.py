@@ -49,24 +49,24 @@ def test_a_private_calendar_keeps_the_words():
     assert _titler(rc("private"), {"a": a})(a)[0] == "Send Lee Park the staffing plan for Acme Corp"
 
 
-def test_a_block_title_can_come_from_a_field_of_the_task_line_and_link_back_by_id():
-    """A task line can carry the words meant for the calendar, and its own id. The title
-    template reads the field; the notes template builds a link from the id, so the detail
-    stays where only the operator can open it."""
-    r = rc("shared", names={"allow": ["Review", "Follow-ups", "Storage", "Notes"]},
-           private={"patterns": [r"(?i)\bstaffing\b"], "title": "Private"})
+def test_a_block_is_titled_with_the_label_written_for_its_task_and_can_link_back_by_id():
+    """The label task writes the words for a shared calendar (TD §12.7). The title template
+    reads them; the notes template can build a link from the task's id, so the detail stays
+    where only the operator can open it. A task with no label yet takes the default."""
+    r = rc("shared", people=True)
     r.ws.config.planning = Planning.model_validate({
         "calendar": {"provider": "destination", "destination": "cal"},
-        "titles": {"task": "{fields.cal|default:Backlog item}", "notes": "notes://find?q={id}",
-                   "batch": "Follow-ups ({count})",
-                   "batch_notes": "{#members}- {fields.cal|default:Backlog item}: notes://find?q={id}\n{/members}"}})
-    a = task("iaaaaaaaa", "Review the Kestrel plan. Morgan Ito wrote it", fields={"cal": "Review a Storage plan"})
-    b = task("ibbbbbbbb", "Reply to Morgan Ito")                                   # no words for the calendar
-    c = task("icccccccc", "Send Lee Park the staffing plan", fields={"cal": "Review a plan"})
-    title_of = _titler(r, {"iaaaaaaaa": a, "ibbbbbbbb": b, "icccccccc": c})
-    assert title_of(a) == ("Review a Storage plan", "notes://find?q=iaaaaaaaa")
-    assert title_of(b) == ("[redacted] item", "notes://find?q=ibbbbbbbb")         # "Backlog" is not on the list here
-    assert title_of(c) == ("Private", "notes://find?q=icccccccc")                  # the line itself is private
-    title, notes = title_of(task("g", "", kind="batch", members=("iaaaaaaaa", "icccccccc")))
-    assert title == "Follow-ups (2)"
-    assert notes == "- Review a Storage plan: notes://find?q=iaaaaaaaa\n- Private: notes://find?q=icccccccc"
+        "titles": {"task": "{label|default:Task}", "notes": "notes://find?q={id}", "batch": "Small tasks ({count})",
+                   "batch_notes": "{#members}- {label|default:Task}: notes://find?q={id}\n{/members}"}})
+    a, b = task("ia", "Review the Kestrel plan. Morgan Ito wrote it"), task("ib", "Reply to Lee Park")
+    title_of = _titler(r, {"ia": a, "ib": b}, {"ia": "Review a storage plan"})
+    assert title_of(a) == ("Review a storage plan", "notes://find?q=ia")
+    assert title_of(b) == ("Task", "notes://find?q=ib")
+    title, notes = title_of(task("g", "", kind="batch", members=("ia", "ib")))
+    assert title == "Small tasks (2)" and notes == "- Review a storage plan: notes://find?q=ia\n- Task: notes://find?q=ib"
+    # the exact-list backstop still holds: a label that names a profile person is refused
+    from docket.cli.errors import IntegrityError
+    leaky = _titler(rc("shared"), {"ia": a}, {"ia": "Review the plan for Acme Corp"})
+    r2 = rc("shared"); r2.ws.config.planning = r.ws.config.planning
+    assert _titler(r2, {"ia": a}, {"ia": "Review the plan for Acme Corp"})(a)[0] == "Review the plan for [redacted]"
+    assert leaky(a)[0].startswith("Review the Kestrel plan")       # default template: the title, not the label

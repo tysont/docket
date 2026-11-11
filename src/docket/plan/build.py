@@ -33,6 +33,7 @@ from docket.config.digest import digest
 from docket.plan.calendar_classify import Calendar, classify_calendar, clip, expand
 from docket.plan.constraints import Ctx, block_for, candidate_days, check, slot_bounds, _grid_up
 from docket.plan.mirrors import LEDGER, MirrorPlan, plan_mirrors
+from docket.plan import labels as plan_labels
 from docket.plan.providers import JsonFileProvider
 from docket.plan.scheduler import ScheduleResult, describe_key, schedule, validate
 from docket.plan.taskstore import (
@@ -179,8 +180,7 @@ def input_digests(rc: "RunContext") -> dict[str, Any]:
 
 
 def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs, *, tier: int, source: str,
-                      instances: list[tuple[Any, str]], qid: str | None = None,
-                      raw: dict[str, str] | None = None) -> Task:
+                      instances: list[tuple[Any, str]], qid: str | None = None) -> Task:
     p = inp.policy
     est = parse_field_minutes(fields["est"]) if "est" in fields else None
     due = parse_field_date(fields["due"], inp.today) if "due" in fields else None
@@ -193,7 +193,7 @@ def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs,
     return Task(id=tid, title=title, est=est if est is not None else p.default_est, due=due, earliest=earliest,
                 tier=t_tier if t_tier is not None else tier, window=window, window_text=fields.get("when"),
                 carry=carry or 0, deadline=str(fields.get("deadline", "")).lower() in ("true", "yes", "1"),
-                source=source, question_id=qid, defaulted_est=est is None, fields=dict(raw or {}))
+                source=source, question_id=qid, defaulted_est=est is None)
 
 
 def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instances: list[tuple[Any, str]]) -> list[Task]:
@@ -207,8 +207,7 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         fields = dict(st.fields)
         if adj.get("est"):
             fields["est"] = str(adj["est"])
-        task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances,
-                                 raw=st.raw)
+        task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances)
         if task.window is not None and task.window.days() and max(task.window.days()) < inp.today:
             # every day of the stored window is behind the run: it cannot be met, and it says
             # nothing about when to do the work now. Place the task like any other.
@@ -217,7 +216,7 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
     for row in scheduling_inputs(rc, decide):  # M5: finding answers, merges applied (docket.decide.operations)
         qid, ov, op = row["question_id"], row["overrides"], row["op"]
         title = row["title"]
-        tid = "t_" + digest(["answer", qid])[:16]
+        tid = plan_labels.answer_task_id(qid)
         fields: dict[str, str] = {}
         if op is not None:
             parsed = parse_line(rc, op["destination"], op["line"])
@@ -237,7 +236,8 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
     return [out[k] for k in sorted(out)]
 
 
-def _titler(rc: "RunContext", by_id: dict[str, Task]):
+def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | None = None):
+    labels = labels or {}
     t = rc.ws.config.planning.titles
     tpl = {k: templates.parse(getattr(t, k)) for k in ("task", "batch", "notes", "batch_notes")}
     # A planned block is written to the calendar destination like any other operation. When
@@ -249,31 +249,30 @@ def _titler(rc: "RunContext", by_id: dict[str, Task]):
         from docket.text.redact import Redactor
         redactor = Redactor.from_config(rc.ws.config.profile, dest.redact)
 
-    def view(task: Task) -> dict[str, Any]:
-        """What a template sees of a task. On a shared calendar a private matter shows its
-        private title in place of every word of its own."""
-        fields = {str(k): str(v) for k, v in dict(task.fields or {}).items()}
-        title = task.title
-        if redactor is not None and redactor.is_private(title, *fields.values()):
-            title, fields = redactor.private_title, {k: redactor.private_title for k in fields}
-        return {"title": title, "est": task.est, "id": task.id, "fields": fields}
-
-    def f(task: Task) -> tuple[str, str]:
-        members = [by_id[m] for m in task.members if m in by_id]
-        ctx = {**view(task), "count": len(members),
-               "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
-               "members": [view(m) for m in members]}
-        if task.kind == "batch":
-            pair = templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()
-        else:
-            pair = templates.render(tpl["task"], ctx), templates.render(tpl["notes"], ctx)
+    def shared(pair: tuple[str, str]) -> tuple[str, str]:
         if redactor is None:
             return pair
         title, notes = redactor.redact(pair[0]), redactor.redact(pair[1])
         redactor.check(title, where=f"destinations.{cal.destination}.title")
         redactor.check(notes, where=f"destinations.{cal.destination}.notes")
         return title, notes
-    return f
+
+    def g(task: Task) -> tuple[str, str]:
+        return shared(f(task))
+
+    def f(task: Task) -> tuple[str, str]:
+        members = [by_id[m] for m in task.members if m in by_id]
+        # ``label`` is the words the label task wrote for the task (TD §12.7); ``id`` is the
+        # task's own id, from which a template can build a link back to its line.
+        ctx = {"title": task.title, "count": len(members), "est": task.est, "id": task.id,
+               "label": labels.get(task.id, ""),
+               "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
+               "members": [{"title": m.title, "est": m.est, "id": m.id, "label": labels.get(m.id, "")}
+                           for m in members]}
+        if task.kind == "batch":
+            return templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()
+        return templates.render(tpl["task"], ctx), templates.render(tpl["notes"], ctx)
+    return g
 
 
 # --- the build ------------------------------------------------------------------
@@ -306,7 +305,7 @@ def run_planning(rc: "RunContext", decide: dict[str, Any]) -> Built:
     c = cfg.planning.calendar
     assert c is not None
     res = schedule(tasks, cal, inp.policy, today=inp.today, now=inp.now, tz=inp.tz, calendar=c.calendar,
-                   titler=_titler(rc, by_id))
+                   titler=_titler(rc, by_id, plan_labels.for_run(rc, decide)))
     problems = validate(res)
     if problems:
         raise IntegrityError("plan.invalid", "The built plan failed its own validation; this is a defect.",

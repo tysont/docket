@@ -19,8 +19,9 @@ from docket.config.source_models import MAPPING_KEY_DOCS, Source, TransportConfi
 from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
 from docket.config.close_models import Hook, JournalConfig  # M8: the journal and hooks sections (TD §13.5, §13.6)
 
-STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close")
-StageName = Literal["collect", "assess", "merge", "review", "decide", "plan", "approve", "apply", "close"]
+STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "label", "plan", "approve", "apply",
+                          "close")
+StageName = Literal["collect", "assess", "merge", "review", "decide", "label", "plan", "approve", "apply", "close"]
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 SOURCE_KINDS: dict[str, frozenset[str]] = {
@@ -321,34 +322,9 @@ class QualityConfig(Strict):
     duration: Literal["compact", "minutes"] = "compact"   # an estimate as 1h30m, or as 90m
 
 
-class RedactNames(Strict):
-    """Replace every word written like a name unless it is allowed (TD §11.4). ``allow`` holds
-    words and phrases that may be shown, matched whole and without regard to case."""
-    allow: list[str] = []
-
-
-class RedactPrivate(Strict):
-    """Text that matches a pattern, in itself or in what it was made from, is replaced whole by ``title``."""
-    patterns: list[str] = Field(min_length=1)
-    title: str = "Private"
-
-    @field_validator("patterns")
-    @classmethod
-    def _compile(cls, v: list[str]) -> list[str]:
-        import re
-        for p in v:
-            try:
-                re.compile(p)
-            except re.error as e:
-                raise ValueError(f"not a regular expression: {p!r}: {e}") from None
-        return v
-
-
 class RedactConfig(Strict):
     """Redaction for a shared destination (TD §11.4)."""
     people: bool = False
-    names: RedactNames | None = None
-    private: RedactPrivate | None = None
     figures: list[str] = []
     classes: dict[str, str] = {}
     class_field: str | None = None

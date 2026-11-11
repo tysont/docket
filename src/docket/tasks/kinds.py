@@ -443,6 +443,16 @@ You assess items collected for {me.name}, the operator. For each item in the pac
 - Write the ask as one imperative line that names the action and its object.
 - Quote evidence word for word from the item's lines and copy each quote's line id. Never paraphrase, shorten inside a quote, or translate."""
 
+LABEL_INSTRUCTIONS = """\
+You write the words that will stand for each of {me.name}'s tasks in a place other people can read, such as a shared calendar. Each item in the pack is one task as it is written in a private list: what to do, and often who asked, who is involved and why.
+
+For each task write one short `label`:
+
+- It tells {me.name} what the time is for: the kind of work and its subject, in a few words, starting with a verb.
+- It tells a reader nothing they should not learn from it. Whether a word is safe is a judgment about the matter, not about the word: the same name can be ordinary in one task and private in another.
+- When a task cannot be described at all without saying something private, write the workspace's label for private work and nothing else.
+- Write a label for every task. Never copy a quote, a link or an id into it."""
+
 REVIEW_INSTRUCTIONS = """\
 You review candidate items before they are put to {me.name}, the operator. An earlier assessment kept each candidate; the pack shows its proposal (kind, owner, ask, evidence and, where the workspace names decisions, the decision recommended) without its score. You see the whole set at once, which the assessment did not. Form your own view.
 
@@ -541,10 +551,6 @@ def _assess(cfg: TasksConfig) -> TaskKind:
                              extend="tasks.assess.decisions"),)
         rules += (Rule((("keep", True),), ("decision",),
                        "every kept item is shown with a recommended decision"),)
-    if a.label:
-        fields += (FieldSpec("label", "str", "For a kept item, a short label that others may read. " + a.label.strip(),
-                             max_length=60, extend="tasks.assess.label"),)
-        rules += (Rule((("keep", True),), ("label",), "a kept item is labelled for where others can read it"),)
     return TaskKind("assess", "assess", True, "Decide which items need the operator and what they should do.",
                     ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes, Select(), "item",
                     context_items=a.context_items, context_chars=a.context_chars, examples=_examples(a.examples))
@@ -575,6 +581,15 @@ def _review(cfg: TasksConfig) -> TaskKind:
     return TaskKind("review", "review", True, "Check each kept candidate before the operator is asked.",
                     REVIEW_INSTRUCTIONS, r.guidance, fields, rules, r.max_items, r.max_bytes, Select(kept=True),
                     "review")
+
+
+def _label(cfg: TasksConfig) -> TaskKind:
+    lb = cfg.label
+    fields = (FieldSpec("label", "str", "The words that stand for this task where others can read them.",
+                        required=True, max_length=60, example="Review a plan", extend="tasks.label"),)
+    return TaskKind("label", "label", True, "Write the words that stand for each task where others can read them.",
+                    LABEL_INSTRUCTIONS, lb.guidance, fields, (), lb.max_items, lb.max_bytes, Select(), "item",
+                    context_items=0, examples=_examples(lb.examples))
 
 
 def _extract(cfg: TasksConfig) -> TaskKind:
@@ -643,7 +658,7 @@ def _custom(name: str, kc: Any) -> TaskKind:
 def _registry(key: bytes) -> dict[str, TaskKind]:
     import json
     cfg = TasksConfig.model_validate(json.loads(key))
-    kinds = [_assess(cfg), _extract(cfg), _review(cfg), _classify(cfg)]
+    kinds = [_assess(cfg), _extract(cfg), _review(cfg), _classify(cfg), _label(cfg)]
     kinds += [_custom(n, kc) for n, kc in sorted(cfg.kinds.items())]
     return {k.name: build_models(k) for k in kinds}
 

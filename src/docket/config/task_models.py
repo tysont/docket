@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 FIELD_TYPES: tuple[str, ...] = ("str", "int", "bool", "enum", "date", "duration", "evidence", "item_ref")
 FieldTypeName = Literal["str", "int", "bool", "enum", "date", "duration", "evidence", "item_ref"]
 RESERVED_FIELDS = frozenset({"id", "source"})
-CORE_KIND_NAMES: tuple[str, ...] = ("assess", "extract", "review", "classify")
+CORE_KIND_NAMES: tuple[str, ...] = ("assess", "extract", "review", "classify", "label")
 
 
 class Strict(BaseModel):
@@ -62,12 +62,15 @@ class AssessTasks(TaskBudget):
     # The decisions an item can get (id -> meaning), in the workspace's words. With them the
     # task recommends one for every item it keeps; a question offers it first (TD §10.2).
     decisions: dict[str, str] = {}
-    # What a second, short label for the item should say, when destinations are read by
-    # others: with it every kept item gets a `label`, available to every template.
-    label: str | None = None
 
 
 class ReviewTasks(TaskBudget):
+    guidance: str | None = None
+
+
+class LabelTasks(TaskBudget):
+    """The ``label`` task (TD §9.1): the words that stand for a task where others can read them.
+    ``guidance`` says what such a label may and may not say; ``examples`` teach it."""
     guidance: str | None = None
 
 
@@ -156,6 +159,7 @@ class TasksConfig(Strict):
     review: ReviewTasks = ReviewTasks()
     extract: ExtractTasks = ExtractTasks()
     classify: ClassifyTasks = ClassifyTasks()
+    label: LabelTasks = LabelTasks()
     kinds: dict[str, TaskKindConfig] = {}
 
     @field_validator("kinds")

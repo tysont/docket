@@ -370,7 +370,7 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
             if not stages or stages[-1] != "close":
                 problems.append("the last stage must be close")
             needs = {"approve": "plan", "apply": "approve", "plan": "decide", "decide": "assess", "review": "assess",
-                     "merge": "assess"}
+                     "merge": "assess", "label": "plan"}
             for s, req in needs.items():
                 if s in stages and req not in stages:
                     problems.append(f"{s} needs {req}")

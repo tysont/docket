@@ -98,6 +98,12 @@ CREATE TABLE item_ledger (
 );
 CREATE INDEX item_ledger_state ON item_ledger (state)
 """),
+    # Labels written for task lines, reused until the line changes (TD §12.7).
+    (12, """
+CREATE TABLE task_labels (
+  task_id TEXT PRIMARY KEY, text_digest TEXT NOT NULL, label TEXT NOT NULL, run_id TEXT
+)
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

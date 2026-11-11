@@ -294,6 +294,23 @@ class ReviewStage(DelegatedStage):
         return combine_review(up.output["items"], plan)
 
 
+class LabelStage(DelegatedStage):
+    """Labels for the tasks planning may place (TD §12.7). Its output is the decide output
+    with ``labels`` added, so the stages after it read what they always read."""
+    name = "label"
+    task_kind = "label"
+    config_sections = ("profile", "tasks", "planning", "destinations")
+
+    def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
+        from docket.plan.labels import candidates
+        return candidates(run, up.output)
+
+    def combine(self, up: StageEval, plan: Any) -> dict[str, Any]:
+        from docket.tasks.runner import _rows
+        rows = _rows(plan).get("label", {})
+        return {**up.output, "labels": {tid: str(row.get("label") or "") for tid, (_, row) in sorted(rows.items())}}
+
+
 # --- merge -----------------------------------------------------------------
 
 
@@ -602,5 +619,5 @@ class CloseStage(BaseStage):
 
 STAGE_IMPLS: dict[str, BaseStage] = {
     s.name: s for s in (CollectStage(), AssessStage(), MergeStage(), ReviewStage(), DecideStage(),
-                        PlanStage(), ApproveStage(), ApplyStage(), CloseStage())
+                        LabelStage(), PlanStage(), ApproveStage(), ApplyStage(), CloseStage())
 }

@@ -187,3 +187,33 @@ def test_a_stored_task_whose_window_has_passed_is_planned_without_it(persona, cl
     ops = [o for o in plan["operations"] if o.get("title") == "Review the ingest service runbook"]
     assert ops and ops[0]["verb"] in ("create", "keep") and ops[0]["start"][:10] >= "2026-10-15"
     assert any("window that has passed" in n and "1 task" in n for n in plan["notes"])
+
+
+def test_blocks_carry_the_labels_the_label_task_wrote_and_a_line_is_labelled_once(persona, cli, pinned_now):
+    """With a label stage before plan, every task planning may place is labelled by a judged
+    task, and the block's title is that label, not the words of the private line. A closed
+    run remembers its labels: the next run asks for none while the lines stand as they were."""
+    ws = persona("reference-like")
+    y = ws / "docket.yaml"
+    y.write_text(y.read_text().replace("stages: [collect, assess, merge, decide, plan, close]",
+                                       "stages: [collect, assess, merge, decide, label, plan, close]"))
+    p = ws / "planning.yaml"
+    p.write_text(p.read_text() + '  titles: { task: "{label|default:Task}", notes: "notes://find?q={id}" }\n')
+    run_id = _start(cli, ws, pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    assert res.failures == []
+    labelled = [t for s in res.steps if s["kind"] == "dispatch" and s["stage"] == "label" for t in s["tasks"]]
+    assert labelled and all(t["kind"] == "label" for t in labelled)
+    code, env = cli("plan", "diff", "--workspace", str(ws))
+    assert code == 0, env
+    plan = _plan(ws, run_id, env["data"]["plan_digest"])
+    made = [o for o in plan["operations"] if o.get("verb") == "create" and str(o.get("key", "")).startswith("dk_t_")]
+    assert made and {o["title"] for o in made} == {"Review a plan"}, [o["title"] for o in made]   # the synthetic label
+    assert all(o["notes"].startswith("notes://find?q=") for o in made)
+    assert run_agent(ws).final["kind"] == "done"
+
+    code, env = cli("run", "start", "week-plan", "--new", "--now", pinned_now, "--workspace", str(ws))
+    assert code == 0, env
+    again = run_agent(ws)
+    assert again.failures == []
+    assert [s for s in again.steps if s["kind"] == "dispatch" and s["stage"] == "label"] == []
