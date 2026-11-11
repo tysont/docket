@@ -24,12 +24,12 @@ from docket.config.digest import digest
 # Action kinds a destination may accept (FR-ACT-01). Config options name the first of each family.
 ACTION_KINDS = (
     "task.add", "task.update", "task.close", "task.carry",
-    "agenda.add",
+    "agenda.add", "agenda.roll",
     "calendar.place", "calendar.move", "calendar.update", "calendar.release", "calendar.rekey",
     "message.draft",
     "journal.write",
 )
-VERBS = ("append", "replace", "create", "move", "update", "delete", "rekey", "draft", "write_section")
+VERBS = ("append", "replace", "create", "move", "update", "delete", "rekey", "draft", "write_section", "roll")
 PROVENANCE = ("question_id", "item_id", "depends_on")
 
 
@@ -85,6 +85,9 @@ class Operation(BaseModel):
     to: list[str] = []
     subject: str | None = None
     body: str | None = None
+    # agenda roll: ``title`` is the dated heading, ``body`` what goes under it, and
+    # ``remove`` the entries (each with its sub-lines) that leave the anchor section
+    remove: list[str] = []
     # provenance and ordering (not part of op_id)
     depends_on: list[str] = []
     question_id: str | None = None
@@ -96,7 +99,7 @@ class Operation(BaseModel):
 
     def dump(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude_none=True, exclude_defaults=False,
-                               exclude={k for k in ("to", "depends_on") if not getattr(self, k)})
+                               exclude={k for k in ("to", "depends_on", "remove") if not getattr(self, k)})
 
     def payload(self) -> dict[str, Any]:
         return {k: v for k, v in self.dump().items() if k not in PROVENANCE and k != "op_id"}

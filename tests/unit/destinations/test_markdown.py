@@ -330,3 +330,96 @@ def test_a_task_store_reports_the_status_of_the_keys_it_holds(tmp_path):
     (tmp_path / "tasks.md").write_text("## Inbox\n- [ ] Call the vendor [id:: iaaaaaaaa]\n- [x] Send the note [id:: ibbbbbbbb]\n"
                                        "- [ ] No key here\n")
     assert d.key_status() == {"iaaaaaaaa": "open", "ibbbbbbbb": "done"}
+
+
+# --- agenda roll: what a meeting covered moves under its date -----------------------------
+
+ROLLING = """\
+---
+type: 1-1
+---
+
+# 1-1 · Sam
+
+## Next
+
+- Hiring plan
+  - two open roles
+* Launch date
+- Budget
+
+## 2026-10-08
+
+- Earlier topic
+
+## Notes
+Free text.
+"""
+
+
+def rolling(tmp_path, text=ROLLING):
+    (tmp_path / "meet").mkdir(exist_ok=True)
+    (tmp_path / "meet" / "sam.md").write_text(text)
+    cfg = DestConfig.model_validate({"adapter": "markdown_agenda", "path": "meet", "section": "## Next"})
+    return build("agendas", cfg, DestEnv(root=tmp_path, profile=PROFILE, sandbox_dir=tmp_path / "sbx"))
+
+
+def roll(date, **kw):
+    return Action(kind="agenda.roll", destination="agendas", fields={"agenda": "sam", "date": date, **kw})
+
+
+def test_an_agenda_reports_what_is_next_and_when_it_was_last_rolled(tmp_path):
+    d = rolling(tmp_path)
+    text = d.snapshot().data["files"]["meet/sam.md"]
+    assert [(e["line"], e["text"]) for e in d.entries(text)] == [
+        ("N1", "- Hiring plan"), ("N2", "* Launch date"), ("N3", "- Budget")]
+    assert d.entries(text)[0]["block"] == ["- Hiring plan", "  - two open roles"]
+    assert d.last_dated(text) == "2026-10-08"
+    assert d.last_dated("# Empty\n\n## Next\n") is None
+
+
+def test_a_roll_writes_what_was_covered_under_its_date_and_takes_it_out_of_next(tmp_path):
+    """After a meeting, what was covered goes under the meeting's date, directly below Next
+    and above earlier dates. The Next entries that were covered leave Next; the rest stay
+    for the next meeting. Everything else in the file is untouched."""
+    d = rolling(tmp_path)
+    [op] = d.preview(roll("2026-10-15", lines=["- Hiring: two offers out", "- Reorg timing (not on the agenda)"],
+                          remove=["N1"], trailer="→ [notes](https://docs.example.org/n1)"), d.snapshot())
+    assert op.verb == "roll" and op.path == "meet/sam.md" and op.title == "## 2026-10-15"
+    assert d.apply(op).outcome == "applied" and d.verify(op, d.apply(op)).ok
+    assert (tmp_path / "meet" / "sam.md").read_text() == ROLLING.replace(
+        "- Hiring plan\n  - two open roles\n* Launch date\n- Budget\n\n## 2026-10-08",
+        "* Launch date\n- Budget\n\n## 2026-10-15\n\n- Hiring: two offers out\n- Reorg timing (not on the agenda)\n\n"
+        "→ [notes](https://docs.example.org/n1)\n\n## 2026-10-08")
+    assert d.apply(op).outcome == "already_present"                         # a date is rolled once
+
+
+def test_with_no_record_of_the_meeting_next_moves_down_whole(tmp_path):
+    d = rolling(tmp_path)
+    [op] = d.preview(roll("2026-10-15", move_all=True, suffix="no transcript, agenda assumed covered"), d.snapshot())
+    d.apply(op)
+    text = (tmp_path / "meet" / "sam.md").read_text()
+    assert "## Next\n\n## 2026-10-15 *(no transcript, agenda assumed covered)*\n\n- Hiring plan\n  - two open roles\n" \
+           "* Launch date\n- Budget\n\n## 2026-10-08" in text
+    assert d.entries(text) == []
+
+
+def test_a_roll_that_has_nothing_to_say_or_is_not_newer_writes_nothing(tmp_path):
+    d = rolling(tmp_path)
+    assert d.preview(roll("2026-10-08", lines=["- Again"]), d.snapshot()) == []        # that date is already there
+    assert d.preview(roll("2026-10-01", lines=["- Older"]), d.snapshot()) == []        # older than the last one
+    empty = rolling(tmp_path, ROLLING.replace("- Hiring plan\n  - two open roles\n* Launch date\n- Budget\n", ""))
+    assert empty.preview(roll("2026-10-15", move_all=True, suffix="no transcript"), empty.snapshot()) == []
+    assert empty.preview(roll("2026-10-15", lines=["- Covered a thing"]), empty.snapshot()) != []
+
+
+def test_a_next_entry_edited_since_the_plan_is_left_where_it_is(tmp_path):
+    """The operator may edit Next between plan and apply. A roll removes only an entry that
+    is still exactly what the plan saw; anything else stays in Next."""
+    d = rolling(tmp_path)
+    [op] = d.preview(roll("2026-10-15", lines=["- Hiring: two offers out"], remove=["N1", "N3"]), d.snapshot())
+    p = tmp_path / "meet" / "sam.md"
+    p.write_text(p.read_text().replace("- Budget", "- Budget for next year"))
+    d.apply(op)
+    text = p.read_text()
+    assert "- Budget for next year" in text.split("## 2026-10-15")[0] and "- Hiring plan" not in text

@@ -21,7 +21,7 @@ from docket.destinations import quality as quality_mod
 from docket.destinations.base import (
     Acceptance, Action, BaseDestination, DestEnv, DestState, Operation, Receipt, VerifyResult, make_op,
 )
-from docket.destinations.markdown_io import Doc, FileIO, TwinIO, line_digest
+from docket.destinations.markdown_io import Doc, FileIO, TwinIO, heading_level, line_digest
 from docket.shapes.unexpected import unexpected
 from docket.text import templates
 from docket.text.grammar import Grammar, TaskLine
@@ -31,6 +31,7 @@ DEFAULT_AGENDA_SECTION = "## Next"
 DEFAULT_AGENDA_LINE = "- {title}"
 DEFAULT_JOURNAL_HEADING = "## {run.date} {run.id}"
 _LIST_ITEM = re.compile(r"^(?:[-*+]|\d+[.)])\s")
+_DATED = re.compile(r"^#{1,6}\s+(\d{4}-\d{2}-\d{2})\b")
 
 
 
@@ -298,8 +299,8 @@ class MarkdownTasks(MarkdownBase):
 class MarkdownAgenda(MarkdownBase):
     """Agendas discovered under a path pattern or listed per forum, with a capacity-limited section."""
     adapter = "markdown_agenda"
-    capabilities = frozenset({"agenda.add"})
-    verbs = frozenset({"append"})
+    capabilities = frozenset({"agenda.add", "agenda.roll"})
+    verbs = frozenset({"append", "roll"})
 
     @property
     def section(self) -> str:
@@ -354,7 +355,7 @@ class MarkdownAgenda(MarkdownBase):
         files = {p: self.io.read(p) for p in self.discover()}
         return self._accept(action, files)
 
-    def preview(self, action: Action, state: DestState, **_: Any) -> list[Operation]:
+    def _preview_add(self, action: Action, state: DestState, **_: Any) -> list[Operation]:
         acc = self._accept(action, state.data.get("files") or {})
         if not acc.ok:
             raise IntegrityError("dest.not_accepted", acc.reason or "not accepted", hint="docket plan build",
@@ -365,12 +366,109 @@ class MarkdownAgenda(MarkdownBase):
                         line=line, question_id=action.question_id, item_id=action.item_id,
                         depends_on=action.depends_on or None)]
 
+    # --- roll: what a meeting covered moves under its date (TD §11.3) -------------------
+    def entries(self, text: str | None) -> list[dict[str, Any]]:
+        """The entries of the agenda section: each top-level list item with the lines under it,
+        named N1, N2, ... in order."""
+        doc = Doc.parse(text)
+        out: list[dict[str, Any]] = []
+        for _, ln in doc.body(self.section) or []:
+            if _LIST_ITEM.match(ln):
+                out.append({"line": f"N{len(out) + 1}", "text": ln.rstrip(), "block": [ln.rstrip()]})
+            elif out and ln.strip() and ln[:1] in (" ", "\t"):
+                out[-1]["block"].append(ln.rstrip())
+        return out
+
+    def last_dated(self, text: str | None) -> str | None:
+        """The latest date that has its own section (a heading that starts with an ISO date)."""
+        doc = Doc.parse(text)
+        dates = [m.group(1) for i, _ in doc.headings() if (m := _DATED.match(doc.lines[i]))]
+        return max(dates) if dates else None
+
+    def _roll(self, action: Action, state: DestState) -> list[Operation]:
+        f = action.fields
+        path = self.target(action)
+        files = state.data.get("files") or {}
+        if path is None or files.get(path) is None:
+            raise IntegrityError("dest.not_accepted", f"{self.id}: no agenda found for this item",
+                                 hint="docket plan build", details={"destination": self.id, "path": path})
+        text = files[path]
+        date = str(f.get("date") or "")[:10]
+        last = self.last_dated(text)
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or (last is not None and date <= last):
+            return []  # that meeting, or a later one, already has its section
+        entries = self.entries(text)
+        if f.get("move_all"):
+            lines = [ln for e in entries for ln in e["block"]]
+            gone = [e["text"] for e in entries]
+        else:
+            by_id = {e["line"]: e["text"] for e in entries}
+            lines = [str(x).rstrip() for x in (f.get("lines") or []) if str(x).strip()]
+            gone = [by_id[i] for i in (f.get("remove") or []) if i in by_id]
+        if not lines:
+            return []
+        level = "#" * (heading_level(self.section) or 2)
+        heading = f"{level} {date}" + (f" *({f['suffix']})*" if f.get("suffix") else "")
+        body = "\n".join(lines) + (f"\n\n{f['trailer']}" if f.get("trailer") else "")
+        body = self.shared_text(body, "roll")
+        return [make_op(self.id, "roll", ident=f"{path}#{date}", path=path, anchor=self.section, title=heading,
+                        body=body, remove=gone, question_id=action.question_id, item_id=action.item_id,
+                        depends_on=action.depends_on or None)]
+
+    def _apply_roll(self, op: Operation) -> Receipt:
+        doc = self.doc(op.path)
+        date = (op.title or "").split()[1] if len((op.title or "").split()) > 1 else ""
+        if any((m := _DATED.match(doc.lines[i])) and m.group(1) == date for i, _ in doc.headings()):
+            return self.receipt(op, "already_present", self.ext(op.path, op.title or ""))
+        sec = doc.section(op.anchor) or doc.add_section(op.anchor)
+        start, end = sec
+        # take out the covered entries that still read as the plan saw them, with their sub-lines
+        drop: set[int] = set()
+        for want in op.remove:
+            for i in range(start + 1, end):
+                if i not in drop and doc.lines[i].rstrip() == want.rstrip() and _LIST_ITEM.match(doc.lines[i]):
+                    drop.add(i)
+                    j = i + 1
+                    while j < end and doc.lines[j].strip() and doc.lines[j][:1] in (" ", "\t"):
+                        drop.add(j)
+                        j += 1
+                    break
+        kept = [doc.lines[i] for i in range(start + 1, end) if i not in drop]
+        while kept and not kept[-1].strip():
+            kept.pop()
+        while kept and not kept[0].strip():
+            kept.pop(0)
+        block = [doc.lines[start], ""] + (kept + [""] if kept else []) + [op.title or "", ""] \
+            + (op.body or "").split("\n") + [""]
+        tail = doc.lines[end:]
+        if not tail:
+            block.pop()
+        doc.lines[start:end] = block
+        self.save(op.path, doc)
+        return self.receipt(op, "applied", self.ext(op.path, op.title or ""))
+
+    def preview(self, action: Action, state: DestState, **kw: Any) -> list[Operation]:  # type: ignore[no-redef]
+        if action.kind == "agenda.roll":
+            base = BaseDestination.can_accept(self, action)
+            if not base.ok:
+                raise IntegrityError("dest.not_accepted", base.reason or "not accepted", hint="docket plan build",
+                                     details={"destination": self.id})
+            return self._roll(action, state)
+        return self._preview_add(action, state, **kw)
+
     def apply(self, op: Operation) -> Receipt:
         self.require_verb(op)
         self.own_path(op, set(self.discover()))
+        if op.verb == "roll":
+            return self._apply_roll(op)
         return self._append(op, capacity=self.cfg.capacity)
 
     def verify(self, op: Operation, receipt: Receipt) -> VerifyResult:
+        if op.verb == "roll":
+            doc = self.doc(op.path)
+            ok = any(doc.lines[i].strip() == (op.title or "").strip() for i, _ in doc.headings())
+            return VerifyResult(ok=True) if ok else VerifyResult(ok=False, status="missing",
+                                                                 detail=f"section {op.title} not found")
         return self._verify_line(op)
 
 

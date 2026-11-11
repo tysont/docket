@@ -269,6 +269,10 @@ def agenda_scenario(cfg: DestConfig, scratch: Path, dest_id: str = "agendas", pr
                                                                               agenda="conformance-sync")),
         lambda s: Action(kind="agenda.add", destination=dest_id, fields=_ctx("Second conformance topic",
                                                                               agenda="conformance-sync")),
+        # the meeting happened: one seeded topic was covered and leaves Next for its dated section
+        lambda s: Action(kind="agenda.roll", destination=dest_id,
+                         fields={"agenda": "conformance-sync", "date": "2030-02-01", "remove": ["N1"],
+                                 "lines": ["- Seeded topic was covered"]}),
     ]
 
     def unowned(dest: Any, state: DestState) -> list[Operation]:
