@@ -600,6 +600,7 @@ A task kind is a named triple of input model, output model and instructions. Cor
 | `assess` | A batch of items with evidence, unit context, the operator's profile summary and the vocabulary | Per item: `keep`, `score` 0..100, `kind` (request, commitment, decision, risk, fyi, or a configured value), `owner`, `ask` (one-line imperative), `evidence` (verbatim quotes), `deadline`, `topic` |
 | `extract` | A document (for example a transcript) split into sections | Commitments and requests with owner, verbatim evidence and deadline |
 | `review` | Candidates without scores, with evidence and the decision first recommended | Per item: `verdict` (ask, merge, drop, needs_verification), `against` (strongest argument against asking), `merge_with`, `reason`, and `decision` when the reviewer recommends a different one, which replaces the first recommendation |
+| `recap` | Meetings held, each with its record and its forum's agenda | Per meeting: `covered` (notes, each naming the agenda entry it settles), `actions` (§12.8) |
 | `label` | Task lines planning may place, as written in the private list | Per task: `label`, the words that stand for it where others can read them (§12.7) |
 | `classify` | Units or items needing a class | Per entry: `class`, `tier`, `reason` |
 
@@ -839,6 +840,22 @@ The `label` stage sits between `decide` and `plan`. Its candidates are the tasks
 `planning.titles` templates see `label` and the task's `id` beside `title`. A workspace with a shared calendar titles its blocks with `{label}`, and can build a link back to the private line from `{id}` in the notes, so the detail stays where only the operator can open it. A task with no label renders the template's default.
 
 A label is written once per line. A durable close remembers each label against the digest of its line's words (`task_labels`); a later run reuses it and labels only lines that are new or changed, so titles do not drift from run to run. A sandbox run remembers nothing. The destination's exact-list redaction (§11.4) still runs over the rendered title as a backstop.
+
+### 12.8 Rolling agendas
+
+A forum that meets again and again keeps one agenda: what is next, then a dated section for each meeting held. After a meeting the agenda is rolled, so that what lands in it afterwards is for the meeting to come.
+
+A source yields one item per meeting held: its title, start, the others who attended (`fields.attendees`), the record of the meeting as its text when there is one, and the record's link (`fields.record_url`). A meeting finds its forum through `forums[].calendar_match`: `attendee` when that person is the only other one present, else `title_regex` on the title. A meeting with no forum, or whose forum has no agenda, is left alone.
+
+`tasks.recap.select` names those sources. Their items go to the `recap` task and not to `assess`. A meeting is read only when it has a record and is later than its agenda's latest dated section; its pack item carries the agenda's entries (`fields.agenda`, each with an id). The task returns what the meeting covered, each note naming the agenda entry it settles when it settles one, and what people agreed to do.
+
+`workflows.<id>.roll` turns the run's meetings into `agenda.roll` operations in the plan, through the agenda destination's preview:
+
+- A meeting with a recap gets a section of what was covered (and an action list), with `trailer` as its last line. The entries it settled leave the agenda; the rest stay.
+- A meeting with no record is rolled only when it is the forum's latest: the agenda as it then stands moves down whole under a heading that carries `no_record`. With nothing on the agenda, nothing is written.
+- Meetings are rolled oldest first, each operation waiting on the one before. A meeting on or before the agenda's latest dated section is not rolled, so the agenda file is its own record of what has been done.
+
+The operations are approved and applied like any others. An entry the operator changed between plan and apply stays on the agenda.
 
 ## 13. Approve, apply and close
 

@@ -203,7 +203,7 @@ def test_task_kinds_and_schemas_for_every_kind(persona, cli, tmp_path):
     code, env = cli("task", "kinds", "--workspace", str(ws))
     assert code == 0
     kinds = {k["kind"]: k for k in env["data"]["kinds"]}
-    assert set(kinds) == {"assess", "extract", "review", "classify", "label", "tone"}
+    assert set(kinds) == {"assess", "extract", "review", "classify", "label", "recap", "tone"}
     assert kinds["tone"]["issued"] is True and kinds["extract"]["issued"] is False
     for k in kinds.values():
         for name in (k["input_schema"], k["output_schema"]):

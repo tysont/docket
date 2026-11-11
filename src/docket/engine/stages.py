@@ -274,7 +274,8 @@ class AssessStage(DelegatedStage):
     def candidates(self, run: "RunContext", up: StageEval) -> list[dict[str, Any]]:
         # M3: only items that need an agent (not ``assess: rules_only``, not dismissed); must-surface stay in.
         from docket.signals.stage import assess_selection
-        return assess_selection(run, list(up.output["items"])).candidates
+        from docket.plan.agenda_roll import with_agendas
+        return with_agendas(run, assess_selection(run, list(up.output["items"])).candidates)
 
     def combine(self, up: StageEval, plan: Any) -> dict[str, Any]:
         from docket.tasks.runner import combine_assess
@@ -448,6 +449,8 @@ class PlanStage(BaseStage):
         from docket.plan.build import planning_active
         mapped = plan_operations(run, up.output)  # M5: every answer kind (TD §10.3)
         ops = sorted(mapped["operations"], key=lambda o: (o["destination"], o["op_id"]))
+        from docket.plan import agenda_roll
+        ops += agenda_roll.operations(run)  # agendas rolled after the meetings held (TD §12.8), oldest first
         plan = {
             "inputs": {"decide": up.output_digest, "config_digest": ev.config_digest},
             "operations": ops, "schedule": [], "unschedulable": [], "notes": list(mapped["notes"]),
@@ -489,6 +492,10 @@ class PlanStage(BaseStage):
 def _op_line(o: dict[str, Any]) -> str:
     if o.get("verb") == "replace":
         return f"- {o['destination']} ({o['path']} under {o['anchor']}): change `{o.get('old_line', '')}` to `{o['line']}`"
+    if o.get("verb") == "roll":
+        n = len((o.get("body") or "").split("\n"))
+        return (f"- {o['destination']} ({o['path']}): roll `{o.get('title', '')}`, {n} line(s); "
+                f"{len(o.get('remove') or [])} entr(ies) leave {o.get('anchor')}")
     if o.get("verb") == "draft":
         return f"- {o['destination']}: draft `{o.get('subject', '')}` to {', '.join(o.get('to') or [])}"
     return f"- {o['destination']} ({o.get('path')} under {o.get('anchor')}): add `{o.get('line')}`"

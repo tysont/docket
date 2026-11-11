@@ -145,8 +145,11 @@ class Select:
     sources: tuple[str, ...] | None = None
     units: tuple[str, ...] | None = None
     kept: bool | None = None
+    not_sources: tuple[str, ...] = ()      # items of these sources belong to another kind
 
     def matches(self, it: dict[str, Any]) -> bool:
+        if it.get("source") in self.not_sources:
+            return False
         if self.sources is not None and it.get("source") not in self.sources:
             return False
         if self.units is not None and it.get("unit") not in self.units:
@@ -473,6 +476,16 @@ You extract commitments and requests from documents collected for {me.name}, the
 - Quote evidence word for word from the document's lines and copy each quote's line id. Never paraphrase.
 - Return an empty entries list for a document that records none."""
 
+RECAP_INSTRUCTIONS = """\
+You record what {me.name}'s meetings covered. Each pack item is one meeting that was held: its lines are the record of the meeting (notes or a transcript), and its `fields.agenda` lists what was on the agenda beforehand, each entry with an id (N1, N2, ...).
+
+For each meeting:
+
+- List what was actually covered, from the record alone. A meeting often covers things that were not on the agenda; include them. It often skips things that were; do not list those.
+- When something covered settles an agenda entry, name that entry's id in `next`. An entry that was only touched on and needs more time is not settled: leave `next` empty so it stays on the agenda.
+- List what people agreed to do under `actions`.
+- Write notes, not sentences: the subject, then what was said or decided. Do not copy the record's wording at length, and never invent what the record does not show."""
+
 CLASSIFY_INSTRUCTIONS = """\
 You classify entries collected for {me.name}, the operator. For each pack item choose the class that best describes it, and a tier from 1 (most important to the operator) to 9 when the entry suggests one.
 
@@ -552,7 +565,8 @@ def _assess(cfg: TasksConfig) -> TaskKind:
         rules += (Rule((("keep", True),), ("decision",),
                        "every kept item is shown with a recommended decision"),)
     return TaskKind("assess", "assess", True, "Decide which items need the operator and what they should do.",
-                    ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes, Select(), "item",
+                    ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes,
+                    Select(not_sources=tuple(recap_sources(cfg))), "item",
                     context_items=a.context_items, context_chars=a.context_chars, examples=_examples(a.examples))
 
 
@@ -590,6 +604,35 @@ def _label(cfg: TasksConfig) -> TaskKind:
     return TaskKind("label", "label", True, "Write the words that stand for each task where others can read them.",
                     LABEL_INSTRUCTIONS, lb.guidance, fields, (), lb.max_items, lb.max_bytes, Select(), "item",
                     context_items=0, examples=_examples(lb.examples))
+
+
+def recap_sources(cfg: TasksConfig) -> list[str]:
+    """The sources whose items are meetings, read by ``recap`` and not by ``assess``."""
+    sel = cfg.recap.select
+    return sorted(sel.sources) if sel is not None and sel.sources else []
+
+
+def _recap(cfg: TasksConfig) -> TaskKind:
+    r = cfg.recap
+    covered = (
+        FieldSpec("text", "str", "One thing the meeting covered, as a short note: the subject and what was said "
+                                 "or decided.", required=True, max_length=200, example="Hiring: two offers out"),
+        FieldSpec("next", "str", "The agenda entry this settles (its id, such as N2), when it settles one.",
+                  max_length=8, example="N2"),
+    )
+    action = (FieldSpec("text", "str", "One thing someone agreed to do, with who.", required=True, max_length=200,
+                        example="Sam to send the offer letters"),)
+    fields = (
+        FieldSpec("covered", "rows", "What the meeting covered, most important first; at most "
+                                     f"{r.max_covered}. Empty when the record shows nothing was discussed.",
+                  required=True, rows=covered),
+        FieldSpec("actions", "rows", "What people agreed to do; empty when none.", required=True, rows=action),
+    )
+    sel = Select(tuple(r.select.sources) if r.select.sources is not None else None,
+                 tuple(r.select.units) if r.select.units is not None else None) if r.select else None
+    return TaskKind("recap", "assess", True, "Say what each meeting covered, beside its agenda.",
+                    RECAP_INSTRUCTIONS, r.guidance, fields, (), r.max_items, r.max_bytes, sel, "item",
+                    context_items=0, examples=_examples(r.examples))
 
 
 def _extract(cfg: TasksConfig) -> TaskKind:
@@ -658,7 +701,7 @@ def _custom(name: str, kc: Any) -> TaskKind:
 def _registry(key: bytes) -> dict[str, TaskKind]:
     import json
     cfg = TasksConfig.model_validate(json.loads(key))
-    kinds = [_assess(cfg), _extract(cfg), _review(cfg), _classify(cfg), _label(cfg)]
+    kinds = [_assess(cfg), _extract(cfg), _review(cfg), _classify(cfg), _label(cfg), _recap(cfg)]
     kinds += [_custom(n, kc) for n, kc in sorted(cfg.kinds.items())]
     return {k.name: build_models(k) for k in kinds}
 

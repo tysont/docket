@@ -152,6 +152,17 @@ class WorkflowReview(Strict):
     pool: int | None = None
 
 
+class WorkflowRoll(Strict):
+    """Roll agendas after the meetings a run collected (TD §12.8). ``sources`` yield one item
+    per meeting held; ``destination`` is the agenda destination. ``no_record`` is the note on
+    a section made without a record of the meeting; ``trailer`` a last line for a section
+    made from one (it may use ``{url}``, the record's link)."""
+    sources: list[str] = Field(min_length=1)
+    destination: str
+    no_record: str = "no record of the meeting, agenda assumed covered"
+    trailer: str = ""
+
+
 class WorkflowQuestions(Strict):
     kinds: list[str] = ["finding"]
     bursts: int = 1
@@ -185,6 +196,7 @@ class Workflow(Strict):
     rehearse_at_pause: bool = False     # the pause step carries the rehearse command (TD §14.3)
     refresh_on_resume: list[str] = []
     review: WorkflowReview | None = None
+    roll: WorkflowRoll | None = None
     questions: WorkflowQuestions = WorkflowQuestions()
     options: str | None = None
     journal: str | None = None

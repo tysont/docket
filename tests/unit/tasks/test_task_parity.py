@@ -105,7 +105,7 @@ def test_prompt_names_exactly_the_accepted_fields(persona, kind_name):
 def test_every_named_value_is_accepted_without_a_safe_reading(persona, kind_name):
     _, kind, _, prompt = _pack(persona, kind_name)
     values, _ = named(prompt)
-    assert any(values.values()) or kind_name == "label"  # every kind but label (one free-text field) has an enumerated field
+    assert any(values.values()) or kind_name in ("label", "recap")  # every kind but these (free text only) has an enumerated field
     for path, vals in values.items():
         parts = path.split(".")
         spec = kind.field(parts[0])

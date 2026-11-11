@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 FIELD_TYPES: tuple[str, ...] = ("str", "int", "bool", "enum", "date", "duration", "evidence", "item_ref")
 FieldTypeName = Literal["str", "int", "bool", "enum", "date", "duration", "evidence", "item_ref"]
 RESERVED_FIELDS = frozenset({"id", "source"})
-CORE_KIND_NAMES: tuple[str, ...] = ("assess", "extract", "review", "classify", "label")
+CORE_KIND_NAMES: tuple[str, ...] = ("assess", "extract", "review", "classify", "label", "recap")
 
 
 class Strict(BaseModel):
@@ -86,6 +86,15 @@ class ExtractTasks(TaskBudget):
     select: TaskSelect | None = None
     guidance: str | None = None
     max_quote: int = Field(300, ge=20, le=4000)
+
+
+class RecapTasks(TaskBudget):
+    """``recap`` (TD §12.8) runs only when ``select`` names the sources that yield meetings.
+    It reads a meeting's record beside the forum's agenda and says what was covered. Items
+    of those sources are not given to the ``assess`` task."""
+    select: TaskSelect | None = None
+    guidance: str | None = None
+    max_covered: int = Field(8, ge=1, le=30)
 
 
 class ClassifyTasks(TaskBudget):
@@ -160,6 +169,7 @@ class TasksConfig(Strict):
     extract: ExtractTasks = ExtractTasks()
     classify: ClassifyTasks = ClassifyTasks()
     label: LabelTasks = LabelTasks()
+    recap: RecapTasks = RecapTasks()
     kinds: dict[str, TaskKindConfig] = {}
 
     @field_validator("kinds")

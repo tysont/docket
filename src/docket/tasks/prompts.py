@@ -129,7 +129,7 @@ def _example_value(f: "FieldSpec", pack: dict[str, Any], row_id: str) -> Any:
     if t == "rows":
         sub = {}
         for s in f.rows:
-            if s.required:
+            if s.required or s.example is not None:  # an optional field with an example shows its shape
                 sub[s.name] = _example_value(s, pack, row_id)
         return [sub]
     return None
