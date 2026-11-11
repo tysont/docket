@@ -597,7 +597,7 @@ A task kind is a named triple of input model, output model and instructions. Cor
 
 | Kind | Input | Output |
 |---|---|---|
-| `assess` | A batch of items with evidence, unit context, the operator's profile summary and the vocabulary | Per item: `keep`, `score` 0..100, `kind` (request, commitment, decision, risk, fyi, or a configured value), `owner`, `ask` (one-line imperative), `evidence` (verbatim quotes), `deadline`, `topic` |
+| `assess` | A batch of items with evidence, unit context, the operator's profile summary and the vocabulary | Per item: `keep`, `score` 0..100, `kind` (request, commitment, decision, risk, fyi, or a configured value), `owner`, `ask` (one-line imperative), `evidence` (verbatim quotes), `deadline`, `topic`, and, when `tasks.assess.label` says what it should be, a short `label` that others may read |
 | `extract` | A document (for example a transcript) split into sections | Commitments and requests with owner, verbatim evidence and deadline |
 | `review` | Candidates without scores, with evidence and the decision first recommended | Per item: `verdict` (ask, merge, drop, needs_verification), `against` (strongest argument against asking), `merge_with`, `reason`, and `decision` when the reviewer recommends a different one, which replaces the first recommendation |
 | `classify` | Units or items needing a class | Per entry: `class`, `tier`, `reason` |

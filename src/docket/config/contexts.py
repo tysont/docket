@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from docket.text.templates import FieldSet
 
-_ITEM = ["item_id", "key", "source", "source_label", "unit", "title", "text", "from", "at", "url", "score", "fields.*"]
+_ITEM = ["item_id", "key", "label", "source", "source_label", "unit", "title", "text", "from", "at", "url", "score", "fields.*"]
 
 # M5 decisions: item fields every decision template may also read (TD §10.2).
 _DECIDE = ["area", "topic", "ask", "owner", "kind", "deadline", "quote"]

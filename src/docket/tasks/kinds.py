@@ -541,6 +541,10 @@ def _assess(cfg: TasksConfig) -> TaskKind:
                              extend="tasks.assess.decisions"),)
         rules += (Rule((("keep", True),), ("decision",),
                        "every kept item is shown with a recommended decision"),)
+    if a.label:
+        fields += (FieldSpec("label", "str", "For a kept item, a short label that others may read. " + a.label.strip(),
+                             max_length=60, extend="tasks.assess.label"),)
+        rules += (Rule((("keep", True),), ("label",), "a kept item is labelled for where others can read it"),)
     return TaskKind("assess", "assess", True, "Decide which items need the operator and what they should do.",
                     ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes, Select(), "item",
                     context_items=a.context_items, context_chars=a.context_chars, examples=_examples(a.examples))

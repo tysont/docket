@@ -62,6 +62,9 @@ class AssessTasks(TaskBudget):
     # The decisions an item can get (id -> meaning), in the workspace's words. With them the
     # task recommends one for every item it keeps; a question offers it first (TD §10.2).
     decisions: dict[str, str] = {}
+    # What a second, short label for the item should say, when destinations are read by
+    # others: with it every kept item gets a `label`, available to every template.
+    label: str | None = None
 
 
 class ReviewTasks(TaskBudget):
