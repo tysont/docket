@@ -54,6 +54,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "config.bad_mapping": ("config", False, "A source mapping key or path is malformed."),
     "config.unknown_kind": ("config", False, "A source kind or destination adapter is not known."),
     "config.capability_missing": ("config", False, "No configured adapter supports an operation the graph needs."),
+    "config.bad_graph": ("config", False, "A graph's shape is wrong: a bad node name, a node it names that does not exist, a cycle, or an input of the wrong kind."),
     "config.bad_merge_form": ("config", False, "An extend/remove form is malformed or used where no list exists."),
     "workspace.not_found": ("config", False, "No docket.yaml was found from the working directory, --workspace or DOCKET_WORKSPACE."),
     # integrity
