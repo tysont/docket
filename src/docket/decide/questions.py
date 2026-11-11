@@ -1,6 +1,6 @@
 """Question generation (TD §10.1).
 
-``build(rc, items)`` turns the upstream stage's items, the reconcile window and
+``build(rc, items, node)`` turns the items an ask node works on, the reconcile window and
 the verification results into the ordered questions of the burst:
 
 - ``finding``: one per retained item (``q_`` + item id), at or above the
@@ -60,9 +60,10 @@ class QuestionSet:
         return out
 
 
-def option_set(rc: "RunContext") -> list[dict[str, Any]]:
+def option_set(rc: "RunContext", name: str | None) -> list[dict[str, Any]]:
+    """The finding options of the option set an ask node names."""
     sets = rc.ws.config.decisions.option_sets
-    name = rc.workflow.options or DEFAULT_OPTION_SET
+    name = name or DEFAULT_OPTION_SET
     chosen = sets.get(name, {}).get("finding")
     if chosen is None:
         unexpected("decide.options", f"option set {name} has no finding options",
@@ -157,11 +158,11 @@ def select_asked(items: list[dict[str, Any]], floor: int, budget: int | None, mu
 
 
 def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
-              notes_by_item: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
-                                                                 list[dict[str, Any]]]:
+              notes_by_item: dict[str, dict[str, Any]], node: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
+                                                                            list[dict[str, Any]]]:
     floor = int(((rc.ws.config.signals.get("scoring") or {}).get("floor")) or 0)
-    opts = option_set(rc)
-    wq = rc.workflow.questions
+    opts = option_set(rc, node.ask)
+    wq = node.questions
     asked, over = select_asked(items, floor, wq.budget, wq.must_surface,
                                batch={o["id"] for o in opts if o.get("batch")}, batch_budget=wq.batch_budget,
                                surfaced=rc.ws.config.decisions.recommend.surfaced,
@@ -192,19 +193,20 @@ def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
     return questions, [{"question_id": "q_" + it["id"], "item": it} for it in asked], not_asked
 
 
-def build(rc: "RunContext", items: list[dict[str, Any]]) -> QuestionSet:
+def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionSet:
+    """The questions of ask node ``node`` (its settings: the option set and what it asks)."""
     from docket.decide.store import open_tasks
-    kinds = set(rc.workflow.questions.kinds)
+    kinds = set(node.questions.kinds)
     qs = QuestionSet()
     tasks = open_tasks(rc) if kinds & {"reconcile", "verify"} else []
-    tg = verify.targets(rc, items, tasks)
+    tg = verify.targets(rc, items, tasks, verify_tasks="verify" in kinds)
     qs.pending_refs = verify.pending(rc, tg)
     acceptor = Acceptor(rc)
     try:
         by_kind: dict[str, list[dict[str, Any]]] = {"finding": [], "reconcile": [], "verify": []}
         if "finding" in kinds:
             notes = verify.item_notes(rc, tg) if not qs.pending_refs else {}
-            by_kind["finding"], qs.findings, qs.not_asked = _findings(rc, items, acceptor, notes)
+            by_kind["finding"], qs.findings, qs.not_asked = _findings(rc, items, acceptor, notes, node)
         if "reconcile" in kinds:
             for row in reconcile.candidates(rc, tasks):
                 q = reconcile.question(rc, row)

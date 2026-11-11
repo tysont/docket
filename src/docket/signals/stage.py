@@ -157,8 +157,7 @@ def agent_rows(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 def execute_merge(rc: "RunContext", up: Any) -> dict[str, Any]:
     items = list(up.output["items"])
-    col = rc.eval_or_none("collect")
-    sources = (col.output or {}).get("sources", {}) if col is not None else {}
+    sources = up.output.get("sources") or {}
     inp = inputs_for(rc.ws, rc.run.store, rc.run, items, agent_rows(items), sources)
     data = build_merge(inp)
     data["suppression_inputs"] = {"dispositions": inp.dispositions, "task_stores": inp.task_stores}

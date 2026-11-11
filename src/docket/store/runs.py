@@ -30,16 +30,13 @@ class RunHeader(BaseModel):
     """``run.json``: the run header."""
     schema_version: int = RUN_SCHEMA
     run_id: str
-    workflow: str
+    graph: str
     clock: Clock
     sandbox: bool = False
     status: str = "open"  # open | sealed | abandoned
-    resumed: list[str] = []
-    applied_plan: str | None = None
-    pinned: dict[str, str] = {}     # stage -> digest the applied plan was built from (TD §5.4)
+    # node that has started writing -> {plan: its plan's digest, pinned: {upstream node: digest}} (TD §5.4)
+    applied: dict[str, dict[str, Any]] = {}
     drift_ack: str | None = None    # digest of the upstream drift the operator chose to finish on
-    graph_run: str | None = None    # the graph run this run is a node of (TD §5.7)
-    node: str | None = None         # and which node
 
 
 class Store:
@@ -86,14 +83,11 @@ class RunPaths:
     def header(self) -> Path:
         return self.dir / "run.json"
 
-    def artifact(self, stage: str, digest: str) -> Path:
-        return self.dir / "artifacts" / stage / f"{digest}.json"
+    def artifact(self, node: str, digest: str) -> Path:
+        return self.dir / "artifacts" / node / f"{digest}.json"
 
-    def artifacts(self, stage: str) -> Path:
-        return self.dir / "artifacts" / stage
-
-    def records(self, generation: int, source: str) -> Path:
-        return self.dir / f"gen-{generation}" / "records" / f"{source}.jsonl"
+    def artifacts(self, node: str) -> Path:
+        return self.dir / "artifacts" / node
 
     def task(self, task_id: str) -> Path:
         return self.dir / "tasks" / task_id
@@ -184,8 +178,8 @@ def resolve_run(store: Store, run_id: str | None, *, start_hint: str) -> Run:
     return load_run(store, row["run_id"])
 
 
-def new_run_id(store: Store, date: str, workflow: str) -> str:
-    base = f"{date}-{workflow}"
+def new_run_id(store: Store, date: str, graph: str) -> str:
+    base = f"{date}-{graph}"
     rid, n = base, 1
     while store.run_row(rid) is not None or (store.runs_dir / rid).exists():
         n += 1
@@ -193,24 +187,21 @@ def new_run_id(store: Store, date: str, workflow: str) -> str:
     return rid
 
 
-def create_run(store: Store, *, run_id: str, workflow: str, clock: Clock, sandbox: bool,
-               graph_run: str | None = None, node: str | None = None) -> Run:
-    header = RunHeader(run_id=run_id, workflow=workflow, clock=clock, sandbox=sandbox, graph_run=graph_run, node=node)
+def create_run(store: Store, *, run_id: str, graph: str, clock: Clock, sandbox: bool) -> Run:
+    header = RunHeader(run_id=run_id, graph=graph, clock=clock, sandbox=sandbox)
     run = Run(store, header)
     run.dir.mkdir(parents=True, exist_ok=False)
     run.save_header()
     stamp = wall_stamp()
     store.db.execute(
-        "INSERT INTO runs (run_id, workflow, date, status, generation, sandbox, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (run_id, workflow, clock.date, "open", 0, int(sandbox), stamp, stamp),
+        "INSERT INTO runs (run_id, graph, date, status, sandbox, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+        (run_id, graph, clock.date, "open", int(sandbox), stamp, stamp),
     )
     return run
 
 
-def find_existing(store: Store, workflow: str, date: str) -> sqlite3.Row | None:
-    """The newest open or sealed run for this workflow and date, for an idempotent ``run start``."""
+def find_existing(store: Store, graph: str, date: str) -> sqlite3.Row | None:
+    """The newest open or sealed run of this graph for this date, for an idempotent ``run start``."""
     return store.db.execute(
-        "SELECT * FROM runs WHERE workflow=? AND date=? AND status IN ('open','sealed') "
-        "ORDER BY created_at DESC, rowid DESC LIMIT 1", (workflow, date)).fetchone()
-
+        "SELECT * FROM runs WHERE graph=? AND date=? AND status IN ('open','sealed') "
+        "ORDER BY created_at DESC, rowid DESC LIMIT 1", (graph, date)).fetchone()

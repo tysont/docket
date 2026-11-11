@@ -140,7 +140,7 @@ def processed_ids(db: sqlite3.Connection, source: str) -> set[str]:
 
 
 def write_proposal(db: sqlite3.Connection, run_id: str, source: str, unit: str, position: str | None,
-                   coverage_end: str | None, *, generation: int, model: str, complete: bool) -> bool:
+                   coverage_end: str | None, *, model: str, complete: bool) -> bool:
     """Record proven coverage; within a run a proposal only moves forward. Returns whether it changed.
 
     A unit read and found empty has no position, but the read proved coverage to
@@ -157,7 +157,7 @@ def write_proposal(db: sqlite3.Connection, run_id: str, source: str, unit: str, 
         kept = row["position"] if row is not None else None  # a position already proposed stays
         db.execute("INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end, "
                    "generation, model, complete) VALUES (?,?,?,?,?,?,?,?)",
-                   (run_id, source, unit, kept, coverage_end, generation, model,
+                   (run_id, source, unit, kept, coverage_end, 0, model,
                     int(row["complete"]) if row is not None and kept is not None else 1))
         return True
     if row is not None and row["position"] is not None:
@@ -166,7 +166,7 @@ def write_proposal(db: sqlite3.Connection, run_id: str, source: str, unit: str, 
             return False
     db.execute("INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end, generation, "
                "model, complete) VALUES (?,?,?,?,?,?,?,?)",
-               (run_id, source, unit, str(position), coverage_end, generation, model, int(complete)))
+               (run_id, source, unit, str(position), coverage_end, 0, model, int(complete)))
     return True
 
 

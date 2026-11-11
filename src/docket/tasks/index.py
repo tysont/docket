@@ -5,10 +5,6 @@ to the workspace database's ``task_results`` table under the pack's input
 digest. A pack whose digest has an accepted result, in this run or an earlier
 one, needs no new task: a pack digest covers the kind's instructions and output
 model, the items as the task saw them, the profile excerpts and the vocabulary.
-
-Review goes further: an item whose review view (its evidence and assessment) is
-unchanged since a review accepted in an earlier generation keeps that verdict
-without a new task, so only new or changed items enter the next review pack.
 """
 from __future__ import annotations
 
@@ -56,30 +52,3 @@ def record(rc: "RunContext", pack: dict[str, Any], body: dict[str, Any]) -> None
                    "VALUES (?,?,?,?,?,?)",
                    (pack["input_digest"], pack["kind"], pack["task_id"], rc.run.id,
                     json.dumps(body, sort_keys=True, ensure_ascii=False), stamp))
-
-
-def carried_rows(rc: "RunContext", kind: "TaskKind", generation: int) -> dict[str, dict[str, Any]]:
-    """carry key -> accepted row, from this run's tasks of ``kind`` issued before ``generation``."""
-    from docket.tasks.packs import carry_key
-    out: dict[str, dict[str, Any]] = {}
-    tasks_dir = rc.run.dir / "tasks"
-    if not tasks_dir.is_dir():
-        return out
-    for tdir in sorted(tasks_dir.iterdir()):
-        pp, rp = tdir / "pack.json", tdir / "result.json"
-        if not (pp.is_file() and rp.is_file()):
-            continue
-        try:
-            pack = read_json(pp)
-        except ValueError:
-            continue
-        if pack.get("kind") != kind.name or pack.get("spec") != kind.spec_digest:
-            continue
-        if int(pack.get("issued_generation", generation)) >= generation:
-            continue
-        rows = {r.get("id"): r for r in read_json(rp).get("items", [])}
-        for view in pack.get("items", []):
-            row = rows.get(view.get("id"))
-            if row is not None:
-                out[carry_key(kind, view)] = row
-    return out

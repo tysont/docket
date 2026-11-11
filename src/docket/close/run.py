@@ -21,44 +21,26 @@ from docket.close import cursors as close_cursors
 from docket.close import dispositions as disp_mod
 from docket.close import journal as journal_mod
 from docket.close import ledgers, receipts
-from docket.close.hooks import run_event
 from docket.items import ledger as item_ledger
 from docket.store.paths import write_atomic
 
 
 def _decided(rc: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | None, list[dict[str, Any]],
                                dict[str, dict[str, Any]]]:
-    dec = rc.eval_or_none("decide")
-    plan = rc.eval_or_none("plan")
-    appr = rc.eval_or_none("approve")
-    app = rc.eval_or_none("apply")
+    """What the run decided and wrote: the operator's decisions, the outcomes of decisions
+    that wrote nothing, every operation approved or written without approval, and the
+    receipts by operation."""
+    dec, plan, appr = rc.of("ask"), rc.of("plan"), rc.of("approve")
     decide = dec.output if dec is not None else None
     outcomes = None
     if plan is not None and plan.output:
         outcomes = plan.output.get("outcomes")
         if outcomes is None:
             outcomes = journal_mod.plan_document(rc, plan.output.get("plan_digest")).get("outcomes")
-    ops = list(((appr.output or {}).get("operations") if appr else None) or [])
-    recs = {x["op_id"]: x for x in ((app.output or {}).get("receipts") if app else None) or []}
+    wrote = rc.output("write")
+    ops = list(((appr.output or {}).get("operations") if appr else None) or []) + list(wrote.get("operations") or [])
+    recs = {x["op_id"]: x for x in [*(rc.output("apply").get("receipts") or []), *(wrote.get("receipts") or [])]}
     return decide, outcomes, ops, recs
-
-
-def _capture(rc: Any) -> int:
-    """Record what the operator agreed to do in the meetings this run recapped (TD §12.8)."""
-    roll = getattr(rc.workflow, "roll", None)
-    if roll is None or not roll.commitments:
-        return 0
-    from pathlib import Path
-    from docket.plan.agenda_roll import append_commitments
-    # From the plan this run built: by now the agendas are rolled, and the meetings would no
-    # longer read as waiting for it.
-    plan = rc.eval_or_none("plan")
-    digest = (plan.output or {}).get("plan_digest") if plan is not None else None
-    records = journal_mod.plan_document(rc, digest).get("commitments") if digest else None
-    if not records:
-        return 0
-    path = Path(roll.commitments).expanduser()
-    return append_commitments(path if path.is_absolute() else rc.ws.root / path, list(records))
 
 
 def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[str, Any]]) -> list[dict[str, Any]] | None:
@@ -66,7 +48,7 @@ def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[st
     kept, and those apply wrote. None when the run planned or applied nothing, which says
     nothing about what stands."""
     from docket.plan.build import planning_active
-    if not planning_active(rc) or rc.eval_or_none("approve") is None or rc.eval_or_none("apply") is None:
+    if not planning_active(rc) or rc.of("approve") is None or rc.of("apply") is None:
         return None
     cal = rc.ws.config.planning.calendar
     out = []
@@ -81,21 +63,20 @@ def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[st
     return out
 
 
-def durable_texts(rc: Any, lab: Any) -> dict[str, str]:
-    """The words each labelled task had when its label was written: the label stage's packs."""
+def durable_texts(rc: Any) -> dict[str, str]:
+    """The words each labelled task had when its label was written: the label nodes' packs."""
     out: dict[str, str] = {}
-    for p in (lab.extra or {}).get("packs") or []:
-        for it in p.get("items") or []:
-            out[it["id"]] = "\n".join(ln["text"] for ln in it.get("lines") or [])
+    for name in rc.judging("label"):
+        for p in (rc.eval(name).extra or {}).get("packs") or []:
+            for it in p.get("items") or []:
+                out[it["id"]] = "\n".join(ln["text"] for ln in it.get("lines") or [])
     return out
 
 
 def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any]],
                  dispositions: list[Any]) -> list[dict[str, Any]]:
     """The run's rows for the item ledger: every item merge kept, with the decision made on it."""
-    merge = rc.eval_or_none("merge")
-    kept = [it for it in ((merge.output or {}).get("items") if merge is not None else None) or []
-            if it.get("status") == "kept"]
+    kept = [it for it in rc.output("merge").get("items") or [] if it.get("status") == "kept"]
     decide = decide or {}
     by_topic_q = {str(f["item"].get("topic") or f["item"].get("id")): f["question_id"]
                   for f in decide.get("findings") or []}
@@ -123,7 +104,7 @@ def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any
 
 
 def destination_for(rc: Any) -> str | None:
-    name = rc.workflow.journal or rc.ws.config.journal.destination
+    name = rc.ws.config.journal.destination
     if name and name in rc.ws.config.destinations and rc.ws.config.destinations[name].adapter == "journal":
         return name
     return None
@@ -145,11 +126,8 @@ def state_step(rc: Any) -> dict[str, Any]:
     observed: list[dict[str, Any]] = []
     planned: list[dict[str, Any]] = []
     covered: list[dict[str, Any]] = []
-    lab = rc.eval_or_none("label")
-    labels_now = dict((lab.output or {}).get("labels") or {}) if lab is not None else {}
-    label_texts: dict[str, str] = {}
-    if labels_now and durable_texts(rc, lab):
-        label_texts = durable_texts(rc, lab)
+    labels_now = dict(rc.output("judge").get("labels") or {})
+    label_texts = durable_texts(rc) if labels_now else {}
     with db:
         moved = close_cursors.advance(db, r)
         if durable:
@@ -177,7 +155,6 @@ def state_step(rc: Any) -> dict[str, Any]:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
                 "items": len(items) if durable else 0, "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered),
-                "commitments": _capture(rc) if durable else 0,
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "close:state", "ok", body)
     return {**body, "outcome": "ok"}
@@ -227,24 +204,22 @@ def entry_through_destination(rc: Any, dest_id: str, cfg: Any, ctx: dict[str, An
 def execute_close(rc: Any) -> dict[str, Any]:
     state = state_step(rc)
     jr = journal_step(rc, state)
-    hooks = run_event(rc, "after_close")
     cur = state.get("cursors") or {}
     return {"cursors_advanced": cur.get("advanced", []), "cursors_held": cur.get("held", []),
             "cursor_regressions": cur.get("regressions", []), "cursors_skipped": cur.get("skipped"),
             "dispositions": len(state.get("dispositions") or []), "ledgers": state.get("ledgers") or {},
             "journal": jr.get("path", "journal.md"), "journal_destination": jr.get("destination"),
-            "journal_write": jr.get("write"), "hooks": [h.brief() for h in hooks],
+            "journal_write": jr.get("write"),
             "sealed": True, "sandbox": rc.run.header.sandbox}
 
 
 def preview_close(rc: Any) -> dict[str, Any]:
-    """``docket close --dry-run``: what close would do; runs only the hooks' declared dry-run forms."""
+    """``docket seal --dry-run``: what sealing would do."""
     db = rc.run.store.db
     done = {s: receipts.done(db, rc.run.id, s) is not None for s in ("close:state", "close:journal")}
     props = [dict(p) for p in db.execute("SELECT source, unit, position FROM cursor_proposals WHERE run_id=? "
                                          "ORDER BY source, unit", (rc.run.id,))]
     if rc.run.header.sandbox:
         props = []
-    hooks = run_event(rc, "after_close", dry_run=True)
     return {"steps_done": done, "cursor_proposals": len(props), "proposals": props[:50],
-            "journal_destination": destination_for(rc), "hooks": [h.brief() for h in hooks]}
+            "journal_destination": destination_for(rc)}

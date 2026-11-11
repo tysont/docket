@@ -87,32 +87,22 @@ class LabelTasks(TaskBudget):
     guidance: str | None = None
 
 
-class TaskSelect(Strict):
-    """Which items a kind reads. Unset keys do not filter."""
-    sources: list[str] | None = None
-    units: list[str] | None = None
-    kept: bool | None = None            # review-stage kinds: only items the assessment kept
-
-
 class ExtractTasks(TaskBudget):
-    """``extract`` runs only when ``select`` names sources (documents such as transcripts)."""
-    select: TaskSelect | None = None
+    """``extract`` lists the commitments and requests a document (such as a transcript) records."""
     guidance: str | None = None
     max_quote: int = Field(300, ge=20, le=4000)
 
 
 class RecapTasks(TaskBudget):
-    """``recap`` (TD §12.8) runs only when ``select`` names the sources that yield meetings.
-    It reads a meeting's record beside the forum's agenda and says what was covered. Items
-    of those sources are not given to the ``assess`` task."""
-    select: TaskSelect | None = None
+    """``recap`` (TD §12.8) reads a meeting's record beside the forum's agenda and says what was
+    covered. ``agendas`` is the agenda destination whose entries it reads."""
+    agendas: str | None = None
     guidance: str | None = None
     max_covered: int = Field(8, ge=1, le=30)
 
 
 class ClassifyTasks(TaskBudget):
-    """``classify`` runs only when ``select`` is set; ``classes`` replaces the core class set."""
-    select: TaskSelect | None = None
+    """``classify`` gives each entry a class and a tier; ``classes`` replaces the core class set."""
     classes: dict[str, str] = {}
     safe: str | None = None
     guidance: str | None = None
@@ -156,10 +146,9 @@ class TaskRuleConfig(Strict):
 
 class TaskKindConfig(TaskBudget):
     """A workspace-defined task kind (TD §9.1)."""
-    stage: Literal["assess", "review"] = "assess"
+    family: Literal["item", "review"] = "item"   # judges items one by one, or reviews the kept set
     description: str | None = None
     instructions: str
-    select: TaskSelect = TaskSelect()
     fields: dict[str, TaskFieldConfig] = Field(min_length=1)
     rules: list[TaskRuleConfig] = []
 

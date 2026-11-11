@@ -49,11 +49,14 @@ if TYPE_CHECKING:
 CALENDAR_VERBS = {"create": "create", "move": "move", "update": "update", "release": "delete", "keep": None}
 
 
-def planning_active(rc: "RunContext") -> bool:
-    pl = rc.ws.config.planning
-    if pl.calendar is None or "plan" not in rc.workflow.stages:
+def planning_active(rc: "RunContext", node: str | None = None) -> bool:
+    """Whether open tasks are placed on the calendar: by plan node ``node``, or by any plan
+    node of the run's graph. It takes a calendar (``planning.calendar``) and a plan node
+    with ``schedule_tasks``."""
+    if rc.ws.config.planning.calendar is None:
         return False
-    return pl.workflows is None or rc.workflow_name() in pl.workflows
+    names = [node] if node else rc.by_verb("plan")
+    return any(rc.graph[n].schedule_tasks for n in names if n in rc.graph)
 
 
 def store_destination(rc: "RunContext") -> str | None:
@@ -361,14 +364,14 @@ def extend_plan(rc: "RunContext", plan: dict[str, Any], decide: dict[str, Any], 
     raise_window_errors(rc, built)
     c = rc.ws.config.planning.calendar
     assert c is not None
-    if "apply" in rc.workflow.stages:
+    if rc.by_verb("apply"):
         from docket.config.models import IMPLEMENTED_ADAPTERS
         dest = rc.ws.config.destinations.get(c.destination)
         if dest is None or dest.adapter not in IMPLEMENTED_ADAPTERS:
             raise ConfigError("config.capability_missing",
-                              f"Workflow {rc.workflow_name()!r} applies plans, but calendar destination "
+                              f"Graph {rc.graph_name()!r} applies plans, but calendar destination "
                               f"{c.destination!r} has no implemented calendar adapter.",
-                              hint="Remove the workflow from planning.workflows, or configure a calendar adapter",
+                              hint="Turn schedule_tasks off on the plan node, or configure a calendar adapter",
                               details={"destination": c.destination})
     plan["inputs"].update({
         "task_store_digest": built.inputs.store_digest, "calendar_digest": built.inputs.provider.digest(),

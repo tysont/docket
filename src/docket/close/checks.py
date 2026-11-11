@@ -71,32 +71,4 @@ def check(loaded: Loaded) -> list[Issue]:
         for f, t in (spec.get("fields") or {}).items() if isinstance(spec.get("fields"), dict) else []:
             tpl(("journal", "ledgers", name, "fields", f), t, J, frm)
 
-    hooks = d.get("hooks") if isinstance(d.get("hooks"), dict) else {}
-    wfs = d.get("workflows") if isinstance(d.get("workflows"), dict) else {}
-    for hid, h in hooks.items():
-        if not isinstance(h, dict):
-            continue
-        for key in ("command", "dry_run"):
-            for i, a in enumerate(h.get(key) or [] if isinstance(h.get(key), list) else []):
-                tpl(("hooks", hid, key, i), a, contexts.HOOK_ARG)
-        for i, w in enumerate(h.get("workflows") or [] if isinstance(h.get("workflows"), list) else []):
-            if isinstance(w, str) and w not in wfs:
-                out.append(_issue(loaded, "config.bad_reference", f"hooks.{hid}.workflows names workflow {w!r}, "
-                                  "which is not defined", ("hooks", hid, "workflows", i), 2,
-                                  suggestion=closest(w, list(wfs))))
-    for wname, wf in wfs.items():
-        if not isinstance(wf, dict):
-            continue
-        dest_ref(("workflows", wname, "journal"), wf.get("journal"))
-        wh = wf.get("hooks") if isinstance(wf.get("hooks"), dict) else {}
-        for ev, ids in wh.items():
-            if ev not in HOOK_EVENTS:
-                out.append(_issue(loaded, "config.unknown_kind", f"workflows.{wname}.hooks: unknown event {ev!r}",
-                                  ("workflows", wname, "hooks", ev), 3, suggestion=closest(str(ev), list(HOOK_EVENTS))))
-                continue
-            for i, hid in enumerate(ids or [] if isinstance(ids, list) else []):
-                if isinstance(hid, str) and hid not in hooks:
-                    out.append(_issue(loaded, "config.bad_reference",
-                                      f"workflows.{wname}.hooks.{ev} names hook {hid!r}, which is not defined",
-                                      ("workflows", wname, "hooks", ev, i), 2, suggestion=closest(hid, list(hooks))))
     return out

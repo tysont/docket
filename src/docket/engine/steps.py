@@ -23,7 +23,7 @@ class Command(BaseModel):
 
 class RunStep(BaseModel):
     kind: Literal["run"] = "run"
-    stage: str
+    node: str
     command: Command
     why: str
     expect: str
@@ -42,7 +42,7 @@ class DispatchTask(BaseModel):
 
 class DispatchStep(BaseModel):
     kind: Literal["dispatch"] = "dispatch"
-    stage: str
+    node: str
     tasks: list[DispatchTask]
     concurrency: int
     why: str
@@ -86,7 +86,7 @@ class AskStep(BaseModel):
     ``{question}`` with a question id and ``{option}`` with one of its option ids.
     ``show`` prints one question's evidence, defaults and refused options."""
     kind: Literal["ask"] = "ask"
-    stage: str
+    node: str
     questions: list[AskQuestion]
     answer: Command
     show: Command
@@ -109,26 +109,21 @@ class AskStep(BaseModel):
 
 class WaitStep(BaseModel):
     kind: Literal["wait"] = "wait"
-    stage: str | None = None
+    node: str | None = None
     reason: str
     instructions: str
     resume_when: str | None = None
     command: Command | None = None
     inspect: list[Command] = []     # read-only commands that show the cause (post_apply_change)
-    rehearse: Command | None = None  # paused with rehearse_at_pause: rehearse now, so defects surface tonight
 
 
-class DoneStep(BaseModel):
-    kind: Literal["done"] = "done"
-    summary: dict[str, Any]
-    command: Command | None = None
-
-
-Step = Annotated[Union[RunStep, DispatchStep, AskStep, WaitStep, DoneStep], Field(discriminator="kind")]
+Step = Annotated[Union[RunStep, DispatchStep, AskStep, WaitStep], Field(discriminator="kind")]
 
 
 class StepEnvelopeData(BaseModel):
-    """``data`` of ``docket next``."""
+    """``data`` of ``docket next``: every step that is ready now, and each node's status."""
     run: str | None
-    step: Step
-    stages: list[dict[str, Any]] = []
+    steps: list[Step]
+    done: bool = False
+    summary: dict[str, Any] | None = None
+    nodes: list[dict[str, Any]] = []

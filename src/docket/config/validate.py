@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 from docket.config import contexts
 from docket.config.loader import Issue, Loaded, Path_, closest, dotted, origin_for
 from docket.config.models import (
-    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, STAGES, WHEN_GUARDS, DocketConfig,
+    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, VERBS, WHEN_GUARDS, DocketConfig,
 )
 from docket.text import templates
 
@@ -210,21 +210,20 @@ def pass_references(loaded: Loaded) -> list[Issue]:
     for i, t in _dicts(_get(prof, "topics")):
         ref(t.get("forum"), forums, ("profile", "topics", i, "forum"), "forum")
 
-    for wname, wf in _items(_get(d, "workflows")):
-        if not isinstance(wf, dict):
-            continue
-        wsrc = wf.get("sources")
-        for j, s in enumerate(wsrc or [] if isinstance(wsrc, list) else []):
-            ref(s, sources, ("workflows", wname, "sources", j), "source")
-        allowed = wsrc if isinstance(wsrc, list) else sources
-        for j, s in enumerate(wf.get("refresh_on_resume") or []):
-            ref(s, [x for x in allowed if isinstance(x, str)], ("workflows", wname, "refresh_on_resume", j),
-                "source of this workflow")
-        ref(wf.get("options"), option_sets, ("workflows", wname, "options"), "option set")
+    # graphs: what each node names must exist (the shape of a graph is checked with its structure)
+    task_kinds = ["assess", "review", "extract", "classify", "label", "recap",
+                  *[k for k, _ in _items(_get(d, "tasks", "kinds"))]]
+    for gname, nodes in _items(_get(d, "graphs")):
+        for nname, node in _items(nodes):
+            if not isinstance(node, dict):
+                continue
+            base = ("graphs", gname, nname)
+            ref(node.get("read"), sources, base + ("read",), "source")
+            ref(node.get("judge"), task_kinds, base + ("judge",), "task kind")
+            ref(node.get("ask"), option_sets, base + ("ask",), "option set", ("default",))
+            ref(node.get("to"), dests, base + ("to",), "destination")
+    ref(_get(d, "tasks", "recap", "agendas"), dests, ("tasks", "recap", "agendas"), "destination")
 
-    # planning (M7): workflows and destinations it names
-    for j, w in enumerate(_get(d, "planning", "workflows") or []):
-        ref(w, [k for k, _ in _items(_get(d, "workflows"))], ("planning", "workflows", j), "workflow")
     ref(_get(d, "planning", "tasks", "destination"), dests, ("planning", "tasks", "destination"), "destination")
 
     for sname, kinds in _items(_get(d, "decisions", "option_sets")):
@@ -356,34 +355,6 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
         for oid, tpl in _items(_get(d, "decisions", sect, "labels")):
             _check_template(loaded, tpl, site, ("decisions", sect, "labels", oid), out)
 
-    for wname, wf in _items(_get(d, "workflows")):
-        if not isinstance(wf, dict):
-            continue
-        stages = wf.get("stages")
-        base = ("workflows", wname)
-        if isinstance(stages, list) and all(isinstance(s, str) for s in stages) and all(s in STAGES for s in stages):
-            idx = [STAGES.index(s) for s in stages]
-            problems: list[str] = []
-            if len(set(stages)) != len(stages):
-                problems.append("a stage is listed twice")
-            if idx != sorted(idx):
-                problems.append("stages must follow " + " -> ".join(STAGES))
-            if not stages or stages[0] != "collect":
-                problems.append("the first stage must be collect")
-            if not stages or stages[-1] != "close":
-                problems.append("the last stage must be close")
-            needs = {"approve": "plan", "apply": "approve", "plan": "decide", "decide": "assess", "review": "assess",
-                     "merge": "assess", "label": "plan"}
-            for s, req in needs.items():
-                if s in stages and req not in stages:
-                    problems.append(f"{s} needs {req}")
-            for p in problems:
-                out.append(_issue(loaded, "config.bad_stage_order", f"workflow {wname!r}: {p}", base + ("stages",), 3))
-            pb = wf.get("pause_before")
-            if isinstance(pb, str) and pb in STAGES and (pb not in stages or pb == "collect"):
-                out.append(_issue(loaded, "config.bad_stage_order",
-                                  f"workflow {wname!r}: pause_before {pb!r} must name a stage of the workflow after collect",
-                                  base + ("pause_before",), 3))
     return out
 
 
@@ -412,24 +383,32 @@ def pass_capabilities(loaded: Loaded) -> list[Issue]:
             return action in DESTINATION_ADAPTERS.get(ad, frozenset())
         return [n for n, x in dests.items() if ok(x)]
 
-    for wname, wf in _items(_get(d, "workflows")):
-        stages = _get(wf, "stages") or []
-        if not isinstance(stages, list) or "apply" not in stages:
-            continue
-        set_name = _get(wf, "options") or "default"
-        for kind, opts in _items(_get(d, "decisions", "option_sets", set_name)):
-            for i, o in _dicts(opts):
-                act = o.get("action")
-                if act not in ACTION_NEEDS_DESTINATION:
-                    continue
-                target = o.get("destination")
-                ok = accepts(act)
-                if (target and target in dests and target not in ok) or (not target and not ok):
-                    out.append(_issue(
-                        loaded, "config.capability_missing",
-                        f"workflow {wname!r} offers action {act!r}, but no destination"
-                        + (f" {target!r}" if target else "") + " accepts it",
-                        ("decisions", "option_sets", set_name, kind, i, "action"), 4))
+    for gname, nodes in _items(_get(d, "graphs")):
+        verbs = {v for _, n in _items(nodes) if isinstance(n, dict) for v in VERBS if n.get(v) is not None}
+        for nname, node in _items(nodes):
+            if not isinstance(node, dict):
+                continue
+            to = node.get("to")
+            if node.get("write") is not None and to in dests and _get(dests[to], "visibility", default="private") != "private":
+                out.append(_issue(loaded, "config.capability_missing",
+                                  f"graph {gname!r}: node {nname} writes without approval to {to!r}, which is not "
+                                  f"a private destination", ("graphs", gname, nname, "to"), 4))
+            if node.get("ask") is None or "apply" not in verbs:
+                continue
+            set_name = node.get("ask") or "default"
+            for kind, opts in _items(_get(d, "decisions", "option_sets", set_name)):
+                for i, o in _dicts(opts):
+                    act = o.get("action")
+                    if act not in ACTION_NEEDS_DESTINATION:
+                        continue
+                    target = o.get("destination")
+                    ok = accepts(act)
+                    if (target and target in dests and target not in ok) or (not target and not ok):
+                        out.append(_issue(
+                            loaded, "config.capability_missing",
+                            f"graph {gname!r} offers action {act!r}, but no destination"
+                            + (f" {target!r}" if target else "") + " accepts it",
+                            ("decisions", "option_sets", set_name, kind, i, "action"), 4))
     return out
 
 

@@ -181,7 +181,7 @@ def output_spec(kind: "TaskKind", pack: dict[str, Any]) -> str:
 
 
 def instructions_context(config: Any, kind: "TaskKind") -> dict[str, Any]:
-    return {"me": {"name": config.profile.me.name}, "kind": kind.name, "stage": kind.stage}
+    return {"me": {"name": config.profile.me.name}, "kind": kind.name}
 
 
 def worked_examples(kind: "TaskKind") -> str:

@@ -116,6 +116,11 @@ CREATE TABLE graph_nodes (
   PRIMARY KEY (graph_run_id, node)
 )
 """),
+    (14, """
+ALTER TABLE runs RENAME COLUMN workflow TO graph;
+DROP TABLE graph_runs;
+DROP TABLE graph_nodes
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 CORE_KINDS = CORE_KIND_NAMES
 
 # The template context of kind instructions and guidance.
-INSTRUCTIONS_CONTEXT = FieldSet(["me.name", "kind", "stage"])
+INSTRUCTIONS_CONTEXT = FieldSet(["me.name", "kind"])
 
 ITEM_KINDS: dict[str, str] = {
     "request": "Someone asks the operator to do, answer or provide something.",
@@ -141,28 +141,9 @@ def _join(parts: list[str]) -> str:
 
 
 @dataclass(frozen=True)
-class Select:
-    sources: tuple[str, ...] | None = None
-    units: tuple[str, ...] | None = None
-    kept: bool | None = None
-    not_sources: tuple[str, ...] = ()      # items of these sources belong to another kind
-
-    def matches(self, it: dict[str, Any]) -> bool:
-        if it.get("source") in self.not_sources:
-            return False
-        if self.sources is not None and it.get("source") not in self.sources:
-            return False
-        if self.units is not None and it.get("unit") not in self.units:
-            return False
-        if self.kept is not None and bool(it.get("keep")) != self.kept:
-            return False
-        return True
-
-
-@dataclass(frozen=True)
 class TaskKind:
     name: str
-    stage: str                    # the delegated stage that issues it
+    family: str                   # what it judges and hands on: item, review or label (TD §9.1)
     core: bool
     description: str
     instructions: str             # a template over INSTRUCTIONS_CONTEXT
@@ -171,7 +152,6 @@ class TaskKind:
     rules: tuple[Rule, ...]
     max_items: int
     max_bytes: int
-    select: Select | None         # None: the kind is not issued (extract, classify unconfigured)
     view: str                     # pack item view: "item" or "review" (assessment shown, no score)
     row_model: type[BaseModel] = field(compare=False, repr=False, default=BaseModel)
     result_model: type[BaseModel] = field(compare=False, repr=False, default=BaseModel)
@@ -566,9 +546,8 @@ def _assess(cfg: TasksConfig) -> TaskKind:
                        "every kept item is shown with a recommended decision"),)
     for name, what in sorted(a.extra.items()):
         fields += (FieldSpec(name, "str", what.strip(), max_length=200, extend="tasks.assess.extra"),)
-    return TaskKind("assess", "assess", True, "Decide which items need the operator and what they should do.",
-                    ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes,
-                    Select(not_sources=tuple(recap_sources(cfg))), "item",
+    return TaskKind("assess", "item", True, "Decide which items need the operator and what they should do.",
+                    ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes, "item",
                     context_items=a.context_items, context_chars=a.context_chars, examples=_examples(a.examples))
 
 
@@ -595,7 +574,7 @@ def _review(cfg: TasksConfig) -> TaskKind:
         Rule((("verdict", "needs_verification"),), ("reason",)),
     )
     return TaskKind("review", "review", True, "Check each kept candidate before the operator is asked.",
-                    REVIEW_INSTRUCTIONS, r.guidance, fields, rules, r.max_items, r.max_bytes, Select(kept=True),
+                    REVIEW_INSTRUCTIONS, r.guidance, fields, rules, r.max_items, r.max_bytes,
                     "review")
 
 
@@ -604,14 +583,8 @@ def _label(cfg: TasksConfig) -> TaskKind:
     fields = (FieldSpec("label", "str", "The words that stand for this task where others can read them.",
                         required=True, max_length=60, example="Review a plan", extend="tasks.label"),)
     return TaskKind("label", "label", True, "Write the words that stand for each task where others can read them.",
-                    LABEL_INSTRUCTIONS, lb.guidance, fields, (), lb.max_items, lb.max_bytes, Select(), "item",
+                    LABEL_INSTRUCTIONS, lb.guidance, fields, (), lb.max_items, lb.max_bytes, "item",
                     context_items=0, examples=_examples(lb.examples))
-
-
-def recap_sources(cfg: TasksConfig) -> list[str]:
-    """The sources whose items are meetings, read by ``recap`` and not by ``assess``."""
-    sel = cfg.recap.select
-    return sorted(sel.sources) if sel is not None and sel.sources else []
 
 
 def _recap(cfg: TasksConfig) -> TaskKind:
@@ -634,10 +607,8 @@ def _recap(cfg: TasksConfig) -> TaskKind:
                   required=True, rows=covered),
         FieldSpec("actions", "rows", "What people agreed to do; empty when none.", required=True, rows=action),
     )
-    sel = Select(tuple(r.select.sources) if r.select.sources is not None else None,
-                 tuple(r.select.units) if r.select.units is not None else None) if r.select else None
-    return TaskKind("recap", "assess", True, "Say what each meeting covered, beside its agenda.",
-                    RECAP_INSTRUCTIONS, r.guidance, fields, (), r.max_items, r.max_bytes, sel, "item",
+    return TaskKind("recap", "item", True, "Say what each meeting covered, beside its agenda.",
+                    RECAP_INSTRUCTIONS, r.guidance, fields, (), r.max_items, r.max_bytes, "item",
                     context_items=0, examples=_examples(r.examples))
 
 
@@ -663,10 +634,8 @@ def _extract(cfg: TasksConfig) -> TaskKind:
         FieldSpec("entries", "rows", "Every commitment and request the document records; empty when none.",
                   required=True, rows=entry),
     )
-    sel = Select(tuple(e.select.sources) if e.select.sources is not None else None,
-                 tuple(e.select.units) if e.select.units is not None else None) if e.select else None
-    return TaskKind("extract", "assess", True, "List the commitments and requests a document records.",
-                    EXTRACT_INSTRUCTIONS, e.guidance, fields, (), e.max_items, e.max_bytes, sel, "item")
+    return TaskKind("extract", "item", True, "List the commitments and requests a document records.",
+                    EXTRACT_INSTRUCTIONS, e.guidance, fields, (), e.max_items, e.max_bytes, "item")
 
 
 def _classify(cfg: TasksConfig) -> TaskKind:
@@ -681,10 +650,8 @@ def _classify(cfg: TasksConfig) -> TaskKind:
         FieldSpec("reason", "str", "One sentence naming what in the entry decided the class.", required=True,
                   max_length=300, example="Only two people take part in the conversation"),
     )
-    sel = Select(tuple(c.select.sources) if c.select.sources is not None else None,
-                 tuple(c.select.units) if c.select.units is not None else None) if c.select else None
-    return TaskKind("classify", "assess", True, "Give each entry a class and a tier.",
-                    CLASSIFY_INSTRUCTIONS, c.guidance, fields, (), c.max_items, c.max_bytes, sel, "item")
+    return TaskKind("classify", "item", True, "Give each entry a class and a tier.",
+                    CLASSIFY_INSTRUCTIONS, c.guidance, fields, (), c.max_items, c.max_bytes, "item")
 
 
 def _custom(name: str, kc: Any) -> TaskKind:
@@ -695,12 +662,9 @@ def _custom(name: str, kc: Any) -> TaskKind:
             safe=fc.safe, deny=tuple(d.lower() for d in fc.deny), max_length=fc.max_length,
             max_items=fc.max_items, extend=f"tasks.kinds.{name}.fields.{fname}"))
     rules = tuple(Rule(tuple(r.when.items()), tuple(r.require), r.reason or "") for r in kc.rules)
-    s = kc.select
-    sel = Select(tuple(s.sources) if s.sources is not None else None,
-                 tuple(s.units) if s.units is not None else None, s.kept)
-    return TaskKind(name, kc.stage, False, kc.description or f"Workspace task kind {name}.", kc.instructions,
-                    None, tuple(fields), rules, kc.max_items, kc.max_bytes, sel,
-                    "review" if kc.stage == "review" else "item")
+    return TaskKind(name, kc.family, False, kc.description or f"Workspace task kind {name}.", kc.instructions,
+                    None, tuple(fields), rules, kc.max_items, kc.max_bytes,
+                    "review" if kc.family == "review" else "item")
 
 
 @lru_cache(maxsize=32)
@@ -720,13 +684,6 @@ def registry(tasks: TasksConfig | None = None) -> dict[str, TaskKind]:
 
 def kinds_for(config: "DocketConfig") -> dict[str, TaskKind]:
     return registry(config.tasks)
-
-
-def stage_kinds(config: "DocketConfig", stage: str) -> list[TaskKind]:
-    """Kinds a delegated stage issues: its core kind first, then the others it issues, by name."""
-    reg = kinds_for(config)
-    out = [k for k in reg.values() if k.stage == stage and k.select is not None]
-    return sorted(out, key=lambda k: (k.name != stage, not k.core, k.name))
 
 
 def schemas(tasks: TasksConfig | None = None) -> dict[str, type[BaseModel]]:

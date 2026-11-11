@@ -44,11 +44,6 @@ def read_cache(rc: "RunContext") -> dict[str, Any]:
     return read_json(p) if p.is_file() else {}
 
 
-def generation(rc: "RunContext") -> int:
-    from docket.sources.generations import current_generation
-    return current_generation(rc)
-
-
 def _patterns(rc: "RunContext") -> list[re.Pattern[str]]:
     refs = (rc.ws.config.signals or {}).get("references") or {}
     out = []
@@ -99,9 +94,11 @@ def item_ref(rc: "RunContext", it: dict[str, Any]) -> str | None:
     return _claimed(rc, [r for r in refs if r])
 
 
-def targets(rc: "RunContext", items: list[dict[str, Any]], tasks: list[StoreTask] | None = None) -> dict[str, Any]:
-    """Verification candidates: tasks (bounded) and flagged findings, each with its claimed reference."""
-    if "verify" not in rc.workflow.questions.kinds:
+def targets(rc: "RunContext", items: list[dict[str, Any]], tasks: list[StoreTask] | None = None, *,
+            verify_tasks: bool = True) -> dict[str, Any]:
+    """Verification candidates: tasks (bounded, when the node asks about them) and flagged
+    findings, each with its claimed reference."""
+    if not verify_tasks:
         tasks_out: list[dict[str, Any]] = []
     else:
         tasks = open_tasks(rc) if tasks is None else tasks
@@ -124,19 +121,17 @@ def targets(rc: "RunContext", items: list[dict[str, Any]], tasks: list[StoreTask
 
 def pending(rc: "RunContext", tg: dict[str, Any]) -> list[str]:
     cache = read_cache(rc)
-    gen = generation(rc)
     refs = sorted({r["ref"] for r in tg["tasks"] + tg["items"]})
-    return [r for r in refs if (cache.get(r) or {}).get("generation") != gen]
+    return [r for r in refs if r not in cache]
 
 
 def resolve_pending(rc: "RunContext", refs: list[str]) -> dict[str, Any]:
     from docket.sources.resolve import resolve_ref
     cache = read_cache(rc)
-    gen = generation(rc)
     for ref in refs:
         r = resolve_ref(rc.ws, ref, env=rc.env, log_dir=rc.run.dir / "logs")
         cache[ref] = {"source": r.source, "status": r.status, "state": r.state, "last_actor": r.last_actor,
-                      "last_activity": r.last_activity, "title": r.title, "cause": r.cause, "generation": gen}
+                      "last_activity": r.last_activity, "title": r.title, "cause": r.cause}
     write_atomic(cache_path(rc), pretty_json(cache))
     return cache
 

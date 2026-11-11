@@ -3,7 +3,7 @@
 A forum that meets again and again keeps one agenda: what is next, then a dated section for
 each meeting held. After a meeting the agenda is rolled: what was covered goes under the
 meeting's date, and the entries it settled leave what is next. This module turns the
-meetings a run collected into roll operations, through the agenda destination's own
+meetings a write node works on into roll operations, through the agenda destination's own
 ``agenda.roll`` preview.
 
 A meeting with a recap (the ``recap`` task read its record) is rolled with what the recap
@@ -121,26 +121,20 @@ def _me(rc: "RunContext") -> set[str]:
 
 
 def with_agendas(rc: "RunContext", candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Prepare the meetings among a stage's candidates for the ``recap`` task. A meeting is
-    read only when it has a record, belongs to a forum with an agenda, and is later than that
-    agenda's latest dated section; it then carries the agenda's entries (``fields.agenda``)
-    and its forum. Other meetings are dropped from the candidates: no task has anything to
-    say about them. Candidates of other sources pass through."""
-    from docket.tasks.kinds import recap_sources
-    sources = set(recap_sources(rc.ws.config.tasks))
-    roll = getattr(rc.workflow, "roll", None)
-    if not sources or roll is None or not any(c.get("source") in sources for c in candidates):
-        return candidates
+    """Prepare meetings for the ``recap`` task. A meeting is read only when it has a record,
+    belongs to a forum with an agenda, and is later than that agenda's latest dated section;
+    it then carries the agenda's entries (``fields.agenda``) and its forum. Other meetings
+    are left out: the task has nothing to say about them."""
+    agendas = rc.ws.config.tasks.recap.agendas
+    if not agendas or not candidates:
+        return []
     from docket.destinations import for_run
     prof = rc.ws.config.profile
-    dest = for_run(rc, roll.destination)
+    dest = for_run(rc, agendas)
     try:
         files = dest.snapshot().data.get("files") or {}
         out = []
         for c in candidates:
-            if c.get("source") not in sources:
-                out.append(c)
-                continue
             f = dict(c.get("fields") or {})
             forum = forum_for_meeting(list(prof.forums), str(c.get("title") or ""), list(f.get("attendees") or []), _me(rc))
             text = files.get(forum.agenda["path"]) if forum is not None else None
@@ -157,18 +151,10 @@ def with_agendas(rc: "RunContext", candidates: list[dict[str, Any]]) -> list[dic
         dest.close()
 
 
-def meetings_of(rc: "RunContext") -> list[dict[str, Any]]:
-    """The run's meetings: items of the workflow's roll sources, each with the ``recap``
-    task's row when one read the meeting's record."""
-    roll = getattr(rc.workflow, "roll", None)
-    if roll is None:
-        return []
-    ev = rc.eval_or_none("assess")
-    items = list((ev.output or {}).get("items") or []) if ev is not None else []
+def meetings_of(rc: "RunContext", items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Items as meetings: each with the ``recap`` task's row when one read the meeting's record."""
     out = []
     for it in items:
-        if it.get("source") not in roll.sources:
-            continue
         f = it.get("fields") or {}
         recap = (it.get("tasks") or {}).get("recap") if isinstance(it.get("tasks"), dict) else None
         out.append({"id": it.get("id"), "date": _local_date(rc, it.get("at")), "title": it.get("title"),
@@ -216,15 +202,12 @@ def append_commitments(path: Any, records: list[dict[str, Any]]) -> int:
     return len(rows)
 
 
-def operations(rc: "RunContext") -> list[dict[str, Any]]:
-    """The run's roll operations: the workflow's ``roll`` settings over its meetings."""
-    roll = getattr(rc.workflow, "roll", None)
-    if roll is None:
-        return []
+def operations(rc: "RunContext", node: Any, meetings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The roll operations a write node makes for ``meetings``, through its destination."""
     from docket.destinations import for_run
-    dest = for_run(rc, roll.destination)
+    dest = for_run(rc, node.to)
     try:
-        return roll_operations(dest, dest.snapshot(), list(rc.ws.config.profile.forums), _me(rc), meetings_of(rc),
-                               no_record=roll.no_record, trailer=roll.trailer)
+        return roll_operations(dest, dest.snapshot(), list(rc.ws.config.profile.forums), _me(rc), meetings,
+                               no_record=node.no_record, trailer=node.trailer)
     finally:
         dest.close()

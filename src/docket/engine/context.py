@@ -1,8 +1,9 @@
-"""``RunContext``: one run seen through the current workspace configuration.
+"""``RunContext``: one run of a graph, seen through the current workspace configuration.
 
-This is the ``run`` argument of the stage protocol (TD §5.1). It evaluates the
-stage graph once per command and memoizes the result; a mutating command calls
-``invalidate()`` after it writes.
+It evaluates the graph once per command and memoizes the result; a mutating command calls
+``invalidate()`` after it writes. A node is evaluated when every node it needs is current;
+otherwise it is blocked. Nodes that do not depend on each other are independent here too:
+one that waits holds back only the nodes downstream of it.
 """
 from __future__ import annotations
 
@@ -12,11 +13,9 @@ from docket.cli.errors import InputError
 from docket.config import Workspace
 from docket.config.digest import digest
 from docket.config.loader import closest
-from docket.config.models import Workflow
-from docket.engine.stages import STAGE_IMPLS, StageEval
+from docket.config.models import Node, ordered
+from docket.engine.nodes import SEAL, BaseNode, Eval, build, join
 from docket.store.runs import Run
-
-APPLY_INDEX = list(STAGE_IMPLS).index("apply")
 
 
 class RunContext:
@@ -24,28 +23,23 @@ class RunContext:
         self.ws = ws
         self.run = run
         self.env = env
-        wf = ws.config.workflows.get(run.header.workflow)
-        if wf is None:
-            raise InputError("input.unknown_workflow",
-                             f"Run {run.id} uses workflow {run.header.workflow!r}, which the workspace no longer defines.",
-                             hint="Restore the workflow in docket.yaml or abandon the run",
-                             details={"suggestion": closest(run.header.workflow, list(ws.config.workflows))})
-        self.workflow: Workflow = wf
-        self._evals: list[StageEval] | None = None
+        graph = ws.config.graphs.get(run.header.graph)
+        if graph is None:
+            raise InputError("input.unknown_graph",
+                             f"Run {run.id} uses graph {run.header.graph!r}, which the workspace no longer defines.",
+                             hint="Restore the graph in docket.yaml or abandon the run",
+                             details={"suggestion": closest(run.header.graph, list(ws.config.graphs))})
+        self.graph: dict[str, Node] = graph
+        self.order: list[str] = ordered(graph) + [SEAL]
+        self.impls: dict[str, BaseNode] = {n: build(n, graph.get(n)) for n in self.order}
+        self._evals: dict[str, Eval] | None = None
 
     # --- commands and config -------------------------------------------------
     def argv(self, *words: str) -> list[str]:
         return ["docket", *words, "--workspace", str(self.ws.root), "--run", self.run.id, "--json"]
 
     def partial_config(self, sections: tuple[str, ...]) -> str:
-        wf_raw = self.ws.resolved["workflows"][self.run.header.workflow]
-        parts: dict[str, Any] = {}
-        for s in sections:
-            if s.startswith("workflow."):
-                parts[s] = digest(wf_raw.get(s.split(".", 1)[1]))
-            else:
-                parts[s] = self.ws.sections.get(s, digest(None))
-        return digest(parts)
+        return digest({s: self.ws.sections.get(s, digest(None)) for s in sections})
 
     def clock_view(self, *, with_time: bool) -> dict[str, Any]:
         c = self.run.header.clock
@@ -54,114 +48,130 @@ class RunContext:
             out["instant"] = c.instant
         return out
 
-    def workflow_name(self) -> str:
-        return self.run.header.workflow
+    def graph_name(self) -> str:
+        return self.run.header.graph
 
-    def source_ids(self) -> list[str]:
-        if self.workflow.sources is not None:
-            return list(self.workflow.sources)
-        return sorted(self.ws.config.sources)
+    # --- the graph ------------------------------------------------------------
+    def needs(self, name: str) -> list[str]:
+        """The nodes ``name`` waits for. The seal waits for every node."""
+        return list(self.graph) if name == SEAL else self.graph[name].needs
 
-    # --- evaluation ----------------------------------------------------------
-    def evaluate(self) -> list[StageEval]:
-        if self._evals is not None:
-            return self._evals
-        out: list[StageEval] = []
-        up: StageEval | None = None
-        blocked_by: str | None = None
-        hdr = self.run.header
-        for name in self.workflow.stages:
-            impl = STAGE_IMPLS[name]
-            if blocked_by is not None:
-                out.append(StageEval(name, impl.kind, "blocked", reason=f"waiting on {blocked_by}"))
-                continue
-            idx = list(STAGE_IMPLS).index(name)
-            unmet = self.unmet_needs(name, first=not out)
-            if unmet:
-                # TD §5.6: a node of a graph; this stage waits for other nodes to be done.
-                out.append(StageEval(name, impl.kind, "waiting", reason="needs", extra={"needs": unmet}))
-                blocked_by = name
-                continue
-            ev = impl.evaluate(self, up)
-            if hdr.applied_plan and idx < APPLY_INDEX:
-                # TD §5.4: past the apply boundary an upstream stage that no longer matches is read as pinned.
-                from docket.apply.boundary import pinned_eval
-                pinned = None if ev.state == "current" and ev.digest == hdr.pinned.get(name) else \
-                    pinned_eval(self, impl)
-                if pinned is not None:
-                    pinned.extra["fresh_state"] = ev.state
-                    out.append(pinned)
-                    up = pinned
-                    continue
-            if ev.state != "current":
-                if hdr.applied_plan and idx < APPLY_INDEX:
-                    ev.extra["underlying"] = ev.state
-                    ev.state, ev.reason = "blocked", "post_apply_change"
-                elif self.workflow.pause_before == name and name not in hdr.resumed:
-                    ev.extra["underlying"] = ev.state
-                    ev.state, ev.reason = "waiting", "paused"
-                blocked_by = name
-            out.append(ev)
-            up = ev
-        self._evals = out
+    def inputs(self, name: str) -> list[str]:
+        return [] if name == SEAL else self.graph[name].inputs
+
+    def ancestors(self, name: str) -> set[str]:
+        out: set[str] = set()
+        todo = list(self.needs(name))
+        while todo:
+            n = todo.pop()
+            if n not in out:
+                out.add(n)
+                todo += self.needs(n)
         return out
 
-    def unmet_needs(self, stage: str, *, first: bool) -> list[str]:
-        """The graph nodes this stage still waits for: the node's ``needs`` before its first
-        stage, and the stage's own ``gates``. Empty for a run that is not a node of a graph."""
-        hdr = self.run.header
-        if not hdr.graph_run or not hdr.node:
-            return []
-        from docket.engine import graph
-        return graph.unmet(self.ws, self.run.store, hdr.graph_run, hdr.node, stage, first=first)
+    def by_verb(self, verb: str) -> list[str]:
+        """The graph's nodes of one verb, in order."""
+        return [n for n in self.order if n != SEAL and self.graph[n].verb == verb]
+
+    def sources(self) -> list[str]:
+        """The sources this graph reads."""
+        return [self.graph[n].read for n in self.by_verb("read")]  # type: ignore[misc]
+
+    # --- evaluation ----------------------------------------------------------
+    def evaluate(self) -> list[Eval]:
+        if self._evals is None:
+            from docket.apply import boundary
+            evs: dict[str, Eval] = {}
+            pins = boundary.pins(self.run)
+            for name in self.order:
+                impl = self.impls[name]
+                waits = [n for n in self.needs(name) if evs[n].state != "current"]
+                if waits and name not in pins:
+                    evs[name] = Eval(name, impl.verb, "blocked", reason=f"waiting on {', '.join(waits)}",
+                                     extra={"needs": waits}, how=impl.how)
+                    continue
+                if name in pins:
+                    # TD §5.4: a node upstream of an applied write is read as it was when the write began.
+                    ev = None if waits else impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
+                    if ev is None or ev.state != "current" or ev.digest != pins[name]:
+                        pinned = boundary.pinned_eval(self, impl, pins[name])
+                        if pinned is not None:
+                            pinned.extra["fresh_state"] = ev.state if ev is not None else "blocked"
+                            evs[name] = pinned
+                            continue
+                        if ev is None:
+                            ev = Eval(name, impl.verb, "blocked", reason=f"waiting on {', '.join(waits)}", how=impl.how)
+                        if ev.state != "current":
+                            ev.extra["underlying"] = ev.state
+                            ev.state, ev.reason = "blocked", "post_apply_change"
+                    evs[name] = ev
+                    continue
+                evs[name] = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
+            self._evals = evs
+        return [self._evals[n] for n in self.order]
 
     def invalidate(self) -> None:
         self._evals = None
 
-    def eval(self, name: str) -> StageEval:
-        for ev in self.evaluate():
-            if ev.name == name:
-                return ev
-        raise KeyError(name)
+    def eval(self, name: str) -> Eval:
+        self.evaluate()
+        assert self._evals is not None
+        if name not in self._evals:
+            raise KeyError(name)
+        return self._evals[name]
 
-    def eval_or_none(self, name: str) -> StageEval | None:
+    def eval_or_none(self, name: str | None) -> Eval | None:
         try:
-            return self.eval(name)
+            return self.eval(name) if name else None
         except KeyError:
             return None
 
-    def upstream(self, name: str) -> StageEval | None:
-        evs = self.evaluate()
-        for i, ev in enumerate(evs):
-            if ev.name == name:
-                return evs[i - 1] if i else None
-        return None
+    def upstream(self, name: str) -> Eval | None:
+        """What ``name`` works on: the outputs of its input nodes, as one."""
+        return join([self.eval(n) for n in self.inputs(name)])
 
-    def first_pending(self) -> StageEval | None:
-        for ev in self.evaluate():
-            if ev.state != "current":
-                return ev
-        return None
+    def of(self, verb: str) -> Eval | None:
+        """What the graph's current nodes of one verb hand on, as one; None when none is current."""
+        return join([ev for ev in (self.eval(n) for n in self.by_verb(verb))
+                     if ev.state == "current" and ev.output is not None])
+
+    def output(self, verb: str) -> dict[str, Any]:
+        """The same as a plain map (empty when no node of the verb is current)."""
+        up = self.of(verb)
+        return (up.output if up is not None else None) or {}
+
+    def judging(self, task: str) -> list[str]:
+        """The judge nodes of one task kind."""
+        return [n for n in self.by_verb("judge") if self.graph[n].judge == task]
+
+    def ready(self) -> list[Eval]:
+        """The nodes that can move now: not current, with everything they need current."""
+        return [ev for ev in self.evaluate() if ev.state != "current"
+                and not (ev.state == "blocked" and ev.reason and ev.reason.startswith("waiting on"))]
+
+    def done(self) -> bool:
+        return all(ev.state == "current" for ev in self.evaluate())
 
     def materialize(self) -> list[str]:
-        """Write artifacts for current delegated and interactive stages that have none on disk."""
+        """Write artifacts for current judged and asked nodes that have none on disk."""
         written = []
         for ev in self.evaluate():
-            if ev.state != "current":
-                break
-            impl = STAGE_IMPLS[ev.name]
-            if impl.kind != "computational" and not self.run.paths.artifact(ev.name, ev.digest).is_file():
+            impl = self.impls[ev.name]
+            if ev.state == "current" and impl.how != "computed" and not ev.extra.get("pinned") \
+                    and not self.run.paths.artifact(ev.name, ev.digest).is_file():
                 impl.write_artifact(self, ev)
                 written.append(ev.name)
         return written
 
-    def stage_report(self) -> list[dict[str, Any]]:
+    def node_report(self) -> list[dict[str, Any]]:
         rows = []
         for ev in self.evaluate():
-            impl = STAGE_IMPLS[ev.name]
+            impl = self.impls[ev.name]
             st = ev.status()
             latest = impl.latest_config_digest(self)
             if latest is not None:
-                st.config_changed = latest != self.partial_config(impl.config_sections)
-            rows.append(st.model_dump())
+                st.config_changed = latest != impl.current_config_digest(self)
+            row = st.model_dump()
+            row["needs"] = self.needs(ev.name) if ev.name != SEAL else []
+            rows.append(row)
         return rows

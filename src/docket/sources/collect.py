@@ -50,19 +50,13 @@ class SourceResult:
 
 @dataclass
 class Starts:
-    """Where each (source, unit) starts: the durable cursor, or this run's proposal on refresh."""
+    """Where each (source, unit) starts: the durable cursor."""
     durable: dict[tuple[str, str], tuple[str | None, str | None]] = field(default_factory=dict)
-    run: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     processed: dict[str, set[str]] = field(default_factory=dict)
-    refresh: bool = False
 
     def cursor(self, sid: str, uid: str, cfg: SourceConfig, instant: str) -> Cursor:
         pos, cov = self.durable.get((sid, uid), (None, None))
-        gen = None
-        if self.refresh and (sid, uid) in self.run:
-            p = self.run[(sid, uid)]
-            pos, cov, gen = p["position"], p["coverage_end"] or cov, p["generation"]
-        return Cursor(cfg.cursor.effective, pos, cov, interval_from(cfg.cursor, instant, cov), instant, gen)
+        return Cursor(cfg.cursor.effective, pos, cov, interval_from(cfg.cursor, instant, cov), instant)
 
     def last_read(self, sid: str) -> str | None:
         ends = [v[1] for k, v in self.durable.items() if k[0] == sid and v[1]]

@@ -327,7 +327,7 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
         total = sum(_size(v) for v in views)
         context = _context(kind, views, others)
         body = {
-            "kind": kind.name, "stage": kind.stage, "spec": kind.spec_digest, "items": views, "units": units,
+            "kind": kind.name, "family": kind.family, "spec": kind.spec_digest, "items": views, "units": units,
             **({"context": context} if context else {}),
             "profile": _excerpts(ctx, views), "vocabulary": voc,
             "budget": {"max_items": kind.max_items, "max_bytes": kind.max_bytes, "bytes": total,
@@ -381,8 +381,3 @@ def _context(kind: "TaskKind", views: list[dict[str, Any]],
 
 def pack_ids(pack: dict[str, Any]) -> list[str]:
     return [it["id"] for it in pack["items"]]
-
-
-def carry_key(kind: "TaskKind", view: dict[str, Any]) -> str:
-    """Per-item carry-forward key (TD §9.6): the item's evidence and assessment as the task saw them."""
-    return digest({"kind": kind.name, "spec": kind.spec_digest, "item": view})
