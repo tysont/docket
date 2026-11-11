@@ -29,6 +29,8 @@ from docket.text import templates
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
 
+MAX_PARTS = 12   # the most parts of one split task that are recognised as its blocks
+
 LABELS = {
     "done": "Done",
     "partly": "Partly: it needs more time (answer with --est for the remainder)",
@@ -80,6 +82,9 @@ def candidates(rc: "RunContext", tasks: list[StoreTask] | None = None) -> list[d
     prefix = rc.ws.config.planning.key_prefix
     tasks = open_tasks(rc) if tasks is None else tasks
     by_key = {block_key(prefix, t.id): t for t in tasks}
+    for t in tasks:  # the parts of a split task (TD §12.3) are blocks of that task
+        for n in range(1, MAX_PARTS + 1):
+            by_key.setdefault(block_key(prefix, f"{t.id}#{n}"), t)
     out = []
     from docket.shapes.unexpected import collecting
     with collecting():  # calendar shapes are recorded by plan build, not by every evaluation

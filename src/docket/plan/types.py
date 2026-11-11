@@ -159,6 +159,9 @@ class Policy:
     batch_max: int = 15
     batch_block_max: int = 60
     key_prefix: str = "dk_"
+    prefer_window: tuple[int, int] | None = None
+    daily_target: int | None = None
+    split_over: int | None = None
 
     @classmethod
     def from_config(cls, planning: Any, profile_workdays: list[str] | None = None) -> "Policy":
@@ -181,6 +184,9 @@ class Policy:
             window_available_kinds=frozenset(p.window_available_kinds), buffer_kinds=frozenset(p.buffer_kinds),
             batch_max=dur(p.batch.max_minutes), batch_block_max=dur(p.batch.block_max),
             key_prefix=planning.key_prefix,
+            prefer_window=parse_clock_range(p.prefer_window) if p.prefer_window else None,
+            daily_target=dur(p.daily_target) if p.daily_target is not None else None,
+            split_over=dur(p.split_over) if p.split_over is not None else None,
         )
 
     def round_up(self, minutes: int) -> int:
@@ -249,6 +255,9 @@ class Task:
     question_id: str | None = None
     defaulted_est: bool = False
     elapsed_window: str | None = None   # the stored window, when every day of it was behind the run
+    part_of: str | None = None          # a part of a split task: the task's id
+    part: int = 0                       # which part, from 1
+    parts: int = 0                      # of how many
 
     def with_flags(self, today: date, imminent_days: int) -> "Task":
         overdue = self.due is not None and self.due < today
@@ -260,6 +269,7 @@ def task_key(task: Task, prefix: str) -> str:
     """The ownership key of a task's block: stable across runs for the same task id."""
     if task.kind == "batch":
         return f"{prefix}b_{digest(['batch', task.id])[:12]}"
+    # a part's id is "<task id>#<n>", so each part has its own stable key
     return f"{prefix}t_{digest(['task', task.id])[:12]}"
 
 

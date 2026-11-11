@@ -117,6 +117,25 @@ def prepare(tasks: list[Task], today: date, policy: Policy) -> list[Task]:
     return [t.with_flags(today, policy.imminent_days) for t in tasks]
 
 
+def split_long(tasks: list[Task], policy: Policy) -> list[Task]:
+    """Tasks longer than ``split_over`` become even parts on the grid, each its own unit with
+    its own key; the scheduler puts them on different days. A task with a window is left
+    whole: the window says when the work happens."""
+    cut = policy.split_over
+    if not cut:
+        return tasks
+    out: list[Task] = []
+    for t in tasks:
+        if t.kind == "batch" or t.window is not None or t.est <= cut:
+            out.append(t)
+            continue
+        n = -(-t.est // cut)
+        size = policy.round_up(-(-t.est // n))
+        out += [replace(t, id=f"{t.id}#{i}", est=size, title=f"{t.title} ({i}/{n})", part_of=t.id, part=i, parts=n)
+                for i in range(1, n + 1)]
+    return out
+
+
 def make_batches(ordered: list[Task], ctx: Ctx, titler: Titler | None) -> tuple[list[Task], list[Task]]:
     """(batch units, the tasks left to schedule individually)."""
     p = ctx.policy
@@ -183,7 +202,7 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             seen.add(t.id)
             uniq.append(t)
     batches, rest = make_batches(uniq, ctx, titler)
-    all_units = sorted(batches + rest, key=lambda t: ordering_key(t, policy))
+    all_units = sorted(batches + split_long(rest, policy), key=lambda t: ordering_key(t, policy))
     if titler is not None:
         all_units = [replace(t, title=titler(t)[0]) for t in all_units]
     units = [Unit(t, task_key(t, prefix), i) for i, t in enumerate(all_units)]
@@ -246,12 +265,24 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             u.window_error = {"task_id": u.task.id, "question_id": u.task.question_id, "window": w.label,
                               "est": need, "free_minutes": total, "longest_free": longest}
 
+    def after_siblings(u: Unit) -> None:
+        """A part goes on a later day than the parts before it."""
+        t = u.task
+        if not t.part_of:
+            return
+        days = [o.block.day for o in units if o.task.part_of == t.part_of and o.task.part < t.part and o.block]
+        if days:
+            first = max(days) + timedelta(days=1)
+            if t.earliest is None or t.earliest < first:
+                u.task = replace(t, earliest=first)
+
     # 4. place, with 5. repair for a task that would otherwise be late or unschedulable
     pending: list[Unit] = []
     moves_used = 0
     for u in units:
         if u.block is not None or u.window_error is not None:
             continue
+        after_siblings(u)
         res = search(u.task, ctx)
         if isinstance(res, Placement) and not res.late:
             place(u, res.block, False)
@@ -271,6 +302,7 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
     while changed and pending:
         changed = False
         for u in list(pending):
+            after_siblings(u)
             res = search(u.task, ctx)
             if isinstance(res, Placement):
                 place(u, res.block, res.late)
@@ -290,7 +322,7 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
     def base_op(verb: str, key: str, u: Unit | None, title: str, notes: str) -> dict[str, Any]:
         op = {"verb": verb, "calendar": calendar, "key": key, "title": title, "notes": notes,
               "kind": (u.block.kind if u and u.block else (u.task.kind or "task") if u else "task"),
-              "task_ids": list(u.task.members or (u.task.id,)) if u else []}
+              "task_ids": list(u.task.members or (u.task.part_of or u.task.id,)) if u else []}
         return op
 
     for u in units:
@@ -321,7 +353,7 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
         u = by_key.get(x.key)
         op = base_op("release", x.key, None, x.event.title, x.event.notes or "")
         if u is not None:
-            op["task_ids"] = list(u.task.members or (u.task.id,))
+            op["task_ids"] = list(u.task.members or (u.task.part_of or u.task.id,))
         op.update({"start": st, "end": en, "reason": reason, "event_id": x.event.id})
         ops.append(op)
     ops.sort(key=lambda o: (o["start"], o["key"], o["verb"], o.get("event_id", "")))
@@ -332,7 +364,7 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
         st, en = span(b.day, b.start, b.end)
         status = ("locked" if u.locked else "created" if u.existing is None else
                   "kept" if (u.existing.day, u.existing.start, u.existing.end) == (b.day, b.start, b.end) else "moved")
-        sched.append({"key": u.key, "task_ids": list(u.task.members or (u.task.id,)), "title": b.title,
+        sched.append({"key": u.key, "task_ids": list(u.task.members or (u.task.part_of or u.task.id,)), "title": b.title,
                       "kind": b.kind, "date": b.day.isoformat(), "start": st, "end": en, "minutes": b.minutes,
                       "status": status, "late": u.late, "seq": u.seq})
     unsched = [{"task_id": u.task.id, "title": u.task.title, "question_id": u.task.question_id,

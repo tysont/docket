@@ -803,6 +803,10 @@ Deterministic greedy placement with bounded repair:
 
 Planning 200 tasks over 42 days runs in well under 5 seconds because `free_intervals` is computed once per day and updated incrementally on each placement (NFR-06).
 
+**Preferences.** Placement is the earliest legal slot unless the policy states a preference. `policy.prefer_window` names a part of the day to take first, and `policy.daily_target` how much planned work a day should hold. With either set, a task without a window takes, in order: the earliest on-time day under the target with a slot in the preferred window; the earliest on-time day under the target with any slot; then the lightest on-time day, preferred window first. Late days are walked the same way only when no on-time day has a slot, so a preference spreads work and never makes a task late. `deep_window` stays a rule for workspaces that want one.
+
+**Splitting.** A task longer than `policy.split_over` becomes even parts on the grid (`ceil(est / split_over)` of them), each its own unit with its own stable key (`<task id>#<n>`), title suffix and block; a part goes on a later day than the parts before it. A task with a window is left whole. Title templates see `part` and `parts`, and a part carries its task's `label` and `id`. A part's block is a block of its task, so a reconcile question about an elapsed part is about the task.
+
 ### 12.4 Scheduling windows
 
 An answer's `--when` becomes a window: a day, a day and time range, or a named event (resolved by title match within the horizon). Inside a window, `search` takes the estimate's length in the first stretch free of meetings, and treats the operator's own soft holds and out-of-office as available, which is how "schedule it over my flight" works without a hand edit (FR-PLN-04). A window that cannot fit the estimate fails at plan build with `plan.window_too_small`, naming the window's free minutes and the answer command that changes it. A window read from a stored task line whose every day is behind the run is not a failure: it cannot be met and says nothing about when to do the work now, so the task is placed like any other and the plan notes it.

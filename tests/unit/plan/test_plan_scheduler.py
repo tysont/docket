@@ -197,3 +197,61 @@ def test_explain_of_an_unschedulable_task():
     out = explain(_built(res, ts), "a")
     assert out["unschedulable"]["reason"] == "overlap"
     assert all(r["constraint"] in ("overlap", "workday") for r in out["rejected"])
+
+
+# --- preferences: a preferred part of the day, and days not packed full ----------------
+
+
+def test_without_preferences_placement_is_the_earliest_legal_slot():
+    res = run([task("a", 60, due=d(5)), task("b", 60, due=d(5))], [ev("m", TODAY, "09:00", "12:00")])
+    assert placed(res, "a") == (TODAY, hm("12:00"), hm("13:00")) and placed(res, "b") == (TODAY, hm("13:00"), hm("14:00"))
+
+
+def test_a_preferred_window_is_taken_on_a_later_day_while_the_due_date_allows():
+    """Mornings are preferred, not required. With today's morning in a meeting, a task that
+    is not due yet takes tomorrow morning; one due today takes this afternoon."""
+    p = policy(prefer_window=(hm("09:00"), hm("12:00")))
+    res = run([task("soon", 60, due=d(0)), task("later", 60, due=d(5))], [ev("m", TODAY, "09:00", "12:00")], pol=p)
+    assert placed(res, "soon") == (TODAY, hm("12:00"), hm("13:00")) and not res.unit_for("soon").late
+    assert placed(res, "later") == (d(1), hm("09:00"), hm("10:00"))
+
+
+def test_a_daily_target_spreads_work_across_days_and_gives_way_to_due_dates():
+    """The target is how much planned work a day should hold, not a limit. Tasks fill the
+    earliest day up to it and then move on; when the due date leaves no lighter day, a day
+    goes over its target rather than a task going late."""
+    p = policy(daily_target=90, prefer_window=(hm("09:00"), hm("12:00")))
+    roomy = run([task(x, 60, due=d(8)) for x in "abc"], pol=p)
+    assert [placed(roomy, x)[0] for x in "abc"] == [TODAY, d(1), d(4)]            # d(2), d(3) are the weekend
+    assert all(placed(roomy, x)[1] == hm("09:00") for x in "abc")
+    tight = run([task(x, 60, due=d(0)) for x in "abc"], pol=p)
+    assert [placed(tight, x)[0] for x in "abc"] == [TODAY] * 3 and not any(tight.unit_for(x).late for x in "abc")
+    two_days = run([task(x, 60, due=d(1)) for x in "abcd"], pol=p)                 # over target, evenly: two and two
+    assert sorted(placed(two_days, x)[0] for x in "abcd") == [TODAY, TODAY, d(1), d(1)]
+
+
+# --- splitting ---------------------------------------------------------------------------
+
+
+def test_a_long_task_is_split_into_parts_on_different_days():
+    p = policy(split_over=90)
+    res = run([task("big", 120, due=d(5), title="Review the plans"), task("mid", 90, due=d(5))], pol=p)
+    parts = sorted((r for r in res.schedule if r["task_ids"] == ["big"]), key=lambda r: r["start"])
+    assert [r["minutes"] for r in parts] == [60, 60] and [r["title"] for r in parts] == [
+        "Review the plans (1/2)", "Review the plans (2/2)"]
+    assert parts[0]["date"] != parts[1]["date"] and parts[0]["date"] < parts[1]["date"]
+    assert len({r["key"] for r in parts}) == 2
+    mid = [r for r in res.schedule if r["task_ids"] == ["mid"]]
+    assert [r["minutes"] for r in mid] == [90] and mid[0]["title"] == "Task mid"   # at the threshold: whole
+    again = run([task("big", 120, due=d(5), title="Review the plans"), task("mid", 90, due=d(5))], pol=p)
+    assert sorted(r["key"] for r in again.schedule) == sorted(r["key"] for r in res.schedule)   # stable keys
+
+
+def test_parts_are_sized_evenly_on_the_grid_and_a_windowed_task_is_not_split():
+    p = policy(split_over=90, max_block=240)
+    res = run([task("odd", 200, due=d(9))], pol=p)
+    parts = sorted((r for r in res.schedule if r["task_ids"] == ["odd"]), key=lambda r: r["start"])
+    assert [r["minutes"] for r in parts] == [75, 75, 75] and len({r["date"] for r in parts}) == 3
+    w = resolve_window(normalize_when("2026-10-16", TODAY), TODAY)
+    pinned = run([task("pin", 120, window=w)], pol=p)
+    assert [r["minutes"] for r in pinned.schedule] == [120]

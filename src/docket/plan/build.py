@@ -264,8 +264,10 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
         members = [by_id[m] for m in task.members if m in by_id]
         # ``label`` is the words the label task wrote for the task (TD §12.7); ``id`` is the
         # task's own id, from which a template can build a link back to its line.
-        ctx = {"title": task.title, "count": len(members), "est": task.est, "id": task.id,
-               "label": labels.get(task.id, ""),
+        # A part of a split task carries its task's label and id, and which part it is.
+        own = task.part_of or task.id
+        ctx = {"title": task.title, "count": len(members), "est": task.est, "id": own,
+               "label": labels.get(own, ""), "part": task.part or "", "parts": task.parts or "",
                "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
                "members": [{"title": m.title, "est": m.est, "id": m.id, "label": labels.get(m.id, "")}
                            for m in members]}

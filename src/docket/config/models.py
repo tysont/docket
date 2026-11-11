@@ -399,6 +399,13 @@ class PlanningPolicy(Strict):
     deep_window: str | None = None
     deep_kinds: list[str] = ["deep"]              # block kinds that must sit inside deep_window
     deep_min: Duration = "60m"                     # a task this long or longer is a deep block
+    # Preferences, not rules (TD §12.3). A slot inside ``prefer_window`` is taken first, on a
+    # later day if the due date allows. ``daily_target`` is how much planned work a day should
+    # hold: days fill to it in turn, and go over it only when no lighter day is on time.
+    prefer_window: str | None = None
+    daily_target: Duration | None = None
+    # A task longer than this is split into even parts, one a day (TD §12.3).
+    split_over: Duration | None = None
     lunch: str | None = None
     granularity: Duration = "15m"
     min_block: Duration = "30m"
@@ -420,7 +427,7 @@ class PlanningPolicy(Strict):
     batch: PlanningBatch = PlanningBatch()
 
     @field_validator("granularity", "min_block", "max_block", "meeting_buffer", "daily_cap", "move_lock",
-                     "default_est", "deep_min")
+                     "default_est", "deep_min", "daily_target", "split_over")
     @classmethod
     def _durations(cls, v: Any) -> Any:
         return _check_duration(v)

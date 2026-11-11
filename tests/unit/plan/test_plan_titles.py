@@ -29,8 +29,8 @@ def rc(visibility, **redact):
     return SimpleNamespace(ws=SimpleNamespace(config=cfg))
 
 
-def task(i, title, **kw):
-    return Task(id=i, title=title, est=30, **kw)
+def task(i, title, est=30, **kw):
+    return Task(id=i, title=title, est=est, **kw)
 
 
 def test_a_block_on_a_shared_calendar_names_no_person_entity_or_figure():
@@ -70,3 +70,23 @@ def test_a_block_is_titled_with_the_label_written_for_its_task_and_can_link_back
     r2 = rc("shared"); r2.ws.config.planning = r.ws.config.planning
     assert _titler(r2, {"ia": a}, {"ia": "Review the plan for Acme Corp"})(a)[0] == "Review the plan for [redacted]"
     assert leaky(a)[0].startswith("Review the Kestrel plan")       # default template: the title, not the label
+
+
+def test_a_part_of_a_split_task_is_titled_with_its_tasks_label_and_its_number():
+    r = rc("shared")
+    r.ws.config.planning = Planning.model_validate({
+        "calendar": {"provider": "destination", "destination": "cal"},
+        "titles": {"task": "{label|default:Task}{?part} ({part}/{parts}){/part}", "notes": "notes://find?q={id}"}})
+    whole = task("ia", "Review the plans")
+    part = task("ia#2", "Review the plans (2/3)", part_of="ia", part=2, parts=3)
+    title_of = _titler(r, {"ia": whole}, {"ia": "Review roadmaps"})
+    assert title_of(whole) == ("Review roadmaps", "notes://find?q=ia")
+    assert title_of(part) == ("Review roadmaps (2/3)", "notes://find?q=ia")       # the link is to the task's line
+
+
+def test_an_elapsed_part_is_recognised_as_a_block_of_its_task():
+    from docket.decide.store import block_key
+    from docket.plan.scheduler import split_long
+    from docket.plan.types import Policy, task_key
+    (p1, p2) = split_long([task("ia", "Review the plans", est=120)], Policy(split_over=90))
+    assert task_key(p1, "dk_") == block_key("dk_", "ia#1") and task_key(p2, "dk_") == block_key("dk_", "ia#2")

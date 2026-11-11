@@ -236,7 +236,8 @@ def block_for(task: Task, ctx: Ctx, day: date, start: int, *, key: str | None = 
     p = ctx.policy
     n = p.length_for(task)
     return Block(key=key or task_key(task, p.key_prefix), kind=p.block_kind(task), day=day, start=start,
-                 end=start + n, task_ids=task.members or (task.id,), title=task.title, window=task.window,
+                 end=start + n, task_ids=task.members or (task.part_of or task.id,), title=task.title,
+                 window=task.window,
                  earliest=task.earliest)
 
 
@@ -265,15 +266,53 @@ def search(task: Task, ctx: Ctx) -> Placement | Unschedulable:
         return Unschedulable(task.id, "max_block", f"needs {n}m; the maximum block is {p.max_block}m")
     on_time, late = candidate_days(task, ctx)
     for days, is_late in ((on_time, False), (late, True)):
-        for day in days:
-            for s, e in ctx.free(day, task.window):
-                t = _grid_up(s, p.granularity)
-                while t + n <= e:
-                    blk = block_for(task, ctx, day, t)
-                    if not check(blk, ctx):
-                        return Placement(blk, late=is_late)
-                    t += p.granularity
+        blk = _choose(task, ctx, days, n)
+        if blk is not None:
+            return Placement(blk, late=is_late)
     return tightest(task, ctx)
+
+
+def _first(task: Task, ctx: Ctx, day: date, n: int, within: tuple[int, int] | None = None) -> Block | None:
+    """The earliest legal slot on ``day``, inside ``within`` when given."""
+    p = ctx.policy
+    for s, e in ctx.free(day, task.window):
+        if within is not None:
+            s, e = max(s, within[0]), min(e, within[1])
+        t = _grid_up(s, p.granularity)
+        while t + n <= e:
+            blk = block_for(task, ctx, day, t)
+            if not check(blk, ctx):
+                return blk
+            t += p.granularity
+    return None
+
+
+def _choose(task: Task, ctx: Ctx, days: list[date], n: int) -> Block | None:
+    """The slot among ``days``. With no preference set, or for a task with a window, the
+    earliest legal slot. Otherwise, in order: the earliest day under the daily target with a
+    slot in the preferred window; the earliest day under the target with any slot; then the
+    lightest day, the preferred window first. Preferences choose among days that are all on
+    time (or all late), so they never make a task late."""
+    p = ctx.policy
+    if task.window is not None or (p.prefer_window is None and p.daily_target is None):
+        return next((b for b in (_first(task, ctx, d, n) for d in days) if b is not None), None)
+    key = task_key(task, p.key_prefix)
+    load = {d: ctx.minutes(d, excluding=key) for d in days}
+    under = [d for d in days if p.daily_target is None or load[d] + n <= p.daily_target]
+    if p.prefer_window is not None:
+        for d in under:
+            blk = _first(task, ctx, d, n, p.prefer_window)
+            if blk is not None:
+                return blk
+    for d in under:
+        blk = _first(task, ctx, d, n)
+        if blk is not None:
+            return blk
+    for d in sorted(days, key=lambda d: (load[d], d)):
+        blk = (_first(task, ctx, d, n, p.prefer_window) if p.prefer_window is not None else None) or _first(task, ctx, d, n)
+        if blk is not None:
+            return blk
+    return None
 
 
 def slot_bounds(task: Task, ctx: Ctx, day: date) -> list[tuple[int, int]]:
