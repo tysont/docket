@@ -56,7 +56,8 @@ def decode_entry(blob: bytes, entries_path: str | None, entry: int | None) -> st
 
 class RecordTexts:
     """Decoded raw text per record id for one run, read lazily from the record indexes
-    (``read/<source>/records.jsonl``)."""
+    (``read/<source>/records.jsonl``). A record a read met twice is its later entry only,
+    as in the read node's items (the later entry wins)."""
 
     def __init__(self, rc: "RunContext", sources: set[str] | None = None) -> None:
         self.rc = rc
@@ -81,7 +82,7 @@ class RecordTexts:
                     rid = row.get("record_id")
                     if not rid or not row.get("blob") or row.get("outcome") == "tombstone":
                         continue
-                    idx.setdefault(rid, []).append(row)
+                    idx[rid] = [row]
             self._index = idx
         return self._index
 

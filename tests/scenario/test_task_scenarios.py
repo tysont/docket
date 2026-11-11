@@ -1,6 +1,6 @@
 """Agent tasks end to end (IP M4 exit, TD §9): refusals with per-row fixes, safe readings, review
-verdicts in the pipeline, carry-forward across a refresh generation and across runs, dispatch
-guidance and task schemas. All data is invented."""
+verdicts in the pipeline, accepted results reused across runs, dispatch guidance and task
+schemas. All data is invented."""
 from __future__ import annotations
 
 import copy
@@ -18,8 +18,8 @@ from tests.agent_loop import run_agent, synthetic_result
 CASES = [("reference-like", "daily"), ("support-lead", "shift")]
 
 
-def start(cli, ws, workflow, pinned_now, *extra):
-    code, env = cli("run", "start", workflow, "--now", pinned_now, "--workspace", str(ws), *extra)
+def start(cli, ws, graph, pinned_now, *extra):
+    code, env = cli("run", "start", graph, "--now", pinned_now, "--workspace", str(ws), *extra)
     assert code == 0, env
     return env["data"]["run"]
 
@@ -33,17 +33,17 @@ def run_dir(ws, run_id):
     return state_root(ws, os.environ) / "runs" / run_id
 
 
-def artifact(ws, run_id, stage):
-    d = run_dir(ws, run_id) / "artifacts" / stage
+def artifact(ws, run_id, node):
+    d = run_dir(ws, run_id) / "artifacts" / node
     return json.loads((d / ((d / "latest").read_text().strip() + ".json")).read_text())["data"]
 
 
-@pytest.mark.parametrize("name,workflow", CASES)
+@pytest.mark.parametrize("name,graph", CASES)
 def test_exit_scripted_submission_refuses_three_rows_and_accepts_the_safe_reading(persona, cli, pinned_now,
-                                                                                    name, workflow):
+                                                                                    name, graph):
     ws = persona(name)
-    run_id = start(cli, ws, workflow, pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch")
+    run_id = start(cli, ws, graph, pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "assess")
     assert res.failures == []
     task = next(t for t in res.final["tasks"] if t["kind"] == "assess")
     pack = json.loads(Path(task["pack_path"]).read_text())
@@ -93,7 +93,7 @@ def test_exit_scripted_submission_refuses_three_rows_and_accepts_the_safe_readin
 def test_review_verdicts_drop_merge_and_flag_items(persona, cli, pinned_now):
     ws = persona("reference-like")
     run_id = start(cli, ws, "daily", pinned_now)
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["stage"] == "review")
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "review")
     assert res.failures == []
     tasks = res.final["tasks"]
     first, rest = tasks[0], tasks[1:]
@@ -110,9 +110,10 @@ def test_review_verdicts_drop_merge_and_flag_items(persona, cli, pinned_now):
         code, env = submit(cli, t, synthetic_result("review", json.loads(Path(t["pack_path"]).read_text())))
         assert code == 0, env
     items = {it["id"]: it for it in artifact(ws, run_id, "review")["items"]}
-    assert items[dropped]["keep"] is False and items[dropped]["dropped"] == {"stage": "review",
+    assert items[dropped]["keep"] is False and items[dropped]["dropped"] == {"node": "review",
                                                                             "reason": "Already handled in the thread."}
-    assert items[dropped]["trace"][-1]["verdict"] == "drop" and items[dropped]["trace"][-1]["stage"] == "review"
+    last = items[dropped]["trace"][-1]
+    assert (last["verb"], last["node"], last["verdict"]) == ("judge", "review", "drop")
     assert items[merged]["keep"] is False and items[merged]["merged_into"] == target
     assert items[target]["merged"] == [merged] and items[target]["keep"] is True
     assert items[flagged]["needs_verification"] is True and items[flagged]["keep"] is True
@@ -120,49 +121,6 @@ def test_review_verdicts_drop_merge_and_flag_items(persona, cli, pinned_now):
     code, env = cli("ask", "list", "--workspace", str(ws))
     asked = {q["id"] for q in env["data"]["questions"]}
     assert f"q_{dropped}" not in asked and f"q_{merged}" not in asked
-
-
-REVIEWED = """\
-  reviewed:
-    stages: [collect, assess, merge, review, decide, plan, approve, apply, close]
-    sources: [tickets]
-    questions: { kinds: [finding], budget: 40 }
-    options: queue
-"""
-
-
-def test_review_verdicts_carry_forward_across_a_refresh_generation(persona, cli, pinned_now):
-    ws = persona("support-lead")
-    cfg = ws / "docket.yaml"
-    cfg.write_text(cfg.read_text().replace("workflows:\n", "workflows:\n" + REVIEWED, 1))
-    run_id = start(cli, ws, "reviewed", pinned_now)
-    first = run_agent(ws, stop_at=lambda s: s["kind"] == "ask")
-    assert first.failures == [] and first.final["stage"] == "decide"
-    reviewed0 = [it["id"] for s in first.steps if s["kind"] == "dispatch" and s["stage"] == "review"
-                 for t in s["tasks"] for it in json.loads(Path(t["pack_path"]).read_text())["items"]]
-    # Every kept ticket is reviewed once; signal rules decide how many are kept.
-    assert reviewed0 and len(reviewed0) == len(set(reviewed0))
-
-    feed = ws / "data" / "tickets.jsonl"
-    lines = feed.read_text().splitlines()
-    changed = json.loads(lines[0])
-    with feed.open("a") as fh:
-        fh.write(json.dumps({**changed, "key": "SUP-2001", "summary": "Arrived after the evening collect"}) + "\n")
-        fh.write(json.dumps({**changed, "description": "Customer report 0: the customer replied with a new date."})
-                 + "\n")
-    code, env = cli("collect", "--refresh", "--sources", "tickets", "--workspace", str(ws))
-    assert code == 0 and env["data"]["generation"] == 1, env
-    second = run_agent(ws, stop_at=lambda s: s["kind"] == "ask")
-    assert second.failures == []
-    review_steps = [s for s in second.steps if s["kind"] == "dispatch" and s["stage"] == "review"]
-    reviewed1 = sorted(it["id"] for s in review_steps for t in s["tasks"]
-                       for it in json.loads(Path(t["pack_path"]).read_text())["items"])
-    assert reviewed1 == sorted([item_id("tickets", "", "SUP-2001"), item_id("tickets", "", changed["key"])])
-    items = artifact(ws, run_id, "review")["items"]
-    carried = [it for it in items if it.get("trace") and it["trace"][-1].get("carried")]
-    assert len(carried) == len(reviewed0) - 1 and all(it["verdict"] == "ask" for it in carried)
-    done = run_agent(ws)
-    assert done.failures == [] and done.final["kind"] == "done"
 
 
 def test_accepted_results_are_reused_by_input_digest_in_a_later_run(persona, cli, pinned_now):
@@ -185,11 +143,15 @@ def test_dispatch_guidance_concurrency_inline_and_exact_commands(persona, cli, p
                                                                                 "  assess: { max_items: 8 }"))
     start(cli, ws, "shift", pinned_now)
     res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch")
-    step = res.final
-    assert step["concurrency"] == 3 and "inline" in step["why"] and "independent" in step["why"]
-    kinds = {t["kind"] for t in step["tasks"]}
-    assert kinds == {"assess", "sla_check"}
-    for t in step["tasks"]:
+    assert res.failures == []
+    code, env = cli("next", "--workspace", str(ws))
+    steps = [s for s in env["data"]["steps"] if s["kind"] == "dispatch"]
+    # one dispatch step per judge node; the two judges work on the same reads and are ready together
+    assert {(s["node"], t["kind"]) for s in steps for t in s["tasks"]} == {("assess", "assess"),
+                                                                           ("sla-check", "sla_check")}
+    for step in steps:
+        assert step["concurrency"] == 3 and "inline" in step["why"] and "independent" in step["why"]
+    for t in (t for s in steps for t in s["tasks"]):
         assert t["submit"]["argv"][1:4] == ["task", "submit", t["task_id"]] and t["result_path"] in t["submit"]["argv"]
         assert t["result_schema"] == f"{t['kind']}-output"
         prompt = Path(t["prompt_path"]).read_text()
@@ -204,7 +166,11 @@ def test_task_kinds_and_schemas_for_every_kind(persona, cli, tmp_path):
     assert code == 0
     kinds = {k["kind"]: k for k in env["data"]["kinds"]}
     assert set(kinds) == {"assess", "extract", "review", "classify", "label", "recap", "tone"}
-    assert kinds["tone"]["issued"] is True and kinds["extract"]["issued"] is False
+    # a kind is issued by the judge nodes that name it, in every graph
+    assert kinds["tone"]["nodes"] == ["daily.tone", "isolation.tone", "signals-digest.tone", "triage.tone",
+                                      "week-plan.tone"]
+    assert kinds["extract"]["nodes"] == [] and kinds["review"]["nodes"] == ["daily.review"]
+    assert kinds["tone"]["family"] == "item" and kinds["review"]["family"] == "review"
     for k in kinds.values():
         for name in (k["input_schema"], k["output_schema"]):
             code, env = cli("schema", name, "--workspace", str(ws))
@@ -218,19 +184,17 @@ def test_task_kinds_and_schemas_for_every_kind(persona, cli, tmp_path):
     assert code == 0 and "x-rules" in json.dumps(env["data"]["schema"])
 
 
-def test_evidence_is_checked_against_the_latest_generation_of_a_record(persona, cli, pinned_now):
+def test_evidence_is_checked_against_the_latest_version_of_a_record(persona, cli, pinned_now):
+    """A feed that holds a record twice hands on its later version, and evidence must quote that."""
     ws = persona("support-lead")
-    start(cli, ws, "shift", pinned_now)
-    code, env = cli("collect", "--workspace", str(ws))
-    assert code == 0
     feed = ws / "data" / "tickets.jsonl"
     # The first ticket an agent assesses: P1 and P2 tickets are rules-only (no task).
     first = next(r for r in map(json.loads, feed.read_text().splitlines()) if r["priority"] not in ("P1", "P2"))
     with feed.open("a") as fh:
         fh.write(json.dumps({**first, "description": "Customer report 0: resolved by the refund team."}) + "\n")
-    code, env = cli("collect", "--refresh", "--sources", "tickets", "--workspace", str(ws))
-    assert code == 0
-    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch")
+    start(cli, ws, "shift", pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "assess")
+    assert res.failures == []
     target = item_id("tickets", "", first["key"])
     task, pack = next((t, p) for t in res.final["tasks"] if t["kind"] == "assess"
                       for p in [json.loads(Path(t["pack_path"]).read_text())]

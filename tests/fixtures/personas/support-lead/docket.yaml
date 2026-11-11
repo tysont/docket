@@ -3,17 +3,30 @@
 version: 1
 presets: [policy/basic-defaults]
 
-workflows:
+graphs:
   shift:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    sources: [tickets, pager]
-    questions: { kinds: [finding], budget: 12 }
-    options: queue
+    read-tickets: { read: tickets }
+    read-pager: { read: pager }
+    assess: { judge: assess, from: [read-tickets, read-pager] }
+    sla-check: { judge: sla_check, from: [read-tickets] }
+    merge: { merge: [assess, sla-check] }
+    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 12 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
   isolation:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    sources: [tickets, pager, metrics, kb, history]
-    questions: { kinds: [finding], budget: 4 }
-    options: queue
+    read-tickets: { read: tickets }
+    read-pager: { read: pager }
+    read-metrics: { read: metrics }
+    read-kb: { read: kb }
+    read-history: { read: history }
+    assess: { judge: assess, from: [read-tickets, read-pager, read-metrics, read-kb, read-history] }
+    sla-check: { judge: sla_check, from: [read-tickets] }
+    merge: { merge: [assess, sla-check] }
+    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 4 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
 
 profile:
   timezone: Europe/Lisbon
@@ -98,13 +111,13 @@ sources:
   kb:
     # Fails by design: its auth check is the test stub docket-stub-auth (tests/fixtures/bin, first on
     # PATH in the tests) in its expired-token mode. Workspace-wide docket doctor reports it; only the
-    # isolation workflow reads kb, so docket doctor --workflow shift passes.
+    # isolation graph reads kb, so docket doctor --graph shift passes.
     extends: exec/jsonl-source
     description: Knowledge base changes behind a token that has expired.
     transport: kb-bridge
     auth:
       check: [docket-stub-auth, --fail]
-      instructions: "Renew the knowledge base token (stub-login kb), then rerun the collect command."
+      instructions: "Renew the knowledge base token (stub-login kb), then read the source again."
   history:
     extends: exec/jsonl-source
     description: Closed-ticket history; the page budget is deliberately small.
@@ -199,7 +212,6 @@ tasks:
   kinds:
     sla_check:
       description: The risk that an open ticket breaches its service level.
-      select: { sources: [tickets] }
       max_items: 12
       instructions: >-
         For each ticket in the queues {me.name} leads, judge the risk that it breaches its

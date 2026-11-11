@@ -52,7 +52,7 @@ sources:
     transport: wiki-feed
     auth:
       check: [docket-stub-auth, --fail]
-      instructions: "Sign in to the wiki gateway (stub-login wiki), then rerun the collect command."
+      instructions: "Sign in to the wiki gateway (stub-login wiki), then read the source again."
   archive:
     extends: http/json-api
     description: The long message archive; its page budget is deliberately small.

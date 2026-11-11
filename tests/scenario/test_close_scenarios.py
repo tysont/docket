@@ -17,7 +17,7 @@ from docket.apply import executor
 from docket.store.paths import state_root
 from tests.agent_loop import run_agent
 
-STUB = Path(__file__).resolve().parents[1] / "fixtures" / "bin" / "hook_stub.py"
+STUB = Path(__file__).resolve().parents[1] / "fixtures" / "bin" / "cmd_stub.py"
 
 
 def db_rows(ws: Path, sql: str, *args) -> list[tuple]:

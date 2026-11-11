@@ -155,9 +155,22 @@ def _judged(rc: Any) -> list[Any]:
     return [ev for ev in rc.evaluate() if "packs" in ev.extra]
 
 
+def _judged_all(rc: Any) -> list[Any]:
+    """Every judge node with its packs, including one read from its pinned artifact after a
+    write began: its packs are computed again from what it was pinned on, for listing only."""
+    from docket.engine.nodes import JudgeNode
+    out = []
+    for ev in rc.evaluate():
+        if "packs" in ev.extra:
+            out.append(ev)
+        elif ev.extra.get("pinned") and isinstance(rc.impls[ev.name], JudgeNode):
+            out.append(rc.impls[ev.name].evaluate(rc, rc.upstream(ev.name)))
+    return out
+
+
 def _task_rows(rc: Any) -> list[dict[str, Any]]:
     rows = []
-    for ev in _judged(rc):
+    for ev in _judged_all(rc):
         for p in ev.extra["packs"]:
             tdir = rc.run.paths.task(p["task_id"])
             rows.append({

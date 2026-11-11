@@ -1,6 +1,7 @@
 """A minimal agent (Test Plan §6.1).
 
-It loops on ``docket next --json`` and uses only fields from the step:
+It loops on ``docket next --json`` and does every ready step of each round, using only
+fields from the step:
 
 - ``run``: call the step's argv (without the leading ``docket``);
 - ``dispatch``: read each pack, write a synthetic result that satisfies the
@@ -9,12 +10,16 @@ It loops on ``docket next --json`` and uses only fields from the step:
   review: verdict ask with an argument against; any other kind: the example
   row of the task's prompt for every item, with identity copied and evidence
   quoted from the item) and call the task's ``submit`` argv;
-- ``ask``: answer each question with its first option, filling the step's
-  answer template (its only placeholders are ``{question}`` and ``{option}``;
+- ``ask``: answer each question with its first option (or ``choose``), filling the
+  step's answer template (its only placeholders are ``{question}`` and ``{option}``;
   the approve step's template already carries the plan digest);
-- ``wait``: when the reason is ``paused`` and resuming is allowed, call the
-  step's ``command`` (the documented resume command); otherwise stop;
-- ``done``: stop.
+- ``wait``: nothing; the other steps of the round are still done.
+
+``stop_at`` sees every step of a round before any of them is done. The loop ends when
+``docket next`` says ``done`` (``final`` is ``{"kind": "done", "summary": ...}``), when
+``stop_at`` matches a step (``final`` is that step; nothing of that round is done), when a
+round has only wait steps (``final`` is the first of them), or on the first failed command
+(``final`` is ``{"kind": "error", "error": ...}``).
 
 With ``repeat_commands`` every command the agent runs (other than ``next``) is
 run twice, as if the agent had been killed after the first call and repeated it.
@@ -88,12 +93,13 @@ def synthetic_result(kind: str, pack: dict[str, Any], prompt: str = "") -> dict[
 
 
 def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path | None = None,
-              resume_paused: bool = True, max_steps: int = 200,
+              max_rounds: int = 200,
               choose: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
               stop_at: Callable[[dict[str, Any]], bool] | None = None,
               repeat_commands: bool = False, full: bool = False) -> LoopResult:
-    """Loop on ``docket next``; with ``full`` it asks for ``docket next --full`` (every option's
-    command and the question details), which tests that inspect details use."""
+    """Loop on ``docket next``, doing every ready step each round. ``stop_at`` sees each step
+    (it has ``kind`` and ``node``) before it is done; with ``full`` the loop asks for ``docket
+    next --full`` (every option's command and the question details)."""
     environ = dict(os.environ if env is None else env)
     workdir = str(cwd or workspace)
     res = LoopResult(final={})
@@ -115,16 +121,7 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
             res.failures.append({"argv": argv, "code": code, "error": env_out.get("error")})
         return env_out
 
-    for _ in range(max_steps):
-        nxt = call(["next", "--workspace", str(workspace), *(["--full"] if full else [])])
-        if not nxt["ok"]:
-            res.final = {"kind": "error", "error": nxt["error"]}
-            return res
-        step = nxt["data"]["step"]
-        res.steps.append(step)
-        if stop_at is not None and stop_at(step):
-            res.final = step
-            return res
+    def do(step: dict[str, Any]) -> None:
         kind = step["kind"]
         if kind == "run":
             call(step["command"]["argv"])
@@ -139,17 +136,32 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
             for q in step["questions"]:
                 opt = choose(q) if choose else q["options"][0]
                 call(fill_template(step["answer"]["argv"], q["id"], opt["id"]))
-        elif kind == "wait":
-            if resume_paused and step["reason"] == "paused" and step.get("command"):
-                call(step["command"]["argv"])
-                continue
-            res.final = step
+
+    for _ in range(max_rounds):
+        nxt = call(["next", "--workspace", str(workspace), *(["--full"] if full else [])])
+        if not nxt["ok"]:
+            res.final = {"kind": "error", "error": nxt["error"]}
             return res
-        elif kind == "done":
-            res.final = step
+        data = nxt["data"]
+        if data["done"]:
+            res.final = {"kind": "done", "summary": data["summary"]}
             return res
-        if res.failures:
-            res.final = {"kind": "error", "error": res.failures[-1]}
+        if not data["steps"]:
+            res.final = {"kind": "stuck", "nodes": data["nodes"]}
             return res
-    res.final = {"kind": "error", "error": "max_steps exceeded"}
+        for step in data["steps"]:
+            res.steps.append(step)
+            if stop_at is not None and stop_at(step):
+                res.final = step
+                return res
+        moving = [s for s in data["steps"] if s["kind"] != "wait"]
+        if not moving:
+            res.final = data["steps"][0]
+            return res
+        for step in moving:
+            do(step)
+            if res.failures:
+                res.final = {"kind": "error", "error": res.failures[-1]}
+                return res
+    res.final = {"kind": "error", "error": "max_rounds exceeded"}
     return res

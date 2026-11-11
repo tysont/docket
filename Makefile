@@ -1,4 +1,4 @@
-.PHONY: test-smoke test-fast test litmus rehearse-fixtures privacy lint
+.PHONY: test-smoke test-fast test litmus privacy lint
 
 # Smoke: unit tests of core packages, the envelope contract and the litmus test (about 5 s).
 test-smoke:
@@ -14,10 +14,6 @@ test:
 
 litmus:
 	uv run pytest -q tests/litmus
-
-# Rehearse: each persona fixture's run rehearsed on a copy to close (TP §3, §8.1).
-rehearse-fixtures:
-	uv run pytest -q tests/scenario/test_rehearse.py
 
 privacy:
 	python3 scripts/privacy_scan.py

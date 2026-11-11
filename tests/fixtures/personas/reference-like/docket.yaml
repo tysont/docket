@@ -4,37 +4,62 @@ version: 1
 includes: [profile.yaml, sources.yaml, signals.yaml, destinations.yaml, planning.yaml, journal.yaml]
 presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic, options/standard]
 
-workflows:
+graphs:
   daily:
-    description: Evening collection, morning decisions.
-    stages: [collect, assess, merge, review, decide, plan, approve, apply, close]
-    sources: [chat, mail, transcripts]
-    pause_before: decide
-    refresh_on_resume: [chat, mail]
-    review: { pool: 40 }
-    questions: { kinds: [finding], bursts: 1, budget: 15 }
-    options: basic
+    # Evening collection, morning decisions.
+    read-chat: { read: chat }
+    read-mail: { read: mail }
+    read-transcripts: { read: transcripts }
+    assess: { judge: assess, from: [read-chat, read-mail, read-transcripts] }
+    tone: { judge: tone, from: [read-chat] }
+    merge: { merge: [assess, tone] }
+    review: { judge: review, from: [merge], pool: 40 }
+    decide: { ask: basic, from: [review], questions: { kinds: [finding], bursts: 1, budget: 15 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
   triage:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    sources: [chat, mail]
-    questions: { kinds: [finding], budget: 8 }
-    options: basic
+    read-chat: { read: chat }
+    read-mail: { read: mail }
+    assess: { judge: assess, from: [read-chat, read-mail] }
+    tone: { judge: tone, from: [read-chat] }
+    merge: { merge: [assess, tone] }
+    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
   isolation:
-    description: Every source, including one failing, one unavailable and one over budget.
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    sources: [chat, mail, transcripts, status, wiki, archive]
-    questions: { kinds: [finding], budget: 5 }
-    options: basic
+    # Every source, including one failing, one unavailable and one over budget.
+    read-chat: { read: chat }
+    read-mail: { read: mail }
+    read-transcripts: { read: transcripts }
+    read-status: { read: status }
+    read-wiki: { read: wiki }
+    read-archive: { read: archive }
+    assess: { judge: assess, from: [read-chat, read-mail, read-transcripts, read-status, read-wiki, read-archive] }
+    tone: { judge: tone, from: [read-chat] }
+    merge: { merge: [assess, tone] }
+    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 5 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
   signals-digest:
-    description: A read-only digest over chat, mail and escalation tickets; no decisions.
-    stages: [collect, assess, merge, close]
-    sources: [chat, mail, escalations]
+    # A read-only digest over chat, mail and escalation tickets; no decisions.
+    read-chat: { read: chat }
+    read-mail: { read: mail }
+    read-escalations: { read: escalations }
+    assess: { judge: assess, from: [read-chat, read-mail, read-escalations] }
+    tone: { judge: tone, from: [read-chat] }
+    merge: { merge: [assess, tone] }
   week-plan:
-    description: Plan the next days onto the calendar and show the plan; nothing is applied.
-    stages: [collect, assess, merge, decide, plan, close]
-    sources: [chat, mail]
-    questions: { kinds: [reconcile, finding, verify], budget: 3 }
-    options: standard
+    # Plan the next days onto the calendar and show the plan; nothing is applied.
+    read-chat: { read: chat }
+    read-mail: { read: mail }
+    assess: { judge: assess, from: [read-chat, read-mail] }
+    tone: { judge: tone, from: [read-chat] }
+    merge: { merge: [assess, tone] }
+    decide: { ask: standard, from: [merge], questions: { kinds: [reconcile, finding, verify], budget: 3 } }
+    plan: { plan: [decide], schedule_tasks: true }
 
 decisions:
   templates:
@@ -46,7 +71,6 @@ tasks:
   kinds:
     tone:
       description: The tone of chat messages, for planning replies.
-      select: { sources: [chat] }
       instructions: >-
         For each chat message sent to {me.name}, judge the writer's tone and whether the
         writer is waiting for an answer from {me.name}.

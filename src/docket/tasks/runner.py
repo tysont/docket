@@ -154,8 +154,8 @@ def combine_assess(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
         new["score"] = int(row.get("score") or 0)
         if hit:
             new["assessment"] = _body(row)
-            new["trace"] = _trace(it, {"node": plan.node, "task": hit[0], "keep": new["keep"],
-                                       "score": new["score"], "kind": row.get("kind")})
+            new["trace"] = _trace(it, {"verb": "judge", "step": "assessed", "node": plan.node, "task": hit[0],
+                                       "keep": new["keep"], "score": new["score"], "kind": row.get("kind")})
         out.append(new)
     return {"items": out}
 
@@ -224,7 +224,7 @@ def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
         task, row = hit
         v = row.get("verdict")
         review = {k: row[k] for k in ("against", "reason", "merge_with", "decision") if row.get(k)}
-        entry: dict[str, Any] = {"node": plan.node, "verdict": v, **review}
+        entry: dict[str, Any] = {"verb": "judge", "step": "reviewed", "node": plan.node, "verdict": v, **review}
         if row.get("decision"):
             # The reviewer's decision replaces the first recommendation; the trace keeps both.
             was = (it.get("assessment") or {}).get("decision")

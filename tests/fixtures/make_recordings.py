@@ -5,7 +5,7 @@ fake of every upstream system (a chat gateway's code tool, a mail server, two
 JSON APIs, three exec bridges), drives the real collection pipeline against
 them through ``Recorder``, and writes ``recordings/<transport>.jsonl``. It runs
 two passes: a first run from no cursor, and a follow-up from the first run's
-proposals, which is what a refresh or the next run requests.
+proposals, which is what the next run requests.
 
 Run from the repository root after changing a preset's request plan:
 

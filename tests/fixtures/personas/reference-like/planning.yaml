@@ -1,6 +1,5 @@
 # Planning for the reference-like persona. The calendar is a JSON fixture; all data is invented.
 planning:
-  workflows: [week-plan]
   calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: work-calendar }
   tasks: { destination: backlog, sections: ["## Inbox"] }
   policy:

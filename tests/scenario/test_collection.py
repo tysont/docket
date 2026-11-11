@@ -1,6 +1,7 @@
-"""Collection scenarios (IP M2 exit, TP §6.2): both personas collect from recorded transports
-with one source failing, one unavailable and one partial while the others complete;
-required sources wait; refresh generations; cursor proposals at close; source inspection."""
+"""Reading scenarios (IP M2 exit, TP §6.2): both personas read from recorded transports, one
+read node per source, with one source failing, one unavailable and one partial while the
+others complete; a required source waits; cursor proposals at read, durable cursors at the
+seal; source inspection."""
 from __future__ import annotations
 
 import json
@@ -25,6 +26,22 @@ ISOLATION = {
 }
 
 
+def read_all(cli, ws, sources):
+    """Do each source's read node; return each source's outcome and every unexpected shape."""
+    out, unexpected = {}, []
+    for sid in sources:
+        code, env = cli("do", f"read-{sid}", "--workspace", str(ws))
+        assert code == 0, env
+        out.update(env["data"]["result"]["sources"])
+        unexpected += env["unexpected"]
+    return out, unexpected, env
+
+
+def artifact(ws, run_id, node):
+    d = state_root(ws, os.environ) / "runs" / run_id / "artifacts" / node
+    return json.loads((d / ((d / "latest").read_text().strip() + ".json")).read_text())["data"]
+
+
 def db_of(ws):
     db = sqlite3.connect(state_root(ws, os.environ) / "docket.db")
     db.row_factory = sqlite3.Row
@@ -37,9 +54,8 @@ def test_isolation_one_failing_one_unavailable_one_partial(persona, cli, pinned_
     ws = persona(name)
     code, env = cli("run", "start", "isolation", "--now", pinned_now, "--workspace", str(ws))
     assert code == 0, env
-    code, env = cli("collect", "--workspace", str(ws))
-    assert code == 0, env
-    src = env["data"]["result"]["sources"]
+    reads = sorted(n["node"][5:] for n in env["data"]["nodes"] if n["verb"] == "read")
+    src, unexpected, env = read_all(cli, ws, reads)
     for sid in exp["read"]:
         assert src[sid]["outcome"] == "read" and src[sid]["records"] > 0, (sid, src[sid])
     if exp["skipped"]:
@@ -53,12 +69,11 @@ def test_isolation_one_failing_one_unavailable_one_partial(persona, cli, pinned_
     part = src[exp["partial"]]
     assert part["outcome"] == "partial" and part["cause"]["code"] == "source.budget_exhausted"
     assert part["records"] > 0 and part["position"]
-    got = {(u["area"], u["detail"]) for u in env["unexpected"]}
+    got = {(u["area"], u["detail"]) for u in unexpected}
     assert exp["shapes"] <= got
-    assert all(u["extend"] for u in env["unexpected"])
+    assert all(u["extend"] for u in unexpected)
     # the run continues: nothing above is required
-    assert env["data"]["step"]["kind"] == "run" and env["data"]["step"]["stage"] == "assess" or \
-        env["data"]["step"]["kind"] == "dispatch"
+    assert ("dispatch", "assess") in {(s["kind"], s["node"]) for s in env["data"]["steps"]}
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done", res.final
     code, env = cli("unexpected", "--workspace", str(ws))
@@ -140,77 +155,59 @@ def test_required_unavailable_source_waits_then_its_command_reads_it(persona, cl
                     .replace("check: [docket-stub-auth, --fail]", f"check: [docket-stub-auth, --if-file, '{session}']"))
     (ws / "recordings" / "wiki-feed.jsonl").write_text(WIKI_RECORDING)
     cli("run", "start", "isolation", "--now", pinned_now, "--workspace", str(ws))
-    code, env = cli("collect", "--workspace", str(ws))
+    code, env = cli("do", "read-wiki", "--workspace", str(ws))
     assert code == 0
-    step = env["data"]["step"]
-    assert step["kind"] == "wait" and step["reason"] == "sources_unavailable"
-    assert "wiki" in step["instructions"] and "stub-login wiki" in step["instructions"]
-    assert step["command"]["argv"][1:5] == ["collect", "--refresh", "--sources", "wiki"]
+    (step,) = [s for s in env["data"]["steps"] if s["node"] == "read-wiki"]
+    assert step["kind"] == "wait" and step["reason"] == "source_unavailable"
+    assert step["command"]["argv"][1:4] == ["do", "read-wiki", "--again"]
     code, env = cli("next", "--workspace", str(ws))
-    assert env["data"]["step"]["reason"] == "sources_unavailable"
-    # the operator signs in; the wait's own command reads the source in a new generation
+    (wait,) = [s for s in env["data"]["steps"] if s["node"] == "read-wiki"]
+    assert wait["reason"] == "source_unavailable"
+    assert "wiki" in wait["instructions"] and "stub-login wiki" in wait["instructions"]
+    # a node that waits holds back only what needs it: the other reads are still ready
+    assert {s["node"] for s in env["data"]["steps"]} >= {"read-chat", "read-mail"}
+    # the operator signs in; the wait's own command reads the source again
     session.write_text("ok")
     code, env = cli(*step["command"]["argv"][1:])
     assert code == 0, env
-    assert env["data"]["generation"] == 1 and env["data"]["sources"] == ["wiki"]
     assert env["data"]["result"]["sources"]["wiki"]["outcome"] == "read"
-    assert env["data"]["step"]["kind"] != "wait"
+    assert not any(s["node"] == "read-wiki" for s in env["data"]["steps"])
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done"
 
 
-def test_refresh_reads_from_coverage_end_without_moving_the_durable_cursor(persona, cli, pinned_now):
+def test_a_read_proposes_cursors_and_only_the_seal_moves_them(persona, cli, pinned_now):
     ws = persona("support-lead")
-    cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
-    code, env = cli("collect", "--workspace", str(ws))
+    code, env = cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
+    run_id = env["data"]["run"]
+    code, env = cli("do", "read-tickets", "--workspace", str(ws))
     assert env["data"]["result"]["sources"]["tickets"]["records"] == 30
-    feed = ws / "data" / "tickets.jsonl"
-    first = json.loads(feed.read_text().splitlines()[0])
-    with feed.open("a") as fh:
-        fh.write(json.dumps({**first, "key": "SUP-2001", "summary": "Arrived after the evening collect"}) + "\n")
-        fh.write(json.dumps({**first, "summary": "Refund not received (customer replied)"}) + "\n")
-    code, env = cli("collect", "--refresh", "--sources", "tickets", "--workspace", str(ws))
-    assert code == 0, env
-    data = env["data"]
-    assert data["generation"] == 1 and data["sources"] == ["tickets"]
-    assert data["result"]["sources"]["tickets"]["generations"] == [0, 1]
-    assert data["result"]["sources"]["tickets"]["records"] == 31  # union, de-duplicated by record identity
-    assert data["result"]["item_count"] == 31 + data["result"]["sources"]["pager"]["records"]
-    run_dir = state_root(ws, os.environ) / "runs" / env["run"]
-    gen1 = (run_dir / "gen-1" / "records" / "tickets.jsonl").read_text().splitlines()
-    assert len(gen1) == 2  # only the lines after generation 0's coverage end were read
-    art = json.loads((run_dir / "artifacts" / "collect" / (data["digest"] + ".json")).read_text())
-    titles = {i["identity"]: i["title"] for i in art["data"]["items"]}
-    assert titles[first["key"]] == "Refund not received (customer replied)"  # the later generation wins
+    assert env["data"]["result"]["item_count"] == 30
+    read = artifact(ws, run_id, "read-tickets")
+    assert set(read["sources"]) == {"tickets"} and len(read["items"]) == 30
+    assert all(it["source"] == "tickets" for it in read["items"])
     db = db_of(ws)
-    assert db.execute("SELECT COUNT(*) FROM cursors").fetchone()[0] == 0  # durable cursors move only at close
+    assert db.execute("SELECT COUNT(*) FROM cursors").fetchone()[0] == 0  # durable cursors move only at the seal
     prop = db.execute("SELECT * FROM cursor_proposals WHERE source='tickets'").fetchone()
-    assert prop["position"] == "32" and prop["generation"] == 1
+    assert prop["position"] == "30" and prop["run_id"] == run_id
     db.close()
-    # an unknown source refuses; a refresh with nothing new keeps the union
-    code, env = cli("collect", "--refresh", "--sources", "tikets", "--workspace", str(ws))
-    assert code == 2 and env["error"]["code"] == "input.unknown_source"
-    assert env["error"]["details"]["suggestion"] == "tickets"
-    code, env = cli("collect", "--refresh", "--workspace", str(ws))  # the workflow's volatile sources
-    assert env["data"]["generation"] == 2 and sorted(env["data"]["sources"]) == ["pager", "tickets"]
-    assert env["data"]["result"]["sources"]["tickets"]["records"] == 31
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done"
     db = db_of(ws)
-    assert db.execute("SELECT position FROM cursors WHERE source='tickets'").fetchone()[0] == "32"
+    assert db.execute("SELECT position FROM cursors WHERE source='tickets'").fetchone()[0] == "30"
     db.close()
 
 
-def test_recorded_refresh_replays_follow_up_requests(persona, cli, pinned_now):
+def test_recorded_follow_up_requests_replay_in_a_later_run(persona, cli, pinned_now):
+    """The recordings hold the requests a run makes from the cursors of the run before it."""
     ws = persona("reference-like")
     cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
-    code, env = cli("collect", "--workspace", str(ws))
-    before = env["data"]["result"]["item_count"]
-    code, env = cli("collect", "--refresh", "--workspace", str(ws))
-    assert code == 0 and env["data"]["sources"] == ["chat", "mail"]
-    src = env["data"]["result"]["sources"]
+    assert run_agent(ws).final["kind"] == "done"
+    code, env = cli("run", "start", "daily", "--now", pinned_now, "--new", "--workspace", str(ws))
+    assert code == 0 and env["data"]["created"] is True
+    src, _, env = read_all(cli, ws, ["chat", "mail"])
     assert src["chat"]["outcome"] in ("read", "empty") and src["mail"]["outcome"] == "empty"
-    assert "cause" not in src["chat"] and env["data"]["result"]["item_count"] == before
+    assert "cause" not in src["chat"] and "cause" not in src["mail"]
 
 
 def test_source_test_samples_and_writes_nothing(persona, cli, pinned_now):
@@ -235,24 +232,33 @@ def test_source_test_samples_and_writes_nothing(persona, cli, pinned_now):
 def test_context_records_never_enter_the_item_pipeline(persona, cli, pinned_now):
     ws = persona("support-lead")
     cfg = ws / "docket.yaml"
-    text = cfg.read_text().replace("    sources: [tickets, pager]\n", "    sources: [tickets, pager, closed]\n", 1)
+    text = cfg.read_text().replace("    assess: { judge: assess, from: [read-tickets, read-pager] }\n",
+                                   "    read-closed: { read: closed }\n"
+                                   "    assess: { judge: assess, from: [read-tickets, read-pager, read-closed] }\n", 1)
     text = text.replace("\nsources:\n", "\nsources:\n  closed:\n    kind: files\n    path: data/history.jsonl\n"
                         "    target: context\n    mapping: { id: \"$.id\", title: \"$.title\" }\n", 1)
     cfg.write_text(text)
     code, env = cli("run", "start", "shift", "--now", pinned_now, "--workspace", str(ws))
     assert code == 0, env
-    code, env = cli("collect", "--workspace", str(ws))
-    run_dir = state_root(ws, os.environ) / "runs" / env["run"]
-    art = json.loads((run_dir / "artifacts" / "collect" / (env["data"]["digest"] + ".json")).read_text())["data"]
+    run_id = env["data"]["run"]
+    code, env = cli("do", "read-closed", "--workspace", str(ws))
+    assert code == 0, env
+    art = artifact(ws, run_id, "read-closed")
     assert len(art["context"]) == 10 and all(c["source"] == "closed" for c in art["context"])
-    assert not any(i["source"] == "closed" for i in art["items"])
+    assert art["items"] == []
     assert art["sources"]["closed"]["records"] == 10 and art["sources"]["closed"]["target"] == "context"
+    res = run_agent(ws)
+    assert res.failures == [] and res.final["kind"] == "done"
+    packed = [it for s in res.steps if s["kind"] == "dispatch" for t in s["tasks"]
+              for it in json.loads(open(t["pack_path"]).read())["items"]]
+    assert packed and not any(it["source"] == "closed" for it in packed)
+    assert not any(it["source"] == "closed" for it in artifact(ws, run_id, "merge")["items"])
 
 
-def test_collect_reports_membership_and_the_operator_can_classify_a_unit(persona, cli, pinned_now):
+def test_a_read_reports_membership_and_the_operator_can_classify_a_unit(persona, cli, pinned_now):
     ws = persona("reference-like")
     cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
-    code, env = cli("collect", "--workspace", str(ws))
+    code, env = cli("do", "read-chat", "--workspace", str(ws))
     chat = env["data"]["result"]["sources"]["chat"]
     assert chat["membership"]["baseline"] is True and chat["membership"]["new"] == 0
     assert chat["membership"]["current"] == len(cli("units", "list", "--source", "chat", "--workspace", str(ws))[1]

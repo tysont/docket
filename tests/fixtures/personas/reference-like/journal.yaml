@@ -1,6 +1,6 @@
 # The reference-like persona's journal, ledgers and journal destination (TD §13.5). All data is invented.
 journal:
-  title: "Daily journal {run.date} ({run.workflow})"
+  title: "Daily journal {run.date} ({run.graph})"
   destination: daylog
   approval_delay_note: "Approved {approval.delay} after the plan was built."
   sections:

@@ -1,6 +1,6 @@
-"""A stub hook for tests (TD §13.6). It never touches anything outside the paths it is given.
+"""A stub command for run nodes in tests. It never touches anything outside the paths it is given.
 
-    hook_stub.py --count FILE [--env-out FILE] [--exit N] [--fail-unless FILE] [--sleep S] [--label TEXT]
+    cmd_stub.py --count FILE [--env-out FILE] [--exit N] [--fail-unless FILE] [--sleep S] [--label TEXT]
 
 Appends one line (the label and argv) to ``--count``; writes the environment it
 received (names and values, one per line) and whether stdin and stdout are
@@ -20,7 +20,7 @@ p.add_argument("--env-out")
 p.add_argument("--exit", type=int, default=0)
 p.add_argument("--fail-unless")
 p.add_argument("--sleep", type=float, default=0.0)
-p.add_argument("--label", default="hook")
+p.add_argument("--label", default="command")
 a, rest = p.parse_known_args()
 with open(a.count, "a", encoding="utf-8") as fh:
     fh.write(a.label + " " + " ".join(rest) + "\n")
@@ -37,8 +37,8 @@ if a.env_out:
             fh.write("#controlling_tty=False\n")
 if a.sleep:
     time.sleep(a.sleep)
-print(f"stub hook {a.label} ran")
+print(f"stub command {a.label} ran")
 if a.fail_unless and not os.path.exists(a.fail_unless):
-    print("stub hook: precondition file missing", file=sys.stderr)
+    print("stub command: precondition file missing", file=sys.stderr)
     sys.exit(3)
 sys.exit(a.exit)
