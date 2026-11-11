@@ -18,11 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from docket.config.source_models import MAPPING_KEY_DOCS, Source, TransportConfig  # noqa: F401  (sections owned there)
 from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
-from docket.config.close_models import Hook, JournalConfig  # M8: the journal and hooks sections (TD §13.5, §13.6)
+from docket.config.close_models import JournalConfig  # the journal section (TD §13.5)
 
-STAGES: tuple[str, ...] = ("collect", "assess", "merge", "review", "decide", "label", "plan", "approve", "apply",
-                          "close")
-StageName = Literal["collect", "assess", "merge", "review", "decide", "label", "plan", "approve", "apply", "close"]
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 SOURCE_KINDS: dict[str, frozenset[str]] = {
@@ -148,28 +145,15 @@ class Profile(Strict):
     calendar: CalendarVocabulary = CalendarVocabulary()
 
 
-# --- workflows -------------------------------------------------------------
+# --- graphs (TD §5) -----------------------------------------------------------
+
+VERBS: tuple[str, ...] = ("read", "run", "judge", "merge", "ask", "plan", "approve", "apply", "write")
+# What a node hands on: items, the operator's decisions, labels, a plan, an approval, or nothing.
+OUTPUT: dict[str, str] = {"read": "items", "judge": "items", "merge": "items", "ask": "decisions", "plan": "plan",
+                          "approve": "approval", "apply": "done", "write": "done", "run": "done"}
 
 
-class WorkflowReview(Strict):
-    pool: int | None = None
-
-
-class WorkflowRoll(Strict):
-    """Roll agendas after the meetings a run collected (TD §12.8). ``sources`` yield one item
-    per meeting held; ``destination`` is the agenda destination. ``no_record`` is the note on
-    a section made without a record of the meeting; ``trailer`` a last line for a section
-    made from one (it may use ``{url}``, the record's link)."""
-    sources: list[str] = Field(min_length=1)
-    destination: str
-    no_record: str = "no record of the meeting, agenda assumed covered"
-    trailer: str = ""
-    # A JSON-lines file to which a durable close appends what the operator agreed to do in
-    # the meetings recapped, one record each, for a source to read. Relative to the workspace.
-    commitments: str | None = None
-
-
-class WorkflowQuestions(Strict):
+class Questions(Strict):
     kinds: list[str] = ["finding"]
     bursts: int = 1
     budget: int | None = None
@@ -180,41 +164,163 @@ class WorkflowQuestions(Strict):
     batch_budget: int | None = None
 
 
-class SourceSchedule(Strict):
-    """How often a workflow reads one of its sources. A day off the schedule is skipped, never a gap."""
+class ReadSchedule(Strict):
+    """How often a source is read. A day off the schedule is skipped, never a gap."""
     weekdays: list[Weekday] | None = None   # read only on these days
     every_days: int | None = Field(None, ge=1)   # read at most every N days
 
     @model_validator(mode="after")
-    def _one(self) -> "SourceSchedule":
+    def _one(self) -> "ReadSchedule":
         if not self.weekdays and not self.every_days:
             raise ValueError("a schedule needs weekdays or every_days")
         return self
 
 
-class Workflow(Strict):
+class Node(Strict):
+    """One node of a graph (TD §5.1). It does one thing, named by its verb:
+
+    - ``read: <source>``: read a source.
+    - ``run: [argv]``: run a command (its ``dry_run`` form in a sandbox run).
+    - ``judge: <task>``: have an agent judge what ``from`` hands it.
+    - ``merge: [nodes]``: combine rules, scores and judgments into what is worth showing.
+    - ``ask: <option set>``: the operator decides each item ``from`` hands it.
+    - ``plan: [nodes]``: turn decisions into operations.
+    - ``approve: <plan node>``: the operator approves the plan.
+    - ``apply: <approve node>``: write the approved operations.
+    - ``write: <action>``: plan and write operations that need no approval; only a private
+      destination can be written this way.
+
+    ``from`` names the nodes whose output it works on; ``after`` names nodes that must be
+    done first and hand it nothing.
+    """
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, serialize_by_alias=True)
+    read: str | None = None
+    run: list[str] | None = None
+    judge: str | None = None
+    merge: list[str] | None = None
+    ask: str | None = None
+    plan: list[str] | None = None
+    approve: str | None = None
+    apply: str | None = None
+    write: str | None = None
+    from_: list[str] = Field(default_factory=list, alias="from")
+    after: list[str] = []
     description: str | None = None
-    stages: list[StageName]
-    sources: list[str] | None = None
-    # Sources read on a schedule. A source of the workflow that is not named here is read every run.
-    schedule: dict[str, SourceSchedule] = {}
-    pause_before: StageName | None = None
-    rehearse_at_pause: bool = False     # the pause step carries the rehearse command (TD §14.3)
-    refresh_on_resume: list[str] = []
-    review: WorkflowReview | None = None
-    roll: WorkflowRoll | None = None
-    questions: WorkflowQuestions = WorkflowQuestions()
-    options: str | None = None
-    journal: str | None = None
-    hooks: dict[str, list[str]] = {}
+    # read
+    schedule: ReadSchedule | None = None
+    # run
+    dry_run: list[str] | None = None
+    env: list[str] = []
+    timeout_s: float = Field(120.0, gt=0, le=3600)
+    # judge (review)
+    pool: int | None = None
+    # ask
+    questions: Questions = Questions()
+    # plan
+    schedule_tasks: bool = False     # also place open tasks on the calendar (TD §12)
+    # write
+    to: str | None = None            # the destination written
+    no_record: str = "no record of the meeting, agenda assumed covered"
+    trailer: str = ""
+    commitments: str | None = None   # a JSON-lines file for what the operator agreed to do (TD §12.8)
 
     @model_validator(mode="after")
-    def _schedule_names_sources(self) -> "Workflow":
-        if self.sources is not None:
-            unknown = sorted(set(self.schedule) - set(self.sources))
-            if unknown:
-                raise ValueError(f"schedule names {', '.join(unknown)}, which the workflow's sources do not list")
+    def _one_verb(self) -> "Node":
+        verbs = [v for v in VERBS if getattr(self, v) is not None]
+        if len(verbs) != 1:
+            raise ValueError("a node has exactly one verb: " + ", ".join(VERBS))
+        v = verbs[0]
+        if v in ("merge", "plan", "approve", "apply") and self.from_:
+            raise ValueError(f"{v} names its inputs itself; it takes no from")
+        if v in ("read", "run") and self.from_:
+            raise ValueError(f"{v} works on nothing another node hands it; use after to order it")
+        if v == "write" and not self.to:
+            raise ValueError("write needs to: the destination it writes")
         return self
+
+    @property
+    def verb(self) -> str:
+        return next(v for v in VERBS if getattr(self, v) is not None)
+
+    @property
+    def inputs(self) -> list[str]:
+        """The nodes whose output this node works on."""
+        v = self.verb
+        if v in ("merge", "plan"):
+            return list(getattr(self, v))
+        if v in ("approve", "apply"):
+            return [getattr(self, v)]
+        return list(self.from_)
+
+    @property
+    def needs(self) -> list[str]:
+        return list(dict.fromkeys([*self.inputs, *self.after]))
+
+
+def graph_problems(nodes: dict[str, Node]) -> list[str]:
+    """What is wrong with a graph's shape: names, references, cycles, and inputs of the wrong kind."""
+    out: list[str] = []
+    for nid, n in nodes.items():
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", nid) or nid == "seal":
+            out.append(f"node name {nid!r} must be a lower-case word ([a-z][a-z0-9-]*) other than seal")
+        for other in n.needs:
+            if other not in nodes:
+                out.append(f"node {nid} names {other!r}, which is not a node of the graph")
+            elif other == nid:
+                out.append(f"node {nid} names itself")
+    if out:
+        return out
+    state: dict[str, int] = {}
+
+    def visit(nid: str, trail: tuple[str, ...]) -> None:
+        if state.get(nid) == 2 or out:
+            return
+        if state.get(nid) == 1:
+            out.append("the graph has a cycle: " + " -> ".join((*trail[trail.index(nid):], nid)))
+            return
+        state[nid] = 1
+        for other in nodes[nid].needs:
+            visit(other, (*trail, nid))
+        state[nid] = 2
+
+    for nid in nodes:
+        visit(nid, ())
+    if out:
+        return out
+    want = {"merge": ("items",), "ask": ("items",), "approve": ("plan",), "apply": ("approval",), "write": ("items",),
+            "plan": ("decisions", "items")}
+    for nid, n in nodes.items():
+        v = n.verb
+        for other in n.inputs:
+            got = OUTPUT[nodes[other].verb]
+            ok = want.get(v) or (("items", "decisions") if v == "judge" else ())
+            if got not in ok:
+                out.append(f"node {nid} ({v}) cannot work on {other} ({nodes[other].verb}), which hands on "
+                           f"{'nothing' if got == 'done' else got}")
+        if v in ("merge", "approve", "apply", "write") and not n.inputs:
+            out.append(f"node {nid} ({v}) needs a node to work on")
+        if v == "plan" and sum(1 for o in n.inputs if nodes[o].verb == "ask") > 1:
+            out.append(f"node {nid} (plan) takes the decisions of one ask node")
+    return out
+
+
+def ordered(nodes: dict[str, Node]) -> list[str]:
+    """Node names in an order where every node comes after the nodes it needs (declaration
+    order otherwise)."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def visit(nid: str) -> None:
+        if nid in seen:
+            return
+        seen.add(nid)
+        for other in nodes[nid].needs:
+            visit(other)
+        out.append(nid)
+
+    for nid in nodes:
+        visit(nid)
+    return out
 
 
 # --- sources, decisions, destinations -------------------------------------
@@ -514,7 +620,6 @@ class PlanningTitles(Strict):
 class Planning(Strict):
     policy: PlanningPolicy = PlanningPolicy()
     calendar: PlanningCalendar | None = None
-    workflows: list[str] | None = None   # workflows that schedule; default every workflow with a plan stage
     tasks: PlanningTasks = PlanningTasks()
     mirrors: list[PlanningMirror] = []
     titles: PlanningTitles = PlanningTitles()
@@ -538,86 +643,11 @@ class ShapesConfig(Strict):
 # --- top level -------------------------------------------------------------
 
 
-class GraphRefresh(Strict):
-    """Read named sources of a workflow node again, once what this node needs is done."""
-    node: str
-    sources: list[str] = Field(min_length=1)
-
-
-class GraphNode(Strict):
-    """One node of a graph (TD §5.7): a workflow, a command, or a refresh of a workflow node's
-    sources. ``needs`` are the nodes that must be done before it starts. For a workflow,
-    ``gates`` name nodes a stage waits for, and ``approve: auto`` approves its plan in advance
-    when every operation is for a private destination."""
-    workflow: str | None = None
-    command: list[str] | None = None
-    refresh: GraphRefresh | None = None
-    description: str | None = None
-    needs: list[str] = []
-    gates: dict[StageName, list[str]] = {}
-    approve: Literal["ask", "auto"] = "ask"
-    dry_run: list[str] | None = None     # a command's side-effect-free form, for a sandbox graph
-    env: list[str] = []                  # environment variables a command is passed, by name
-    timeout_s: float = Field(120.0, gt=0, le=3600)
-
-    @model_validator(mode="after")
-    def _one_kind(self) -> "GraphNode":
-        kinds = [k for k in ("workflow", "command", "refresh") if getattr(self, k) is not None]
-        if len(kinds) != 1:
-            raise ValueError("a node is exactly one of workflow, command or refresh")
-        if kinds != ["workflow"] and (self.gates or self.approve != "ask"):
-            raise ValueError("gates and approve apply to a workflow node")
-        if kinds != ["command"] and (self.dry_run or self.env):
-            raise ValueError("dry_run and env apply to a command node")
-        return self
-
-    @property
-    def kind(self) -> str:
-        return "workflow" if self.workflow is not None else ("command" if self.command is not None else "refresh")
-
-
-class Graph(Strict):
-    description: str | None = None
-    nodes: dict[str, GraphNode] = Field(min_length=1)
-
-    def waits_on(self, node: str) -> set[str]:
-        n = self.nodes[node]
-        return set(n.needs) | {x for xs in n.gates.values() for x in xs}
-
-    @model_validator(mode="after")
-    def _shape(self) -> "Graph":
-        for nid, n in self.nodes.items():
-            if not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", nid):
-                raise ValueError(f"node name {nid!r} must be a lower-case word ([a-z][a-z0-9-]*)")
-            for other in sorted(self.waits_on(nid)):
-                if other not in self.nodes:
-                    raise ValueError(f"node {nid} waits on {other!r}, which is not a node of the graph")
-                if other == nid:
-                    raise ValueError(f"node {nid} waits on itself")
-            if n.refresh is not None and (n.refresh.node not in self.nodes or self.nodes[n.refresh.node].workflow is None):
-                raise ValueError(f"node {nid} refreshes {n.refresh.node!r}, which is not a workflow node of the graph")
-        seen: dict[str, int] = {}
-
-        def visit(nid: str, trail: tuple[str, ...]) -> None:
-            if seen.get(nid) == 2:
-                return
-            if seen.get(nid) == 1:
-                raise ValueError("the graph has a cycle: " + " -> ".join((*trail[trail.index(nid):], nid)))
-            seen[nid] = 1
-            for other in sorted(self.waits_on(nid)):
-                visit(other, (*trail, nid))
-            seen[nid] = 2
-
-        for nid in self.nodes:
-            visit(nid, ())
-        return self
-
-
 class DocketConfig(Strict):
     version: Literal[1]
     includes: list[str] = []
     presets: list[str] = []
-    workflows: dict[str, Workflow] = {}
+    graphs: dict[str, dict[str, Node]] = {}
     profile: Profile
     sources: dict[str, Source] = {}
     transports: dict[str, TransportConfig] = {}
@@ -627,29 +657,16 @@ class DocketConfig(Strict):
     destinations: dict[str, Destination] = {}
     planning: Planning = Planning()
     journal: JournalConfig = JournalConfig()
-    hooks: dict[str, Hook] = {}
     shapes: ShapesConfig = ShapesConfig()
-    graphs: dict[str, Graph] = {}
 
     @model_validator(mode="after")
-    def _graphs_name_workflows(self) -> "DocketConfig":
-        for gid, g in self.graphs.items():
-            for nid, n in g.nodes.items():
-                if n.workflow is None:
-                    continue
-                wf = self.workflows.get(n.workflow)
-                if wf is None:
-                    raise ValueError(f"graphs.{gid}.nodes.{nid}: no workflow {n.workflow!r}")
-                for stage in n.gates:
-                    if stage not in wf.stages:
-                        raise ValueError(f"graphs.{gid}.nodes.{nid}: gate on {stage}, which workflow {n.workflow} does not run")
-            for nid, n in g.nodes.items():
-                if n.refresh is not None:
-                    wf = self.workflows[g.nodes[n.refresh.node].workflow]
-                    unknown = sorted(set(n.refresh.sources) - set(wf.sources if wf.sources is not None else self.sources))
-                    if unknown:
-                        raise ValueError(f"graphs.{gid}.nodes.{nid}: refresh names {', '.join(unknown)}, "
-                                         f"which workflow {g.nodes[n.refresh.node].workflow} does not read")
+    def _graph_shapes(self) -> "DocketConfig":
+        for gid, nodes in self.graphs.items():
+            if not nodes:
+                raise ValueError(f"graphs.{gid} has no nodes")
+            problems = graph_problems(nodes)
+            if problems:
+                raise ValueError(f"graphs.{gid}: " + "; ".join(problems))
         return self
 
 
