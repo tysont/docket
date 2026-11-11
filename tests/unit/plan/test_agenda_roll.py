@@ -50,7 +50,7 @@ def apply_all(d, ops):
 def test_a_meeting_finds_its_forum_by_who_was_there_or_by_its_title():
     me = {"me@example.org"}
     assert forum_for_meeting(FORUMS, "Anything at all", ["me@example.org", "Sam@Example.org"], me).id == "sam"
-    assert forum_for_meeting(FORUMS, "Platform Sync (weekly)", ["me@example.org", "a@x.org", "b@x.org"], me).id == "weekly"
+    assert forum_for_meeting(FORUMS, "Platform Sync (weekly)", ["me@example.org", "ann@example.org", "bo@example.org"], me).id == "weekly"
     assert forum_for_meeting(FORUMS, "Operator / Sam", ["me@example.org", "sam@example.org", "kim@example.org"], me) is None
     assert forum_for_meeting(FORUMS, "Lunch", ["me@example.org", "kim@example.org"], me) is None
 
