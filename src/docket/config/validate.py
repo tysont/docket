@@ -206,6 +206,9 @@ def pass_references(loaded: Loaded) -> list[Issue]:
         ref(g.get("forum"), forums, ("profile", "groups", i, "forum"), "forum")
     for i, f in _dicts(_get(prof, "forums")):
         ref(_get(f, "agenda", "destination"), dests, ("profile", "forums", i, "agenda", "destination"), "destination")
+        ref(f.get("person"), people, ("profile", "forums", i, "person"), "person")
+    for i, t in _dicts(_get(prof, "topics")):
+        ref(t.get("forum"), forums, ("profile", "topics", i, "forum"), "forum")
 
     for wname, wf in _items(_get(d, "workflows")):
         if not isinstance(wf, dict):

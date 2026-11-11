@@ -92,16 +92,28 @@ def forum_row(rc: "RunContext", forum_id: str | None) -> dict[str, Any] | None:
 
 
 def forum_for(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any] | None:
-    """The forum an item belongs to: the forum of a group the sender is in, else of a mentioned group."""
+    """The forum an item belongs to: where it would be raised. A meeting with the person who
+    owns it, else with the person who sent it; else the forum of a group the sender is in,
+    of a mentioned group, or of the topic it is about."""
     prof = rc.ws.config.profile
     sender = (it.get("sender") or {}).get("person")
     mentioned = set((it.get("mentioned") or {}).get("groups") or [])
+    a = it.get("assessment") if isinstance(it.get("assessment"), dict) else {}
+    with_person = {f.person: f.id for f in prof.forums if f.person}
+    for who in (a.get("owner"), sender):
+        if who and who in with_person:
+            return forum_row(rc, with_person[who])
     for g in prof.groups:
         if g.forum and sender and sender in g.members:
             return forum_row(rc, g.forum)
     for g in prof.groups:
         if g.forum and g.id in mentioned:
             return forum_row(rc, g.forum)
+    topics = {t.id: t for t in prof.topics}
+    sig = it.get("signals") or {}
+    for tid in [sig.get("topic"), a.get("topic"), *((it.get("mentioned") or {}).get("topics") or [])]:
+        if tid in topics and topics[tid].forum:
+            return forum_row(rc, topics[tid].forum)
     return None
 
 
@@ -191,7 +203,14 @@ def item_view(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
         "area": area_for(rc, it), "topic": it.get("topic") or "", "ask": a.get("ask") or "",
         "owner": a.get("owner") or "", "kind": a.get("kind") or "", "deadline": deadline_of(it) or "",
         "quote": _first_quote(a),
+        # words the workspace asked the assessment for beyond the core fields (tasks.assess.extra)
+        "extra": {k: str(a.get(k) or "") for k in _extra_names(rc)},
     }
+
+
+def _extra_names(rc: "RunContext") -> list[str]:
+    tasks = getattr(rc.ws.config, "tasks", None)
+    return sorted(tasks.assess.extra) if tasks is not None else []
 
 
 def _item_key(it: dict[str, Any]) -> str:

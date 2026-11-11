@@ -62,6 +62,19 @@ class AssessTasks(TaskBudget):
     # The decisions an item can get (id -> meaning), in the workspace's words. With them the
     # task recommends one for every item it keeps; a question offers it first (TD §10.2).
     decisions: dict[str, str] = {}
+    # Extra words about a kept item, beyond the core fields: name -> what it should say. The
+    # assessment may fill each; templates read them as {extra.<name>} (TD §9.1).
+    extra: dict[str, str] = {}
+
+    @field_validator("extra")
+    @classmethod
+    def _extra_names(cls, v: dict[str, str]) -> dict[str, str]:
+        core = {"id", "source", "keep", "score", "kind", "owner", "ask", "evidence", "deadline", "topic", "est",
+                "decision"}
+        bad = sorted(k for k in v if k in core or not re.fullmatch(r"[a-z][a-z0-9_]{0,29}", k))
+        if bad:
+            raise ValueError(f"tasks.assess.extra names {bad} must be new lower-case words, not core fields")
+        return v
 
 
 class ReviewTasks(TaskBudget):

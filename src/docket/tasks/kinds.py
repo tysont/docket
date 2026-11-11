@@ -564,6 +564,8 @@ def _assess(cfg: TasksConfig) -> TaskKind:
                              extend="tasks.assess.decisions"),)
         rules += (Rule((("keep", True),), ("decision",),
                        "every kept item is shown with a recommended decision"),)
+    for name, what in sorted(a.extra.items()):
+        fields += (FieldSpec(name, "str", what.strip(), max_length=200, extend="tasks.assess.extra"),)
     return TaskKind("assess", "assess", True, "Decide which items need the operator and what they should do.",
                     ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes,
                     Select(not_sources=tuple(recap_sources(cfg))), "item",

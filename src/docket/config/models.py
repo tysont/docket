@@ -90,6 +90,7 @@ class Topic(Strict):
     aliases: list[str] = []
     area: str | None = None
     owned: bool = False
+    forum: str | None = None        # the forum where this topic is discussed
 
 
 class Entity(Strict):
@@ -103,6 +104,7 @@ class Forum(Strict):
     id: str
     name: str | None = None
     kind: str = "group"
+    person: str | None = None       # a meeting with one person: that person's profile id
     agenda: dict[str, Any] | None = None
     calendar_match: dict[str, Any] | None = None
 

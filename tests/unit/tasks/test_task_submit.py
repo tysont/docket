@@ -236,3 +236,31 @@ def test_the_reviewers_decision_replaces_the_first_recommendation():
     assert out["a"]["assessment"]["decision"] == "note" and out["a"]["review"]["decision"] == "note"
     assert out["a"]["trace"][-1]["decision"] == "note" and out["a"]["trace"][-1]["was"] == "act"
     assert out["b"]["assessment"]["decision"] == "act" and "decision" not in out["b"]["review"]
+
+
+def test_a_workspace_can_ask_the_assessment_for_extra_words_about_an_item():
+    """Some destinations want an item said another way than its ask: as a topic for a meeting,
+    say. A workspace names such a field and says what it should be; the assessment may fill
+    it, and it reaches every template under ``extra``."""
+    from types import SimpleNamespace
+    from docket.config import contexts
+    from docket.decide import options
+    cfg = TasksConfig.model_validate({"assess": {"extra": {"agenda": "The item as a topic for a meeting."}}})
+    kind = registry(cfg)["assess"]
+    spec = {f.name: f for f in kind.fields}["agenda"]
+    assert not spec.required and spec.type == "str" and "topic for a meeting" in spec.description
+    assert "agenda" not in {f.name for f in persona_kinds("reference-like")["assess"].fields}
+    assert "extra.*" in contexts._ITEM
+    rc = SimpleNamespace(ws=SimpleNamespace(config=SimpleNamespace(
+        sources={}, profile=None, tasks=cfg)))
+    real = options.area_for, options.forum_for
+    options.area_for, options.forum_for = (lambda _rc, _it: ""), (lambda _rc, _it: None)
+    try:
+        view = options.item_view(rc, {"id": "a", "source": "s",
+                                      "assessment": {"ask": "Reply", "agenda": "Capacity plan: who signs off?"}})
+        bare = options.item_view(rc, {"id": "b", "source": "s", "assessment": {"ask": "Reply"}})
+    finally:
+        options.area_for, options.forum_for = real
+    assert view["extra"] == {"agenda": "Capacity plan: who signs off?"} and bare["extra"] == {"agenda": ""}
+    with pytest.raises(Exception):
+        TasksConfig.model_validate({"assess": {"extra": {"ask": "collides with a core field"}}})

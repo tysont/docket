@@ -682,6 +682,10 @@ An option may fix fields of its action with `set`, so two options can share one 
 
 Every question recommends a decision for its item: the option whose id the assess task chose, when it is on offer; for an item the task did not keep and a must-surface rule kept anyway, `decisions.recommend.surfaced`; else `decisions.recommend.default`. An option marked `batch: true` is one whose items are shown together, so the operator accepts a group at once and opens only the items they want in detail; the ask step lists a question's `recommended` option and its `batch` options. `ack` is the acknowledge action: seen, nothing owed, and like `watch` it holds only until something new happens on the topic.
 
+**An item's forum** is where it would be raised, and is the default of an `agenda.add` option (`--forum` overrides it). In order: a forum with the person who owns the item (`forums[].person` is the assessment's `owner`), else with the person who sent it; else the forum of a group the sender is in, of a mentioned group, or of the topic the item is about (`topics[].forum`). A meeting with the owner comes first because that is who can act on it.
+
+**Extra words.** `tasks.assess.extra` names further optional fields of the assessment (name: what it should say), for destinations that want an item said another way than its ask, such as a topic for a meeting. Templates read them as `{extra.<name>}`.
+
 ### 10.3 Answers
 
 `docket ask answer <question-id> <option> [overrides]` records an answer:
