@@ -280,3 +280,19 @@ def test_a_task_line_can_say_how_it_is_to_be_blocked():
     assert [r["minutes"] for r in rows[("three",)]] == [30, 30, 30] and len({r["date"] for r in rows[("three",)]}) == 3
     assert [r["kind"] for r in rows[("s1", "s2")]] == ["batch"]
     assert [r["kind"] for r in rows[("alone",)]] == ["shallow"] and rows[("alone",)][0]["minutes"] == 30
+
+
+def test_a_batch_keeps_its_block_from_one_day_to_the_next():
+    """A batch is its members, not the day it was first planned for. Planned again the next
+    morning with the same members, yesterday's batch block is kept, not deleted and made again."""
+    small = [task(f"s{i}", 15, due=d(5)) for i in range(3)]
+    p = policy(batch_max=15, batch_block_max=60)
+    first = run(small, pol=p)
+    (b,) = [r for r in first.schedule if r["kind"] == "batch"]
+    assert b["date"] == TODAY.isoformat()
+    tomorrow, now = d(1), dt(d(1), "08:00")
+    moved = owned(b["key"], d(4), "09:00", "09:45", title=b["title"])          # the block stands on Monday
+    res = schedule(list(small), calendar([moved], horizon=p.horizon_days), p, today=tomorrow, now=now, tz=TZ)
+    assert [(o["verb"], o["key"]) for o in res.ops] == [("keep", b["key"])]
+    changed = schedule(list(small[:2]), calendar([moved], horizon=p.horizon_days), p, today=tomorrow, now=now, tz=TZ)
+    assert sorted(o["verb"] for o in changed.ops) == ["create", "release"]      # other members: another batch

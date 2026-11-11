@@ -29,6 +29,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from docket.config.digest import digest
 from docket.plan.calendar_classify import Calendar
 from docket.plan.constraints import Ctx, block_for, check, search, slot_bounds, candidate_days, _grid_up
 from docket.plan.types import (
@@ -165,7 +166,10 @@ def make_batches(ordered: list[Task], ctx: Ctx, titler: Titler | None) -> tuple[
             continue
         d = days[i]
         dues = [m.due for m in members if m.due]
-        b = Task(id=f"batch:{d.isoformat()}", title=f"{len(members)} small tasks",
+        # A batch is its members: the same members planned on another day are the same batch
+        # and keep their block.
+        bid = "batch:" + digest(sorted(m.id for m in members))[:12]
+        b = Task(id=bid, title=f"{len(members)} small tasks",
                  est=min(sum(m.est for m in members), cap), due=min(dues) if dues else None, earliest=d,
                  tier=min(m.tier for m in members), kind="batch", members=tuple(m.id for m in members),
                  imminent=any(m.imminent for m in members), overdue=any(m.overdue for m in members),
