@@ -20,7 +20,7 @@ from docket.config.digest import canonical_json, digest
 
 FailureKind = Literal["timeout", "too_large", "status", "protocol", "unavailable", "no_recording", "error"]
 
-# Failure kind -> catalog code (docket.cli.catalog, "M2 collection").
+# Failure kind -> catalog code (docket.cli.catalog, "M2 sources").
 FAILURE_CODES: dict[str, str] = {
     "timeout": "transport.timeout",
     "too_large": "transport.too_large",

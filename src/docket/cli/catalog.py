@@ -81,7 +81,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "state.too_old": ("state", False, "The workspace database is older than this Docket; the state must be "
                       "migrated."),
     "store.db_too_new": ("state", False, "The workspace database was written by a newer Docket."),
-    # --- M2 collection ---
+    # --- M2 sources ---
     "config.secret_literal": ("config", False, "A credential-named field holds a literal that looks like a secret; "
                               "reference an environment variable or a file instead."),
     "config.bad_example": ("config", False, "A worked example's row is one the task would refuse."),
@@ -95,7 +95,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "source.auth_failed": ("external", True, "A source's unattended auth check failed; the source is unavailable."),
     "source.contract.type_changed": ("external", False, "A required response field changed type; the unit failed."),
     "source.contract.not_json": ("external", False, "A response body is not the JSON the contract describes."),
-    "source.budget_exhausted": ("external", True, "A source's page or time budget ended collection as partial."),
+    "source.budget_exhausted": ("external", True, "A source's page or time budget ended the read as partial."),
     "source.truncated": ("external", True, "A page stayed truncated at the minimum page size; the unit is partial."),
     "transport.timeout": ("external", True, "A transport request or handshake timed out."),
     "transport.too_large": ("external", True, "A response exceeded the transport's size cap or was declared too large."),

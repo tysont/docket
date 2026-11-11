@@ -45,7 +45,7 @@ def cmd_source_test(ctx: Any, ns: Any) -> Result:
     import asyncio
 
     from docket.config.loader import closest
-    from docket.sources.collect import Starts, read_sources
+    from docket.sources.reader import Starts, read_sources
     from docket.sources.records import map_entry
     from docket.transports.base import Secrets
     ws = ctx.workspace()

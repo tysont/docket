@@ -28,7 +28,7 @@ if str(ROOT / "src") not in sys.path:
 
 from docket.config import load_workspace  # noqa: E402
 from docket.engine.clock import pin, run_date  # noqa: E402
-from docket.sources import collect as collect_mod  # noqa: E402
+from docket.sources import reader as reader_mod  # noqa: E402
 from docket.transports import registry  # noqa: E402
 from docket.transports.base import Failure, Request, Response, Secrets  # noqa: E402
 from docket.transports.replay import Recorder  # noqa: E402
@@ -198,8 +198,8 @@ def record(persona: str, out_root: Path | None = None) -> dict[str, Path]:
     try:
         clock = pin(ws.config.profile.timezone, now=PINNED_NOW)
         sids = sorted(s for s in ws.config.sources if ws.config.sources[s].transport)
-        starts = collect_mod.Starts()
-        first = asyncio.run(collect_mod.read_sources(ws, sids, env={}, instant=clock.instant, run_date=run_date(clock),
+        starts = reader_mod.Starts()
+        first = asyncio.run(reader_mod.read_sources(ws, sids, env={}, instant=clock.instant, run_date=run_date(clock),
                                                      starts=starts, log_dir=None, secrets=secrets))
         durable = {}
         for sid, res in first.items():
@@ -207,8 +207,8 @@ def record(persona: str, out_root: Path | None = None) -> dict[str, Path]:
                 pos, cov, complete = u.proposal
                 if pos is not None or (cov is not None and complete):  # an empty unit keeps its coverage
                     durable[(sid, u.unit.id)] = (pos, cov)
-        asyncio.run(collect_mod.read_sources(ws, sids, env={}, instant=clock.instant, run_date=run_date(clock),
-                                             starts=collect_mod.Starts(durable=durable), log_dir=None,
+        asyncio.run(reader_mod.read_sources(ws, sids, env={}, instant=clock.instant, run_date=run_date(clock),
+                                             starts=reader_mod.Starts(durable=durable), log_dir=None,
                                              secrets=secrets))
     finally:
         registry.build_transport = real

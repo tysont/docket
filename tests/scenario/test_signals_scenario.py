@@ -67,7 +67,7 @@ def test_item_why_explains_kept_dropped_merged_and_suppressed(persona, cli, pinn
     assert code == 0 and {r["status"] for r in env["data"]["items"]} == {"kept"} and len(env["data"]["items"]) == 2
     assert all(r["sensitivity"] == "customer" for r in env["data"]["items"])
     [note] = env["data"]["coverage_notes"]
-    assert (note["value"], note["home"], note["home_outcome"]) == ("INC-2041", "wiki", "not collected")
+    assert (note["value"], note["home"], note["home_outcome"]) == ("INC-2041", "wiki", "not read")
     code, env = cli("item", "list", "--filter", "status=suppressed", "--workspace", str(ws))
     assert [r["id"] for r in env["data"]["items"]] == [offsite]
 

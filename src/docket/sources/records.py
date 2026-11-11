@@ -25,7 +25,7 @@ from docket.store.paths import read_json, write_atomic
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
-    from docket.sources.collect import SourceResult
+    from docket.sources.reader import SourceResult
 
 
 def source_dir(run_dir: Path, sid: str) -> Path:

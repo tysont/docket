@@ -110,7 +110,7 @@ def test_unit_rules_apply_in_order_by_name_type_and_members(tmp_path):
 def test_exceptions_at_the_source_boundary_are_isolated():
     from datetime import date
 
-    from docket.sources.collect import Starts, read_sources
+    from docket.sources.reader import Starts, read_sources
 
     class WS:
         root = None

@@ -14,7 +14,7 @@ response over the transport's size cap, the contract's truncation marker, or a
 failure the contract classifies as too large) it halves the page size and
 retries the same position, down to ``min_page_size``; below that the unit is
 ``partial`` with its retry position. ``max_pages`` and ``max_seconds`` end
-collection as ``partial``, never ``failed``.
+the read as ``partial``, never ``failed``.
 """
 from __future__ import annotations
 

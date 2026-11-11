@@ -239,7 +239,7 @@ def test_proposals_move_forward_and_the_seal_applies_forward_only(tmp_path):
 
 
 def test_id_scan_reads_unprocessed_ids_each_individually(tmp_path):
-    from docket.sources.collect import Starts, _read_one
+    from docket.sources.reader import Starts, _read_one
     cfg = Source.model_validate({
         "transport": "t", "cursor": {"model": "id-scan"},
         "request": {"ids": {"op": "ids"}, "get": {"op": "get", "args": {"id": "{id}"}}},

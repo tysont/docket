@@ -1,4 +1,4 @@
-"""Concurrent collection with isolation (TD §6.6).
+"""Reading sources concurrently, each in isolation (TD §6.6).
 
 ``read_sources`` runs every requested source concurrently under a global limit,
 a per-transport limit and a per-source unit limit. Each source ends with one

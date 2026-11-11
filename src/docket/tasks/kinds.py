@@ -415,7 +415,7 @@ def build_models(kind: TaskKind) -> TaskKind:
 # Core kinds
 
 ASSESS_INSTRUCTIONS = """\
-You assess items collected for {me.name}, the operator. For each item in the pack, decide whether it needs the operator's attention and, if it does, what they should do.
+You assess items gathered for {me.name}, the operator. For each item in the pack, decide whether it needs the operator's attention and, if it does, what they should do.
 
 - Keep an item when it asks the operator for something, records a commitment the operator or someone they are responsible for made, needs a decision from them, or signals a risk they should act on.
 - Do not keep an item that only informs, that someone else has already handled, or whose only work would be recovering missing context.
@@ -449,7 +449,7 @@ Hunt for these failures:
 For every candidate you leave at ask, write the strongest argument against asking in one sentence. Use needs_verification when the pack cannot settle the question."""
 
 EXTRACT_INSTRUCTIONS = """\
-You extract commitments and requests from documents collected for {me.name}, the operator. Each pack item is one document; its lines are the document's sections.
+You extract commitments and requests from documents gathered for {me.name}, the operator. Each pack item is one document; its lines are the document's sections.
 
 - Return every commitment (someone promised to do something) and every request (someone asked for something) the document records, one entry each.
 - Name the owner: me for the operator, a person id from the pack's profile, or the name as the document writes it.
@@ -467,7 +467,7 @@ For each meeting:
 - Write notes, not sentences: the subject, then what was said or decided. Do not copy the record's wording at length, and never invent what the record does not show."""
 
 CLASSIFY_INSTRUCTIONS = """\
-You classify entries collected for {me.name}, the operator. For each pack item choose the class that best describes it, and a tier from 1 (most important to the operator) to 9 when the entry suggests one.
+You classify entries gathered for {me.name}, the operator. For each pack item choose the class that best describes it, and a tier from 1 (most important to the operator) to 9 when the entry suggests one.
 
 - Judge from the entry's lines, its unit and the profile excerpts in the pack.
 - Give a one-sentence reason that names what in the entry decided the class."""

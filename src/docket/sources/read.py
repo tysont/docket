@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from docket.engine.clock import run_date
 from docket.sources import records
-from docket.sources.collect import Starts, read_sources
+from docket.sources.reader import Starts, read_sources
 from docket.sources.cursors import durable, processed_ids
 from docket.transports.base import Secrets
 

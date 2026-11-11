@@ -1,4 +1,4 @@
-"""The source port (TD §6.2) and the collection data model.
+"""The source port (TD §6.2) and the data model of a read.
 
 - ``Unit``: one discovered subdivision of a source (a space, a queue, a folder).
 - ``Cursor``: where a read starts and what interval it covers.

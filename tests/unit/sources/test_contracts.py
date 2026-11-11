@@ -11,7 +11,7 @@ import pytest
 from docket.config.source_models import ContractKind, Source
 from docket.shapes.unexpected import collecting
 from docket.sources.base import Cursor
-from docket.sources.collect import aggregate
+from docket.sources.reader import aggregate
 from docket.sources.contracts import ContractChecker
 from docket.sources.declarative import DeclarativeSource, Limits
 from docket.transports.base import Response, Secrets

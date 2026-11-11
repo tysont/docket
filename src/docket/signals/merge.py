@@ -185,7 +185,7 @@ def coverage(items: list[dict[str, Any]], inp: MergeInputs) -> list[dict[str, An
                 v = ref["value"]
                 if v in values(home) or v in home_text[home] or (home, v) in notes:
                     continue
-                outcome = (inp.sources.get(home) or {}).get("outcome") or "not collected"
+                outcome = (inp.sources.get(home) or {}).get("outcome") or "not read"
                 notes[(home, v)] = {"home": home, "pattern": ref["pattern"], "value": v, "item_id": it["id"],
                                     "source": it["source"], "title": it.get("title") or "", "rule": exp.get("rule"),
                                     "home_outcome": outcome,

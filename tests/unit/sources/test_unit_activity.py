@@ -15,7 +15,7 @@ import pytest
 
 from docket.config.source_models import Source
 from docket.shapes.unexpected import collecting
-from docket.sources.collect import Starts, _read_one
+from docket.sources.reader import Starts, _read_one
 from docket.sources.declarative import DeclarativeSource, Limits
 from docket.transports.base import Response, Secrets
 

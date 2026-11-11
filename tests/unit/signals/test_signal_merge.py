@@ -141,7 +141,7 @@ def test_coverage_cross_reference_miss_and_hit():
     assert [(n["value"], n["home"], n["item_id"], n["home_outcome"]) for n in data["coverage_notes"]] == \
         [("INC-100", "wiki", "c1", "read")]
     _, data = merge(items[:1], rules)
-    assert data["coverage_notes"][0]["home_outcome"] == "not collected"
+    assert data["coverage_notes"][0]["home_outcome"] == "not read"
 
 
 def test_a_reply_that_promises_something_is_a_commitment_not_an_answer():
