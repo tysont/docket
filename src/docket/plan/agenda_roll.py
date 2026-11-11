@@ -157,30 +157,65 @@ def with_agendas(rc: "RunContext", candidates: list[dict[str, Any]]) -> list[dic
         dest.close()
 
 
-def operations(rc: "RunContext") -> list[dict[str, Any]]:
-    """The run's roll operations: the workflow's ``roll`` settings over the meetings the
-    assess stage holds (items of the named sources, with the ``recap`` task's row when one
-    read the meeting's record)."""
+def meetings_of(rc: "RunContext") -> list[dict[str, Any]]:
+    """The run's meetings: items of the workflow's roll sources, each with the ``recap``
+    task's row when one read the meeting's record."""
     roll = getattr(rc.workflow, "roll", None)
     if roll is None:
         return []
-    from docket.destinations import for_run
     ev = rc.eval_or_none("assess")
     items = list((ev.output or {}).get("items") or []) if ev is not None else []
-    prof = rc.ws.config.profile
-    me = _me(rc)
-    meetings = []
+    out = []
     for it in items:
         if it.get("source") not in roll.sources:
             continue
         f = it.get("fields") or {}
         recap = (it.get("tasks") or {}).get("recap") if isinstance(it.get("tasks"), dict) else None
-        meetings.append({"id": it.get("id"), "date": _local_date(rc, it.get("at")), "title": it.get("title"),
-                         "attendees": list(f.get("attendees") or []), "url": f.get("record_url") or it.get("url"),
-                         "recap": recap})
+        out.append({"id": it.get("id"), "date": _local_date(rc, it.get("at")), "title": it.get("title"),
+                    "attendees": list(f.get("attendees") or []), "url": f.get("record_url") or it.get("url"),
+                    "recap": recap})
+    return out
+
+
+def capture_commitments(path: Any, meetings: list[dict[str, Any]]) -> int:
+    """Append what the operator agreed to do (recap actions owned by ``me``) to a JSON-lines
+    file, one record each, skipping records already there. Returns how many were added."""
+    import json
+    from pathlib import Path
+    path = Path(path)
+    have = set()
+    if path.is_file():
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            try:
+                have.add(json.loads(ln).get("id"))
+            except ValueError:
+                continue
+    rows = []
+    for m in meetings:
+        for n, a in enumerate((m.get("recap") or {}).get("actions") or [], 1):
+            if not isinstance(a, dict) or str(a.get("owner") or "").strip().lower() != "me":
+                continue
+            rid = f"{m.get('id')}:{n}"
+            if rid not in have and str(a.get("text") or "").strip():
+                rows.append({"id": rid, "text": str(a["text"]).strip(), "meeting": m.get("title"), "date": m.get("date"),
+                             "url": m.get("url")})
+    if rows:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            for r in rows:
+                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return len(rows)
+
+
+def operations(rc: "RunContext") -> list[dict[str, Any]]:
+    """The run's roll operations: the workflow's ``roll`` settings over its meetings."""
+    roll = getattr(rc.workflow, "roll", None)
+    if roll is None:
+        return []
+    from docket.destinations import for_run
     dest = for_run(rc, roll.destination)
     try:
-        return roll_operations(dest, dest.snapshot(), list(prof.forums), me, meetings,
+        return roll_operations(dest, dest.snapshot(), list(rc.ws.config.profile.forums), _me(rc), meetings_of(rc),
                                no_record=roll.no_record, trailer=roll.trailer)
     finally:
         dest.close()

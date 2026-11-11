@@ -227,3 +227,35 @@ def test_a_scheduled_item_is_still_followed_in_its_task_list(db):
         assert ledger.place_blocks(db, [{"key": "dk_t_w", "task_ids": ["iaaaaaaaa"], "start": "s", "end": "e"}],
                                    destination="cal", adapter="calendar_exec", run_id="r4", at=T2) == []
     assert ledger.get(db, "iaaaaaaaa")["state"] == "done"
+
+
+def test_an_item_raised_in_a_meeting_is_done_when_the_meeting_covers_it(db):
+    """An item put on an agenda is raised. When the agenda is rolled and the entry leaves it,
+    the meeting dealt with it: the item is done, and its history says where and when. The
+    entry is recognised by its line as written, or by the item's link if the line was edited."""
+    a, b, c = item("a", "topic-a", url="https://chat.example.org/t/a"), item("b", "topic-b", url="https://chat.example.org/t/b"), \
+        item("c", "topic-c", url="https://chat.example.org/t/c")
+    place = lambda t, line: {"topic": t, "decision": "routed", "destination": "agendas", "adapter": "markdown_agenda",  # noqa: E731
+                             "op_id": "op_" + t, "path": "meet/sam.md", "anchor": "## Next", "line": line}
+    with db:
+        ledger.write(db, ledger.derive("r1", T1, kept=[a, b, c], decided=[
+            place("topic-a", "- Capacity plan - who signs off? [chat](https://chat.example.org/t/a)"),
+            place("topic-b", "- Hiring - two reqs or one? [chat](https://chat.example.org/t/b)"),
+            place("topic-c", "- Offsite - when? [chat](https://chat.example.org/t/c)")]))
+    assert {r["state"] for r in ledger.rows(db)} == {"raised"}
+    assert ledger.rows(db)[0]["placements"][0]["line"].startswith("- Capacity plan")
+    with db:
+        moves = ledger.cover(db, [
+            {"path": "meet/sam.md", "title": "## 2026-10-15",
+             "remove": ["- Capacity plan - who signs off? [chat](https://chat.example.org/t/a)",
+                        "- Hiring, reworded by hand [chat](https://chat.example.org/t/b)", "- Something never tracked"]},
+            {"path": "meet/other.md", "title": "## 2026-10-15", "remove": ["- Offsite - when? [chat](https://chat.example.org/t/c)"]},
+        ], run_id="r2", at=T2)
+    got = {r["topic"]: r for r in ledger.rows(db)}
+    assert sorted(m["key"] for m in moves) == sorted([got["topic-a"]["key"], got["topic-b"]["key"]])
+    assert got["topic-a"]["state"] == "done" and got["topic-b"]["state"] == "done"
+    assert got["topic-a"]["history"][-1] == {"run": "r2", "at": T2, "decision": "covered", "state": "done",
+                                             "note": "covered 2026-10-15 in meet/sam.md"}
+    assert got["topic-c"]["state"] == "raised"                       # another agenda's roll says nothing of it
+    with db:
+        assert ledger.cover(db, [{"path": "meet/sam.md", "title": "## 2026-10-15", "remove": ["- x"]}], run_id="r3", at=T2) == []

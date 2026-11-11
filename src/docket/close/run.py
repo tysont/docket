@@ -43,6 +43,17 @@ def _decided(rc: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | Non
     return decide, outcomes, ops, recs
 
 
+def _capture(rc: Any) -> int:
+    """Record what the operator agreed to do in the meetings this run recapped (TD §12.8)."""
+    roll = getattr(rc.workflow, "roll", None)
+    if roll is None or not roll.commitments:
+        return 0
+    from pathlib import Path
+    from docket.plan.agenda_roll import capture_commitments, meetings_of
+    path = Path(roll.commitments).expanduser()
+    return capture_commitments(path if path.is_absolute() else rc.ws.root / path, meetings_of(rc))
+
+
 def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[str, Any]]) -> list[dict[str, Any]] | None:
     """The calendar blocks that stand after this run, for the item ledger: those the plan
     kept, and those apply wrote. None when the run planned or applied nothing, which says
@@ -98,7 +109,8 @@ def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any
             cfg = rc.ws.config.destinations.get(d.destination)
             op = op_by_id.get(d.op_id) or {}
             row.update({"destination": d.destination, "adapter": cfg.adapter if cfg is not None else None,
-                        "op_id": d.op_id, "path": op.get("path"), "anchor": op.get("anchor"), "key": op.get("key")})
+                        "op_id": d.op_id, "path": op.get("path"), "anchor": op.get("anchor"), "key": op.get("key"),
+                        "line": op.get("line")})
         decided.append(row)
     return item_ledger.derive(rc.run.id, rc.run.header.clock.instant, kept=kept, decided=decided)
 
@@ -125,6 +137,7 @@ def state_step(rc: Any) -> dict[str, Any]:
     items = _ledger_rows(rc, decide, ops, rows)
     observed: list[dict[str, Any]] = []
     planned: list[dict[str, Any]] = []
+    covered: list[dict[str, Any]] = []
     lab = rc.eval_or_none("label")
     labels_now = dict((lab.output or {}).get("labels") or {}) if lab is not None else {}
     label_texts: dict[str, str] = {}
@@ -142,6 +155,11 @@ def state_step(rc: Any) -> dict[str, Any]:
                 planned = item_ledger.place_blocks(db, standing, destination=cal.destination,
                                                    adapter=dcfg.adapter if dcfg is not None else "calendar",
                                                    run_id=r.id, at=r.header.clock.instant)
+            # agendas rolled by this run: the raised items the meetings covered are done
+            rolled = [o for o in ops if o.get("verb") == "roll"
+                      and (recs.get(o.get("op_id", "")) or {}).get("outcome") in ("applied", "already_present")]
+            if rolled:
+                covered = item_ledger.cover(db, rolled, run_id=r.id, at=r.header.clock.instant)
             if labels_now:
                 from docket.plan import labels as plan_labels
                 plan_labels.remember(db, labels_now, label_texts, run_id=r.id)
@@ -151,7 +169,8 @@ def state_step(rc: Any) -> dict[str, Any]:
             for name, key, row in entries:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
-                "items": len(items) if durable else 0, "items_observed": len(observed), "items_planned": len(planned),
+                "items": len(items) if durable else 0, "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered),
+                "commitments": _capture(rc) if durable else 0,
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "close:state", "ok", body)
     return {**body, "outcome": "ok"}

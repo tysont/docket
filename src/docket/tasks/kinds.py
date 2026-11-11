@@ -622,8 +622,12 @@ def _recap(cfg: TasksConfig) -> TaskKind:
         FieldSpec("next", "str", "The agenda entry this settles (its id, such as N2), when it settles one.",
                   max_length=8, example="N2"),
     )
-    action = (FieldSpec("text", "str", "One thing someone agreed to do, with who.", required=True, max_length=200,
-                        example="Sam to send the offer letters"),)
+    action = (
+        FieldSpec("text", "str", "One thing someone agreed to do, with who.", required=True, max_length=200,
+                  example="Sam to send the offer letters"),
+        FieldSpec("owner", "str", "Who owes it: me for the operator, a person id from the pack's profile, or the "
+                                  "name as the record writes it.", required=True, max_length=120, example="Sam"),
+    )
     fields = (
         FieldSpec("covered", "rows", "What the meeting covered, most important first; at most "
                                      f"{r.max_covered}. Empty when the record shows nothing was discussed.",

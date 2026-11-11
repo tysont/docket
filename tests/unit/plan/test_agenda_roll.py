@@ -119,3 +119,26 @@ def test_an_unrecorded_meeting_with_nothing_on_the_agenda_writes_nothing(tmp_pat
     d = dest(tmp_path, NOTE.replace("- Hiring plan\n  - two open roles\n- Launch date\n- Budget\n", ""))
     assert roll_operations(d, d.snapshot(), FORUMS, {"me@example.org"}, [meeting("m1", "2026-10-08")],
                            no_record="no transcript", trailer="") == []
+
+
+def test_what_the_operator_agreed_to_do_in_a_meeting_is_captured_once(tmp_path):
+    """A recap names who owes each action. The operator's own are captured as records for a
+    source to read, so a promise made in a meeting reaches triage like any other item."""
+    from docket.plan.agenda_roll import capture_commitments
+    meetings = [
+        {"id": "m1", "date": "2026-10-08", "title": "Operator / Sam", "url": "https://docs.example.org/n1",
+         "recap": {"covered": [], "actions": [{"text": "Send the offer letters", "owner": "me"},
+                                              {"text": "Sam to draft the plan", "owner": "Sam"},
+                                              {"text": "Review the budget", "owner": "me"}]}},
+        {"id": "m2", "date": "2026-10-09", "title": "Lunch", "url": None, "recap": None},
+    ]
+    path = tmp_path / "state" / "commitments.jsonl"
+    assert capture_commitments(path, meetings) == 2
+    import json
+    rows = [json.loads(ln) for ln in path.read_text().splitlines()]
+    assert rows == [
+        {"id": "m1:1", "text": "Send the offer letters", "meeting": "Operator / Sam", "date": "2026-10-08",
+         "url": "https://docs.example.org/n1"},
+        {"id": "m1:3", "text": "Review the budget", "meeting": "Operator / Sam", "date": "2026-10-08",
+         "url": "https://docs.example.org/n1"}]
+    assert capture_commitments(path, meetings) == 0 and len(path.read_text().splitlines()) == 2     # once

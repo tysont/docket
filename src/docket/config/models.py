@@ -163,6 +163,9 @@ class WorkflowRoll(Strict):
     destination: str
     no_record: str = "no record of the meeting, agenda assumed covered"
     trailer: str = ""
+    # A JSON-lines file to which a durable close appends what the operator agreed to do in
+    # the meetings recapped, one record each, for a source to read. Relative to the workspace.
+    commitments: str | None = None
 
 
 class WorkflowQuestions(Strict):

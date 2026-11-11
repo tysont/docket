@@ -64,7 +64,7 @@ def derive(run_id: str, at: str, *, kept: list[dict[str, Any]], decided: list[di
     ``kept`` are the items the run put forward (``id``, ``topic``, ``title``, ``url``,
     ``source``). ``decided`` are the decisions made, by topic: ``decision`` and, when it
     wrote to a destination, ``destination``, ``adapter``, ``op_id`` and where (``path``,
-    ``anchor``, ``key``); also ``due``, ``est``, ``area`` and ``note`` when known.
+    ``anchor``, ``key``, and the ``line`` written); also ``due``, ``est``, ``area`` and ``note`` when known.
     """
     by_topic = {str(d["topic"]): d for d in decided if d.get("topic")}
     out = []
@@ -83,7 +83,7 @@ def derive(run_id: str, at: str, *, kept: list[dict[str, Any]], decided: list[di
                 if d.get(k) not in (None, ""):
                     row[k] = d[k]
             if d.get("destination"):
-                row["placement"] = {k: d[k] for k in ("destination", "adapter", "op_id", "path", "anchor", "key")
+                row["placement"] = {k: d[k] for k in ("destination", "adapter", "op_id", "path", "anchor", "key", "line")
                                     if d.get(k) not in (None, "")}
                 row["placement"]["run"] = run_id
         out.append(row)
@@ -289,3 +289,29 @@ def place_blocks(db: sqlite3.Connection, blocks: list[dict[str, Any]], *, destin
 def items_of_block(db: sqlite3.Connection, block_key: str) -> list[dict[str, Any]]:
     """The items a block is for: one for a whole task or a part, several for a batch."""
     return [r for r in rows(db) if any(p.get("key") == block_key for p in r["placements"])]
+
+
+def cover(db: sqlite3.Connection, rolls: list[dict[str, Any]], *, run_id: str, at: str) -> list[dict[str, Any]]:
+    """Close the loop on items raised in meetings (the caller holds the transaction).
+
+    ``rolls`` are the agenda rolls a run applied: ``path``, ``title`` (the dated heading) and
+    ``remove``, the entries that left the agenda. A raised item whose placement is in that
+    file is done when one of those entries is its line as written, or carries its link (the
+    operator may have reworded the line). Returns the items moved.
+    """
+    moves = []
+    for row in rows(db, "raised"):
+        for p in row["placements"]:
+            hit = next((r for r in rolls if r.get("path") == p.get("path") and any(
+                e.rstrip() == str(p.get("line") or "").rstrip() or (row.get("url") and row["url"] in e)
+                for e in r.get("remove") or [])), None)
+            if hit is None:
+                continue
+            date = (str(hit.get("title") or "").split() + ["", ""])[1]
+            note = f"covered {date} in {p.get('path')}".strip()
+            history = row["history"] + [{"run": run_id, "at": at, "decision": "covered", "state": "done", "note": note}]
+            db.execute("UPDATE item_ledger SET state='done', state_at=?, history=? WHERE key=?",
+                       (at, json.dumps(history, sort_keys=True), row["key"]))
+            moves.append({"key": row["key"], "title": row["title"], "was": "raised", "state": "done", "note": note})
+            break
+    return moves

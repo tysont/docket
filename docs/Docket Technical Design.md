@@ -861,6 +861,8 @@ A source yields one item per meeting held: its title, start, the others who atte
 
 The operations are approved and applied like any others. An entry the operator changed between plan and apply stays on the agenda.
 
+Two things follow a roll at a durable close. An item that was raised on an agenda (§13.8) is done when the roll takes its entry off the agenda; the entry is recognised by its line as written, or by the item's link when the operator reworded the line. And with `roll.commitments` naming a JSON-lines file, what the operator agreed to do in the meetings recapped (the recap's actions whose `owner` is `me`) is appended to it, one record each and each once, so a source can read the file and a promise made in a meeting reaches triage like any other item.
+
 ## 13. Approve, apply and close
 
 ### 13.1 Approval
@@ -901,7 +903,7 @@ Close writes a disposition per decided topic: `done`, `routed` (with the destina
 
 The ledger is the master record of every item Docket has put in front of the operator: one row per item, in Docket's own state, keyed by a short stable key derived from the item's topic (`i` and eight characters). A row carries the item's source, title and link, its state, every decision made on it with the run that made it, and its placements: the task line, calendar block or agenda entry it became, with the operation that wrote it.
 
-A state is where an item is; a decision is what moves it. The states are `new`, `backlog`, `scheduled`, `raised`, `monitoring`, `acknowledged`, `done` and `ignored`. Writing an item to a task store leaves it in `backlog`, to a calendar in `scheduled`, to an agenda in `raised`; `watch` leaves it `monitoring`, `ack` `acknowledged`, `now` and `done` `done`, `dismiss` `ignored`. An item put forward and not decided is `new`, and one seen again without a decision keeps its state. A scheduled item is not in the backlog: it has left it.
+A state is where an item is; a decision is what moves it. The states are `new`, `backlog`, `scheduled`, `raised`, `monitoring`, `acknowledged`, `done` and `ignored`. Writing an item to a task store leaves it in `backlog`, to a calendar in `scheduled`, to an agenda in `raised`; a raised item is `done` when its agenda is rolled and its entry was covered (§12.8); `watch` leaves it `monitoring`, `ack` `acknowledged`, `now` and `done` `done`, `dismiss` `ignored`. An item put forward and not decided is `new`, and one seen again without a decision keeps its state. A scheduled item is not in the backlog: it has left it.
 
 Destinations are projections of the ledger. Templates can write the item's `key`, and merge treats an item whose key is on an open task line as tracked, so an item is recognised wherever it landed and by whatever tool reads it next. No destination is the ledger's home: the same ledger serves a Markdown list today and another task store tomorrow.
 
