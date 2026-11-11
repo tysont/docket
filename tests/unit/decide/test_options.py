@@ -121,3 +121,24 @@ def test_a_question_carries_the_decision_recommended_for_its_item(tmp_path):
     assert rec(surfaced, surfaced="ack", default="task") == "ack"                      # the rule insisted, the task did not keep it
     assert rec({"assessment": {"keep": True, "decision": "task"}, "signals": {"surface": True}}, surfaced="ack") == "task"
     assert rec(surfaced, surfaced="nope") is None
+
+
+def test_items_recommended_for_a_batch_option_have_their_own_budget():
+    """Items shown together (an acknowledge list) must not crowd out the ones asked one by
+    one, nor the other way round: each group is ranked and cut on its own."""
+    from docket.decide.questions import select_asked
+
+    def f(i, score, decision, surface=False, keep=True):
+        return {"id": i, "keep": True, "score": score, "signals": {"surface": surface},
+                "assessment": {"keep": keep, "decision": decision}}
+    items = [f("a1", 80, "task"), f("a2", 70, "task"), f("a3", 60, "task"),
+             f("n1", 75, "ack"), f("n2", 65, "ack"), f("n3", 58, "ack"),
+             f("must", 55, None, surface=True, keep=False)]
+    kw = dict(must_surface="bypass", batch={"ack"}, batch_budget=2, surfaced="ack")
+    asked, over = select_asked(items, 55, 2, **kw)
+    assert [it["id"] for it in asked] == ["must", "a1", "a2", "n1", "n2"]
+    assert sorted(it["id"] for it in over) == ["a3", "n3"]
+    asked, _ = select_asked(items, 55, 2, must_surface="bypass", batch={"ack"}, batch_budget=None, surfaced="ack")
+    assert [it["id"] for it in asked] == ["must", "a1", "a2", "n1", "n2", "n3"]
+    asked, over = select_asked(items, 55, 2, must_surface="bypass")          # no batch options: as before
+    assert [it["id"] for it in asked] == ["must", "a1", "n1"] and len(over) == 4

@@ -651,7 +651,7 @@ A task's acceptance is reusable whenever a new pack has the same input digest. F
 
 Questions are ordered by configured burst ordering (reconcile first in the reference workflow, then findings by score). The budget caps findings; overflow items become a journal section "Not asked" with their traces.
 
-The question budget ranks findings by score. A must-surface finding is lifted only to the floor, so ranking alone cuts it first. `workflows.<id>.questions.must_surface` decides: `ranked` (the default) leaves it to its score, `first` asks must-surface findings before the rest within the budget, and `bypass` asks them first and spends none of the budget on them.
+The question budget ranks findings by score. A must-surface finding is lifted only to the floor, so ranking alone cuts it first. `workflows.<id>.questions.must_surface` decides: `ranked` (the default) leaves it to its score, `first` asks must-surface findings before the rest within the budget, and `bypass` asks them first and spends none of the budget on them. Items recommended for a batch option are ranked and cut in a group of their own against `questions.batch_budget`, so a list to acknowledge and the questions asked one by one do not crowd each other out.
 
 ### 10.2 Options
 

@@ -158,6 +158,8 @@ class WorkflowQuestions(Strict):
     # A must-surface finding and the budget: left to its score, asked first within the
     # budget, or asked first without using it.
     must_surface: Literal["ranked", "first", "bypass"] = "ranked"
+    # Items recommended for a batch option are ranked and cut in their own group.
+    batch_budget: int | None = None
 
 
 class Workflow(Strict):

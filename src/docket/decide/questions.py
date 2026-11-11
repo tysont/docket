@@ -95,34 +95,72 @@ def evidence_summary(it: dict[str, Any]) -> list[str]:
     return out
 
 
-def select_asked(items: list[dict[str, Any]], floor: int, budget: int | None,
-                 must_surface: str = "ranked") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """(findings to ask, findings past the budget), ranked by score. A must-surface finding
-    sits at the floor by construction, so ranking alone cuts exactly the ones a rule
-    insisted on. ``must_surface`` says what to do about that: ``ranked`` leaves them to
-    their score, ``first`` asks them before the rest within the budget, ``bypass`` asks
-    them first and spends none of the budget on them (FR-SIG-05)."""
+def select_asked(items: list[dict[str, Any]], floor: int, budget: int | None, must_surface: str = "ranked", *,
+                 batch: set[str] | None = None, batch_budget: int | None = None,
+                 surfaced: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(items to ask, items past a budget), ranked by score.
+
+    A must-surface item sits at the floor by construction, so ranking alone cuts exactly the
+    ones a rule insisted on. ``must_surface`` says what to do about that: ``ranked`` leaves
+    them to their score, ``first`` asks them before the rest within the budget, ``bypass``
+    asks them first and spends no budget on them (FR-SIG-05).
+
+    ``batch`` names the options whose items are shown together. An item recommended for one
+    (by the assess task, or by ``surfaced`` when a rule kept what the task did not) is ranked
+    and cut in its own group against ``batch_budget``, so a list of things to acknowledge
+    and the questions asked one by one do not crowd each other out.
+    """
     kept = [it for it in items if it.get("keep") and int(it.get("score") or 0) >= floor]
     kept.sort(key=lambda it: (-int(it.get("score") or 0), it["id"]))
-    if must_surface == "ranked":
-        return (kept, []) if budget is None else (kept[:budget], kept[budget:])
-    must = [it for it in kept if (it.get("signals") or {}).get("surface")]
-    rest = [it for it in kept if not (it.get("signals") or {}).get("surface")]
-    if budget is None:
-        return must + rest, []
-    if must_surface == "first":
-        ordered = must + rest
-        return ordered[:budget], ordered[budget:]
-    return must + rest[:budget], rest[budget:]
+
+    def is_must(it: dict[str, Any]) -> bool:
+        return bool((it.get("signals") or {}).get("surface"))
+
+    def in_batch(it: dict[str, Any]) -> bool:
+        if not batch:
+            return False
+        a = it.get("assessment") or {}
+        pick = surfaced if (is_must(it) and a.get("keep") is False) else a.get("decision")
+        return pick in batch
+
+    def cut(group: list[dict[str, Any]], cap: int | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if must_surface == "ranked":
+            return (group, []) if cap is None else (group[:cap], group[cap:])
+        must = [it for it in group if is_must(it)]
+        rest = [it for it in group if not is_must(it)]
+        if cap is None:
+            return must + rest, []
+        if must_surface == "first":
+            ordered = must + rest
+            return ordered[:cap], ordered[cap:]
+        return must + rest[:cap], rest[cap:]
+
+    single = [it for it in kept if not in_batch(it)]
+    grouped = [it for it in kept if in_batch(it)]
+    if must_surface != "ranked":  # a must-surface item leads, whichever group it is in
+        lead = [it for it in kept if is_must(it)]
+        a1, o1 = cut([it for it in single if not is_must(it)], budget)
+        a2, o2 = cut([it for it in grouped if not is_must(it)], batch_budget)
+        if must_surface == "first" and budget is not None:
+            head = lead[:budget]
+            room = budget - len(head)
+            return head + a1[:room] + a2, lead[budget:] + a1[room:] + o1 + o2
+        return lead + a1 + a2, o1 + o2
+    a1, o1 = cut(single, budget)
+    a2, o2 = cut(grouped, batch_budget)
+    return a1 + a2, o1 + o2
 
 
 def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
               notes_by_item: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
                                                                  list[dict[str, Any]]]:
     floor = int(((rc.ws.config.signals.get("scoring") or {}).get("floor")) or 0)
-    asked, over = select_asked(items, floor, rc.workflow.questions.budget, rc.workflow.questions.must_surface)
-    prompt_tpl = templates.parse(rc.ws.config.decisions.templates.get("finding_prompt", "{title}"))
     opts = option_set(rc)
+    wq = rc.workflow.questions
+    asked, over = select_asked(items, floor, wq.budget, wq.must_surface,
+                               batch={o["id"] for o in opts if o.get("batch")}, batch_budget=wq.batch_budget,
+                               surfaced=rc.ws.config.decisions.recommend.surfaced)
+    prompt_tpl = templates.parse(rc.ws.config.decisions.templates.get("finding_prompt", "{title}"))
     questions = []
     for it in asked:
         view = item_view(rc, it)
