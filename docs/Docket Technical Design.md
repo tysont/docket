@@ -200,7 +200,7 @@ The resolved configuration serializes to canonical JSON (sorted keys, no insigni
 
 ### 3.6 Template language
 
-Templates are strings with `{field}` and `{field|filter|filter:arg}` substitutions, plus two block forms: `{?field}...{/field}` (render if present and non-empty) and `{#list}...{/list}` (repeat). There are no expressions, loops beyond lists, or calls. Filters are a closed set: `upper`, `lower`, `title`, `trim`, `truncate:N`, `date:FORMAT`, `duration`, `join:SEP`, `default:TEXT`, `redact`, `slug`, `first`, `count`. Each template site declares its context model; validation rejects a field the context does not have (CFG-05). Rendering is total: a missing optional field renders empty, never raises.
+Templates are strings with `{field}` and `{field|filter|filter:arg}` substitutions, plus two block forms: `{?field}...{/field}` (render if present and non-empty) and `{#list}...{/list}` (repeat). There are no expressions, loops beyond lists, or calls. Filters are a closed set: `upper`, `lower`, `title`, `trim`, `truncate:N`, `date:FORMAT`, `duration`, `join:SEP`, `default:TEXT`, `redact`, `slug`, `first`, `count`, `sentence` (the first sentence of a text, without its full stop). Each template site declares its context model; validation rejects a field the context does not have (CFG-05). Rendering is total: a missing optional field renders empty, never raises.
 
 ## 4. State
 

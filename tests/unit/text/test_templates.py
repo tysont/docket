@@ -77,7 +77,7 @@ def test_journal_template_validates():
 def test_filter_set_is_closed():
     from docket.text.templates import FILTERS
     assert set(FILTERS) == {"upper", "lower", "title", "trim", "truncate", "date", "duration", "join",
-                            "default", "redact", "slug", "first", "count"}
+                            "default", "redact", "slug", "first", "count", "sentence"}
 
 
 values = st.recursive(
@@ -93,3 +93,16 @@ def test_rendering_is_total(ctx):
     tpl = ("{title|trim|upper|truncate:5} {due|date:%a} {est|duration} {tags|join:-|default:z} {tags|first} "
            "{tags|count} {x.y.z|slug} {?title}t{/title}{#tags}<{.}>{/tags}")
     assert isinstance(render(tpl, ctx), str)
+
+
+@pytest.mark.parametrize("text,want", [
+    ("Draft the plan. It is due before the review. doc", "Draft the plan"),
+    ("Is v2.1 ready? Ask the team", "Is v2.1 ready"),
+    ("Reply on the thread", "Reply on the thread"),
+    ("Check e.g. the limits. Then reply", "Check e.g. the limits"),
+    ("", ""),
+])
+def test_sentence_keeps_the_first_sentence(text, want):
+    """A task line is an action and its evidence. Where only the action belongs, such as a
+    title others can read, ``sentence`` keeps the first sentence, without its full stop."""
+    assert render("{title|sentence}", {"title": text}) == want

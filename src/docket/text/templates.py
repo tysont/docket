@@ -23,7 +23,7 @@ from datetime import date, datetime
 from typing import Any, Callable, Iterable
 
 FILTERS = ("upper", "lower", "title", "trim", "truncate", "date", "duration", "join",
-           "default", "redact", "slug", "first", "count")
+           "default", "redact", "slug", "first", "count", "sentence")
 _ARG_REQUIRED = {"truncate", "date"}
 _ARG_ALLOWED = {"truncate", "date", "join", "default"}
 _NAME = re.compile(r"^(?:\.|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)$")
@@ -292,6 +292,12 @@ def _apply_filter(name: str, arg: str | None, v: Any, redactor: Callable[[str], 
             return (arg or "") if _empty(v) else v
         if name == "count":
             return len(v) if isinstance(v, (list, tuple, dict, str)) else (0 if _empty(v) else 1)
+        if name == "sentence":
+            # the first sentence: up to a full stop, question or exclamation mark that ends a
+            # word of three letters or more and is followed by a space and a capital or digit
+            text = _to_text(v).strip()
+            m = re.search(r"(?<=[A-Za-z0-9)\]\"']{3})[.!?](?=\s+[A-Z0-9\[(\"'])|[.!?]$", text)
+            return text[:m.start()] if m else text
         if name == "first":
             if isinstance(v, (list, tuple)):
                 return v[0] if v else None
