@@ -294,9 +294,9 @@ def _apply_filter(name: str, arg: str | None, v: Any, redactor: Callable[[str], 
             return len(v) if isinstance(v, (list, tuple, dict, str)) else (0 if _empty(v) else 1)
         if name == "sentence":
             # the first sentence: up to a full stop, question or exclamation mark that ends a
-            # word of three letters or more and is followed by a space and a capital or digit
+            # word of two letters or more and is followed by a space and a capital or digit
             text = _to_text(v).strip()
-            m = re.search(r"(?<=[A-Za-z0-9)\]\"']{3})[.!?](?=\s+[A-Z0-9\[(\"'])|[.!?]$", text)
+            m = re.search(r"(?<=[A-Za-z0-9)\]\"']{2})[.!?](?=\s+[A-Z0-9\[(\"'])|[.!?]$", text)
             return text[:m.start()] if m else text
         if name == "first":
             if isinstance(v, (list, tuple)):

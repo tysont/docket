@@ -238,6 +238,25 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
 def _titler(rc: "RunContext", by_id: dict[str, Task]):
     t = rc.ws.config.planning.titles
     tpl = {k: templates.parse(getattr(t, k)) for k in ("task", "batch", "notes", "batch_notes")}
+    # A planned block is written to the calendar destination like any other operation. When
+    # that destination is shared, what it must not carry is taken out here (TD §11.2).
+    cal = rc.ws.config.planning.calendar
+    dest = rc.ws.config.destinations.get(cal.destination) if cal is not None else None
+    redactor = None
+    if dest is not None and dest.visibility == "shared":
+        from docket.text.redact import Redactor
+        redactor = Redactor.from_config(rc.ws.config.profile, dest.redact)
+
+    def shared(pair: tuple[str, str]) -> tuple[str, str]:
+        if redactor is None:
+            return pair
+        title, notes = redactor.redact(pair[0]), redactor.redact(pair[1])
+        redactor.check(title, where=f"destinations.{cal.destination}.title")
+        redactor.check(notes, where=f"destinations.{cal.destination}.notes")
+        return title, notes
+
+    def g(task: Task) -> tuple[str, str]:
+        return shared(f(task))
 
     def f(task: Task) -> tuple[str, str]:
         members = [by_id[m] for m in task.members if m in by_id]
@@ -247,7 +266,7 @@ def _titler(rc: "RunContext", by_id: dict[str, Task]):
         if task.kind == "batch":
             return templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()
         return templates.render(tpl["task"], ctx), templates.render(tpl["notes"], ctx)
-    return f
+    return g
 
 
 # --- the build ------------------------------------------------------------------

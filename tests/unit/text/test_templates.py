@@ -99,6 +99,7 @@ def test_rendering_is_total(ctx):
     ("Draft the plan. It is due before the review. doc", "Draft the plan"),
     ("Is v2.1 ready? Ask the team", "Is v2.1 ready"),
     ("Reply on the thread", "Reply on the thread"),
+    ("Send comments to the EM. Posted last week", "Send comments to the EM"),
     ("Check e.g. the limits. Then reply", "Check e.g. the limits"),
     ("", ""),
 ])
