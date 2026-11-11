@@ -184,6 +184,7 @@ def item_view(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
     src_cfg = rc.ws.config.sources.get(it.get("source")) if it.get("source") else None
     return {
         "source_label": (getattr(src_cfg, "label", None) or it.get("source") or ""),
+        "key": _item_key(it),
         "item_id": it.get("id"), "source": it.get("source"), "unit": it.get("unit"), "title": it.get("title"),
         "text": it.get("text"), "from": it.get("from"), "at": it.get("at"), "url": it.get("url"),
         "score": it.get("score"), "fields": it.get("fields") or {}, "forum": forum or {},
@@ -191,6 +192,13 @@ def item_view(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
         "owner": a.get("owner") or "", "kind": a.get("kind") or "", "deadline": deadline_of(it) or "",
         "quote": _first_quote(a),
     }
+
+
+def _item_key(it: dict[str, Any]) -> str:
+    """The item's ledger key (TD §13.8): what a destination writes so the item is recognised later."""
+    from docket.items.ledger import item_key
+    topic = it.get("topic") or it.get("id")
+    return item_key(str(topic)) if topic else ""
 
 
 def _first_quote(assessment: dict[str, Any]) -> str:

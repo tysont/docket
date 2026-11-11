@@ -269,3 +269,76 @@ def cmd_units_unset(ctx: Any, ns: Any) -> Result:
     row = _unit_row(db, ns.source, ns.unit)
     return Result({"unit": row}, f"{ns.unit}: class {row['class'] or '-'}, tier {row['tier'] or '-'} "
                                  f"({row['classified_by'] or 'unclassified'})")
+
+
+@command("ledger list", "List the item ledger: every item put in front of the operator, with its key, state and "
+         "where it lives.", args=[Arg("--state", "Only items in this state (new, backlog, scheduled, raised, "
+                                      "monitoring, acknowledged, done, ignored).")],
+         examples=["docket ledger list --state backlog --json"])
+def cmd_ledger_list(ctx: Any, ns: Any) -> Result:
+    from collections import Counter
+
+    from docket.items import ledger
+    ctx.workspace_root()
+    if ns.state and ns.state not in ledger.STATES:
+        raise InputError("input.bad_argument", f"Unknown state {ns.state!r}.", hint="docket ledger list",
+                         details={"states": list(ledger.STATES)})
+    rows = ledger.rows(ctx.store().db, ns.state)
+    counts = Counter(r["state"] for r in rows)
+    text = [f"{len(rows)} item(s): " + ", ".join(f"{s} {counts[s]}" for s in ledger.STATES if counts[s])]
+    text += [f"  {r['key']} {r['state']:<12} {(r['title'] or '')[:80]}" for r in rows]
+    return Result({"items": rows, "states": {s: counts[s] for s in ledger.STATES if counts[s]}}, "\n".join(text))
+
+
+@command("ledger show", "Show one ledger item by key or topic: its state, decisions and placements.",
+         args=[Arg("key", "Item key or topic.")], examples=["docket ledger show i3k9q2ab --json"])
+def cmd_ledger_show(ctx: Any, ns: Any) -> Result:
+    from docket.items import ledger
+    ctx.workspace_root()
+    row = ledger.get(ctx.store().db, ns.key)
+    if row is None:
+        raise InputError("input.unknown_item", f"The ledger has no item {ns.key!r}.", hint="docket ledger list")
+    text = [f"{row['key']} {row['state']} {row['title'] or ''}", f"  {row['url'] or ''}"]
+    text += [f"  {h.get('at', '')[:10]} {h.get('decision')} -> {h.get('state')}" + (f" ({h['note']})" if h.get("note") else "")
+             for h in row["history"]]
+    text += [f"  in {p.get('destination')}" + (f" under {p['anchor']}" if p.get("anchor") else "") for p in row["placements"]]
+    return Result({"item": row}, "\n".join(text))
+
+
+@command("ledger import", "Enter items into the ledger by hand, from a JSON array or JSON lines file. Each item "
+         "needs a title; url, state (default backlog), due, est, area, source and note are kept when given. "
+         "An item the ledger already has is skipped.",
+         args=[Arg("file", "Path to the file, or - for stdin.")], mutating=True,
+         effects=["writes ledger rows; never overwrites one"],
+         examples=["docket ledger import old-items.json --json", "docket ledger import old-items.json --dry-run --json"])
+def cmd_ledger_import(ctx: Any, ns: Any) -> Result:
+    import json
+    import sys
+    from datetime import datetime, timezone
+
+    from docket.items import ledger
+    ctx.workspace_root()
+    try:
+        raw = sys.stdin.read() if ns.file == "-" else open(ns.file, encoding="utf-8").read()
+    except OSError as e:
+        raise InputError("input.bad_argument", f"Cannot read {ns.file}: {e.strerror}") from None
+    try:
+        data = json.loads(raw)
+        items = data if isinstance(data, list) else data.get("items") if isinstance(data, dict) else None
+    except ValueError:
+        try:
+            items = [json.loads(ln) for ln in raw.splitlines() if ln.strip()]
+        except ValueError:
+            items = None
+    if not isinstance(items, list):
+        raise InputError("input.bad_argument", "The file must hold a JSON array of items, or one JSON object per line.")
+    at = datetime.now(timezone.utc).isoformat()
+    db = ctx.store().db
+    db.execute("SAVEPOINT ledger_import")
+    report = ledger.import_rows(db, items, run_id="import-" + at[:10], at=at)
+    if getattr(ns, "dry_run", False):
+        db.execute("ROLLBACK TO ledger_import")
+        report["dry_run"] = True
+    db.execute("RELEASE ledger_import")
+    db.commit()
+    return Result(report, f"imported {report['imported']}, skipped {report['skipped']}, problems {len(report['problems'])}")

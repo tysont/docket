@@ -491,3 +491,43 @@ def test_message_drafts_flow_through_apply_and_there_is_no_send(persona, cli, pi
     send = make_op("mail", "send", ident="k", key="k", subject="x", body="y")
     rows = executor.execute(rc, [send.dump()])
     assert rows[0]["outcome"] == "refused" and rows[0]["error"]["code"] == "dest.unsupported"
+
+
+def test_closing_a_run_writes_the_item_ledger_and_a_sandbox_run_does_not(persona, cli, pinned_now):
+    """After a run closes, every item it put forward is in the ledger with its key, its
+    state and where it landed; a sandbox run leaves the ledger as it was."""
+    import json as _json
+    ws = persona("reference-like")
+    cli("run", "start", "daily", "--sandbox", "--now", pinned_now, "--workspace", str(ws))
+    res = run_agent(ws)
+    assert res.final["kind"] == "done" and res.final["summary"]["sandbox"] is True
+    code, env = cli("ledger", "list", "--workspace", str(ws))
+    assert code == 0 and env["data"]["items"] == []
+
+    cli("run", "start", "daily", "--new", "--now", pinned_now, "--workspace", str(ws))
+    res = run_agent(ws)
+    assert res.failures == [] and res.final["kind"] == "done"
+    code, env = cli("ledger", "list", "--workspace", str(ws))
+    rows = env["data"]["items"]
+    assert rows and sum(env["data"]["states"].values()) == len(rows)
+    assert all(r["key"].startswith("i") and len(r["key"]) == 9 and r["first_run"] and r["topic"] for r in rows)
+    assert set(env["data"]["states"]) <= {"new", "backlog", "scheduled", "raised", "monitoring", "acknowledged",
+                                          "done", "ignored"}
+    placed = [r for r in rows if r["placements"]]
+    assert placed and all(p["destination"] and p["op_id"] for r in placed for p in r["placements"])
+    assert all(r["history"] for r in rows if r["state"] != "new")
+    code, env = cli("ledger", "show", placed[0]["key"], "--workspace", str(ws))
+    assert code == 0 and env["data"]["item"]["topic"] == placed[0]["topic"]
+    code, env = cli("ledger", "list", "--state", "nope", "--workspace", str(ws))
+    assert code == 2 and env["error"]["code"] == "input.bad_argument"
+
+    old = ws / "old-items.json"
+    old.write_text(_json.dumps([{"title": "Draft the plan", "url": "https://notes.example.org/plan", "est": "1h"},
+                                {"title": ""}]))
+    code, env = cli("ledger", "import", str(old), "--dry-run", "--workspace", str(ws))
+    assert code == 0 and env["data"]["imported"] == 1 and env["data"]["dry_run"] is True
+    assert len(cli("ledger", "list", "--workspace", str(ws))[1]["data"]["items"]) == len(rows)   # nothing written
+    code, env = cli("ledger", "import", str(old), "--workspace", str(ws))
+    assert env["data"]["imported"] == 1 and [p["row"] for p in env["data"]["problems"]] == [1]
+    code, env = cli("ledger", "list", "--state", "backlog", "--workspace", str(ws))
+    assert any(r["title"] == "Draft the plan" and r["est"] == 60 and r["source"] == "import" for r in env["data"]["items"])

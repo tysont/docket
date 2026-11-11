@@ -180,7 +180,8 @@ def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
             if vn.get("reason"):
                 notes.append(f"Looks done: {vn['reason']}")
         questions.append({
-            "id": "q_" + it["id"], "kind": "finding", "item_id": it["id"], "score": int(it.get("score") or 0),
+            "id": "q_" + it["id"], "kind": "finding", "item_id": it["id"], "key": view.get("key") or "",
+            "score": int(it.get("score") or 0),
             "prompt": templates.render(prompt_tpl, view), "evidence": ev, "options": offered, "refused": refused,
             "notes": notes, "defaults": {k: v for k, v in defaults.items() if k in ("due", "est", "area", "forum")},
             "subject": item_subject(it),

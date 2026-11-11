@@ -310,3 +310,12 @@ def test_a_twin_refuses_a_path_that_climbs_out_of_its_directory(tmp_path):
     assert (tmp_path / "sbx" / "d").resolve() in p.resolve().parents
     twin.write("../../secret.md", "changed")
     assert (tmp_path / "secret.md").read_text() == "keep"
+
+
+def test_a_task_line_can_carry_the_items_ledger_key(tmp_path):
+    """What a destination writes carries the item's key, so the item is recognised wherever
+    it landed, by Docket and by any other tool that reads the list."""
+    d = tasks(tmp_path, line_template="- [ ] {action} [id:: {key}]")
+    [op] = preview(d, add("x", action="Call the vendor", key="i3k9q2ab"))
+    assert op.line == "- [ ] Call the vendor [id:: i3k9q2ab]"
+    assert d.grammar.parse(op.line).get("id") == "i3k9q2ab"

@@ -141,7 +141,10 @@ def _disposition(group_ids: set[str], latest: Any, rows: list[dict[str, Any]], r
 
 
 def _tracked(g: dict[str, Any], stores: list[dict[str, Any]]) -> dict[str, Any] | None:
+    from docket.items.ledger import item_key
     needles = [r["value"] for r in g["references"]] + ([g["url"]] if g.get("url") else [])
+    if g.get("topic"):
+        needles.append(item_key(str(g["topic"])))  # the key a task line carries once the item was written
     needles = [n for n in needles if n]
     for st in stores:
         for line in st.get("open", []):

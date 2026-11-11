@@ -859,6 +859,16 @@ A hook is a command with arguments, a working directory, a timeout and a failure
 
 Close writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05).
 
+### 13.8 The item ledger
+
+The ledger is the master record of every item Docket has put in front of the operator: one row per item, in Docket's own state, keyed by a short stable key derived from the item's topic (`i` and eight characters). A row carries the item's source, title and link, its state, every decision made on it with the run that made it, and its placements: the task line, calendar block or agenda entry it became, with the operation that wrote it.
+
+A state is where an item is; a decision is what moves it. The states are `new`, `backlog`, `scheduled`, `raised`, `monitoring`, `acknowledged`, `done` and `ignored`. Writing an item to a task store leaves it in `backlog`, to a calendar in `scheduled`, to an agenda in `raised`; `watch` leaves it `monitoring`, `ack` `acknowledged`, `now` and `done` `done`, `dismiss` `ignored`. An item put forward and not decided is `new`, and one seen again without a decision keeps its state. A scheduled item is not in the backlog: it has left it.
+
+Destinations are projections of the ledger. Templates can write the item's `key`, and merge treats an item whose key is on an open task line as tracked, so an item is recognised wherever it landed and by whatever tool reads it next. No destination is the ledger's home: the same ledger serves a Markdown list today and another task store tomorrow.
+
+Close writes the ledger with the dispositions; a sandbox run leaves it as it was. `docket ledger list [--state S]` and `docket ledger show <key>` read it, and `docket ledger import <file>` enters items by hand from a JSON array or JSON lines, never overwriting a row.
+
 ## 14. Robustness
 
 ### 14.1 Integrity checks and shape checks
@@ -918,7 +928,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, hooks) runs w
 | Stages | `apply`, `close`, `collect`, `merge`, `plan build`, `plan diff`, `plan explain`, `plan load` |
 | Tasks | `task issue`, `task kinds`, `task list`, `task show`, `task submit` |
 | Decisions | `ask answer`, `ask list`, `ask resolve`, `ask show`, `ask undo` |
-| Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset` |
+| Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import` |
 | Config | `config explain`, `config test`, `config validate`, `init`, `presets list`, `presets show` |
 | Sources | `source list`, `source test` |
 | Health | `doctor [--workflow <name>]` |

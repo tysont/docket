@@ -89,6 +89,15 @@ ALTER TABLE units ADD COLUMN type TEXT
     (10, """
 ALTER TABLE units ADD COLUMN gone_at TEXT
 """),
+    # The item ledger: every item put in front of the operator, its state and where it lives.
+    (11, """
+CREATE TABLE item_ledger (
+  key TEXT PRIMARY KEY, topic TEXT NOT NULL UNIQUE, source TEXT, title TEXT, url TEXT,
+  state TEXT NOT NULL, state_at TEXT, first_run TEXT, first_at TEXT, last_run TEXT,
+  due TEXT, est INTEGER, area TEXT, placements TEXT NOT NULL DEFAULT '[]', history TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX item_ledger_state ON item_ledger (state)
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

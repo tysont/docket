@@ -22,6 +22,7 @@ from docket.close import dispositions as disp_mod
 from docket.close import journal as journal_mod
 from docket.close import ledgers, receipts
 from docket.close.hooks import run_event
+from docket.items import ledger as item_ledger
 from docket.store.paths import write_atomic
 
 
@@ -40,6 +41,37 @@ def _decided(rc: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | Non
     ops = list(((appr.output or {}).get("operations") if appr else None) or [])
     recs = {x["op_id"]: x for x in ((app.output or {}).get("receipts") if app else None) or []}
     return decide, outcomes, ops, recs
+
+
+def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any]],
+                 dispositions: list[Any]) -> list[dict[str, Any]]:
+    """The run's rows for the item ledger: every item merge kept, with the decision made on it."""
+    merge = rc.eval_or_none("merge")
+    kept = [it for it in ((merge.output or {}).get("items") if merge is not None else None) or []
+            if it.get("status") == "kept"]
+    decide = decide or {}
+    by_topic_q = {str(f["item"].get("topic") or f["item"].get("id")): f["question_id"]
+                  for f in decide.get("findings") or []}
+    questions = {q["id"]: q for q in decide.get("questions") or []}
+    answers = decide.get("answers") or {}
+    op_by_id = {o.get("op_id"): o for o in ops}
+    decided = []
+    for d in dispositions:
+        row: dict[str, Any] = {"topic": d.topic_id, "decision": d.decision, "note": d.note}
+        qid = by_topic_q.get(str(d.topic_id))
+        ov = (answers.get(qid) or {}).get("overrides") or {}
+        dflt = (questions.get(qid) or {}).get("defaults") or {}
+        for k in ("due", "est", "area"):
+            v = ov.get(k) if ov.get(k) not in (None, "") else dflt.get(k)
+            if v not in (None, ""):
+                row[k] = v
+        if d.destination:
+            cfg = rc.ws.config.destinations.get(d.destination)
+            op = op_by_id.get(d.op_id) or {}
+            row.update({"destination": d.destination, "adapter": cfg.adapter if cfg is not None else None,
+                        "op_id": d.op_id, "path": op.get("path"), "anchor": op.get("anchor"), "key": op.get("key")})
+        decided.append(row)
+    return item_ledger.derive(rc.run.id, rc.run.header.clock.instant, kept=kept, decided=decided)
 
 
 def destination_for(rc: Any) -> str | None:
@@ -61,13 +93,16 @@ def state_step(rc: Any) -> dict[str, Any]:
     ctx = journal_mod.build_context(rc, dispositions=[d.row() for d in rows])
     entries = ledgers.compute(specs, ctx)
     durable = not r.header.sandbox  # a sandbox run leaves cursors, dispositions and ledgers as they were
+    items = _ledger_rows(rc, decide, ops, rows)
     with db:
         moved = close_cursors.advance(db, r)
         if durable:
             disp_mod.write(db, rows)
+            item_ledger.write(db, items)
             for name, key, row in entries:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
+                "items": len(items) if durable else 0,
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "close:state", "ok", body)
     return {**body, "outcome": "ok"}

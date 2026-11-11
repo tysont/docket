@@ -193,3 +193,17 @@ def test_an_acknowledged_topic_is_quiet_until_something_new_is_said():
                  at="2026-10-15T11:00:00+00:00")
     by, _ = merge([ask, later], agent={**agent, "b": {"keep": True, "score": 80}}, dispositions=seen)
     assert next(iter(by.values()))["status"] != "suppressed"
+
+
+def test_an_item_whose_key_is_on_an_open_task_line_is_tracked():
+    """A task line written for an item carries its ledger key. The item is then tracked,
+    not put forward again, even when its link is not on the line."""
+    from docket.items.ledger import item_key
+    ask = item("a", thread="t9", text="please review the plan", handle="u/200")
+    key = item_key("thread:chat:t9")
+    stores = [{"destination": "backlog", "path": "tasks.md", "open": [f"- [ ] Review the plan [id:: {key}]"]}]
+    by, _ = merge([ask], agent={"a": {"keep": True, "score": 90}}, task_stores=stores)
+    assert by["a"]["status"] == "tracked" and by["a"]["tracked"]["match"] == key
+    by, _ = merge([ask], agent={"a": {"keep": True, "score": 90}},
+                  task_stores=[{"destination": "backlog", "path": "tasks.md", "open": ["- [ ] Something else [id:: iother123]"]}])
+    assert by["a"]["status"] != "tracked"
