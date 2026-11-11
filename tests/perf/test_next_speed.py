@@ -17,7 +17,7 @@ pytestmark = pytest.mark.slow
 def test_next_is_fast_warm(persona, cli, pinned_now):
     ws = persona("reference-like")
     cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
-    run_agent(ws, resume_paused=False, stop_at=lambda s: s["kind"] == "wait")
+    run_agent(ws, stop_at=lambda s: s["kind"] == "ask")  # mid-run: reads and judges done, questions open
     argv = ["next", "--json", "--workspace", str(ws)]
     env = dict(os.environ)
     main(argv, stdout=io.StringIO(), env=env, cwd=str(ws))  # warm

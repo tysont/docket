@@ -1,7 +1,8 @@
 """No process per item (TP §10, AE-10, TD §18), and a full synthetic run per persona under 60 s (NFR-06).
 
 A synthetic workspace reads N invented items from a files source, assesses them by rules,
-asks a capped number of questions, applies to a Markdown task store and closes with a hook.
+asks a capped number of questions, applies to a Markdown task store, runs one command node
+after the apply, and seals.
 Every subprocess launch (``subprocess.Popen`` and ``asyncio.create_subprocess_exec``) is
 counted; the count must not grow from 50 to 500 items.
 """
@@ -21,10 +22,16 @@ pytestmark = pytest.mark.slow
 
 WORKSPACE = """\
 version: 1
-workflows:
+graphs:
   daily:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    questions: { kinds: [finding], budget: 5 }
+    read-feed: { read: feed }
+    assess: { judge: assess, from: [read-feed] }
+    merge: { merge: [assess] }
+    decide: { ask: default, from: [merge], questions: { kinds: [finding], budget: 5 } }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
+    notes-commit: { run: [docket-stub-auth, --ok], after: [apply] }
 profile:
   timezone: UTC
   workdays: [mon, tue, wed, thu, fri]
@@ -45,10 +52,6 @@ destinations:
     adapter: markdown_tasks
     path: tasks.md
     section: "## Inbox"
-hooks:
-  notes-commit:
-    command: [docket-stub-auth, --ok]
-    events: [after_close]
 """
 
 
@@ -82,8 +85,8 @@ def launches(monkeypatch) -> list[str]:
     return seen
 
 
-def full_run(cli, ws: Path, now: str, workflow: str = "daily") -> dict:
-    code, env = cli("run", "start", workflow, "--now", now, "--workspace", str(ws))
+def full_run(cli, ws: Path, now: str, graph: str = "daily") -> dict:
+    code, env = cli("run", "start", graph, "--now", now, "--workspace", str(ws))
     assert code == 0, env
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done", res.final
@@ -100,14 +103,14 @@ def test_subprocess_launches_stay_constant_from_50_to_500_items(cli, tmp_path, m
         counts[n] = len(seen)
         assert summary["items"] == n and summary["applied"] == 5
     print(f"subprocess launches: {counts}")
-    assert counts[50] == counts[500] and counts[50] >= 2  # the auth check and the hook, nothing per item
+    assert counts[50] == counts[500] and counts[50] >= 2  # the auth check and the run node, nothing per item
 
 
-@pytest.mark.parametrize("name,workflow", [("reference-like", "daily"), ("support-lead", "shift")])
-def test_full_synthetic_run_under_60_seconds(persona, cli, pinned_now, name, workflow):
+@pytest.mark.parametrize("name,graph", [("reference-like", "daily"), ("support-lead", "shift")])
+def test_full_synthetic_run_under_60_seconds(persona, cli, pinned_now, name, graph):
     ws = persona(name)
     t0 = time.perf_counter()
-    full_run(cli, ws, pinned_now, workflow)
+    full_run(cli, ws, pinned_now, graph)
     elapsed = time.perf_counter() - t0
     print(f"{name} full synthetic run {elapsed:.1f}s")
     assert elapsed < 60

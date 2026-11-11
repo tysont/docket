@@ -171,7 +171,7 @@ def test_a_reply_that_promises_something_is_a_commitment_not_an_answer():
 
 
 def test_the_assess_output_hands_merge_the_kind_of_each_kept_item():
-    from docket.signals.stage import agent_rows
+    from docket.signals.node import agent_rows
     # ``assessment`` is where the assess stage puts the accepted row (tasks/runner.py: combine_assess).
     rows = agent_rows([{"id": "a", "keep": True, "score": 80, "assessment": {"kind": "commitment", "topic": "renewal"}},
                        {"id": "b", "keep": False, "score": 5, "assess": {}}, {"id": "c"}])

@@ -28,18 +28,22 @@ def test_shapes_reach_envelope_run_file_db_and_report(cli, persona, pinned_now):
     ws = persona("reference-like")
     code, env = cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
     run_id = env["data"]["run"]
-    code, env = cli("collect", "--workspace", str(ws))
-    assert code == 0
-    got = {(u["area"], u["detail"]) for u in env["unexpected"]}
+    unexpected, sources = [], {}
+    for node in ("read-chat", "read-mail", "read-transcripts"):
+        code, env = cli("do", node, "--workspace", str(ws))
+        assert code == 0, env
+        unexpected += env["unexpected"]
+        sources.update(env["data"]["result"]["sources"])
+    got = {(u["area"], u["detail"]) for u in unexpected}
     assert ("source.unit", "chat unit without name") in got  # the recorded gateway lists a nameless space
     assert ("source.contract", "chat.space.spaceType=THREADED_ROOM") in got  # of a type the preset does not know
     assert ("item.mapping", "chat.from missing") in got  # one chat record lacks a sender
-    assert all(u["extend"] for u in env["unexpected"])
-    assert env["data"]["result"]["sources"]["transcripts"]["outcome"] == "skipped"
+    assert all(u["extend"] for u in unexpected)
+    assert sources["transcripts"]["outcome"] == "skipped"
     import os
     from docket.store.paths import state_root
     lines = (state_root(ws, os.environ) / "runs" / run_id / "unexpected.jsonl").read_text().splitlines()
-    assert len(lines) == len(env["unexpected"])
+    assert len(lines) == len(unexpected)
     code, env = cli("unexpected", "--workspace", str(ws))
     shapes = {(s["area"], s["detail"]): s for s in env["data"]["shapes"]}
     assert shapes[("source.contract", "chat.space.spaceType=THREADED_ROOM")]["extend"].startswith(
@@ -58,7 +62,7 @@ def test_shapes_reach_envelope_run_file_db_and_report(cli, persona, pinned_now):
 def test_dry_run_records_nothing(cli, persona, pinned_now):
     ws = persona("reference-like")
     cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
-    code, env = cli("collect", "--dry-run", "--workspace", str(ws))
+    code, env = cli("do", "read-chat", "--dry-run", "--workspace", str(ws))
     assert code == 0 and env["data"]["dry_run"] is True and env["unexpected"] == []
     code, env = cli("unexpected", "--workspace", str(ws))
     assert env["data"]["shapes"] == []
@@ -68,7 +72,7 @@ def test_config_acceptance_hides_a_shape_and_all_shows_it(cli, persona, pinned_n
     """``shapes.accepted`` is reviewable configuration with the same effect as ``unexpected accept`` (TD §14.2)."""
     ws = persona("reference-like")
     cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
-    cli("collect", "--workspace", str(ws))
+    cli("do", "read-chat", "--workspace", str(ws))
     shape = ("item.mapping", "chat.from missing")
     cfg = ws / "docket.yaml"
     cfg.write_text(cfg.read_text() + '\nshapes:\n  accepted:\n    - { area: item.mapping, detail: "chat.from missing", '
