@@ -87,3 +87,21 @@ def test_the_item_view_names_the_source_as_configured(tmp_path):
     rc.ws.config.sources["chat"].label = "chat thread"
     assert item_view(rc, {"id": "i", "source": "chat"})["source_label"] == "chat thread"
     assert item_view(rc, {"id": "i", "source": "mail"})["source_label"] == "mail"      # no label: the id
+
+
+def test_a_must_surface_finding_can_be_asked_whatever_the_budget():
+    """The budget limits how many findings are asked. A finding a rule marked must-surface
+    sits at the floor by construction, so ranking by score alone cuts exactly the ones a
+    rule insisted on. A workflow can ask them first, inside or outside the budget."""
+    from docket.decide.questions import select_asked
+
+    def f(i, score, surface=False, keep=True):
+        return {"id": i, "keep": keep, "score": score, "signals": {"surface": surface}}
+    items = [f("a", 70), f("b", 65), f("c", 60), f("must1", 55, surface=True), f("must2", 55, surface=True),
+             f("low", 40), f("dropped", 90, keep=False)]
+    ids = lambda pair: ([it["id"] for it in pair[0]], [it["id"] for it in pair[1]])  # noqa: E731
+    assert ids(select_asked(items, 55, 2)) == (["a", "b"], ["c", "must1", "must2"])                 # ranked
+    assert ids(select_asked(items, 55, 3, "first")) == (["must1", "must2", "a"], ["b", "c"])
+    assert ids(select_asked(items, 55, 2, "bypass")) == (["must1", "must2", "a", "b"], ["c"])
+    assert ids(select_asked(items, 55, 0, "bypass")) == (["must1", "must2"], ["a", "b", "c"])
+    assert ids(select_asked(items, 55, None, "bypass")) == (["must1", "must2", "a", "b", "c"], [])

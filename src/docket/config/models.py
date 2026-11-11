@@ -155,6 +155,9 @@ class WorkflowQuestions(Strict):
     kinds: list[str] = ["finding"]
     bursts: int = 1
     budget: int | None = None
+    # A must-surface finding and the budget: left to its score, asked first within the
+    # budget, or asked first without using it.
+    must_surface: Literal["ranked", "first", "bypass"] = "ranked"
 
 
 class Workflow(Strict):
