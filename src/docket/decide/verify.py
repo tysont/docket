@@ -2,11 +2,10 @@
 
 An open task whose line names a reference (a ``signals.references`` pattern or
 a link) that a source claims through ``resolve`` (TD §6.10) is a candidate.
-The resolution is read once, before the burst (FR-DEC-07): ``decide`` waits
+The resolution is read once, before the burst (FR-DEC-07): an ask node waits
 with a ``run`` step for ``docket ask resolve``, which resolves every pending
 reference and stores the results in the run's ``decide/resolutions.json``
-keyed by reference and generation. A refresh opens a new generation and so
-resolves again.
+keyed by reference.
 
 A task whose reference is in ``decisions.verify.closed_states``, or whose
 last actor is the operator after the task's ``decisions.verify.date_field``,

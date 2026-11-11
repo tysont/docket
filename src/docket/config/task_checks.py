@@ -1,8 +1,8 @@
 """Reference and template checks for the ``tasks`` section (TD §3.4 passes 2 and 3).
 
-Structure is checked by ``docket.config.task_models``. Here: a kind's
-``select.sources`` names configured sources, and instructions and guidance use
-only the declared instruction context (``me.name``, ``kind``, ``stage``).
+Structure is checked by ``docket.config.task_models``. Here: instructions and
+guidance use only the declared instruction context (``me.name``, ``kind``), and
+an assess example is a row the task would accept.
 """
 from __future__ import annotations
 

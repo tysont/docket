@@ -1,4 +1,4 @@
-"""From answers to plan operations (TD §10.3, §12.6): the mapping the plan stage uses.
+"""From answers to plan operations (TD §10.3, §12.6): the mapping a plan node uses.
 
 Every answer kind becomes operations previewed by its destination adapter, or
 a non-destination outcome:
@@ -9,7 +9,7 @@ a non-destination outcome:
 | finding ``agenda.add`` | ``append`` to the forum's agenda (``--forum`` or the derived forum)      |
 | finding ``calendar.place`` | a task for the scheduler with ``--when``/``--est``; the block is a calendar op of planning |
 | finding ``message.draft`` | ``draft`` on the ``message_mcp`` destination, to the sender             |
-| finding ``now``/``done``/``watch``/``dismiss`` | an outcome row (dispositions are written at close) |
+| finding ``now``/``done``/``watch``/``dismiss`` | an outcome row (dispositions are written at the seal) |
 | finding answered by merge | nothing of its own: the host's action carries its title, links, evidence |
 | reconcile              | ``task.close`` / ``task.carry`` / ``task.update`` (+ ``agenda.add``)     |
 | verify                 | ``task.close`` / ``task.update``; ``keep`` writes nothing                |
@@ -153,7 +153,7 @@ def outcome(qid: str, item: dict[str, Any], decision: str, overrides: dict[str, 
             "decision": decision, "note": overrides.get("note"), "until": until}
 
 
-# --- the plan-stage mapping ------------------------------------------------------------------
+# --- the plan node's mapping ------------------------------------------------------------------
 
 
 def _option(q: dict[str, Any], oid: str) -> dict[str, Any]:
@@ -196,7 +196,7 @@ def answer_effects(rc: "RunContext", decide: dict[str, Any], qid: str) -> dict[s
 
 
 def plan_operations(rc: "RunContext", decide: dict[str, Any]) -> dict[str, Any]:
-    """Everything the plan stage takes from decide: operations, outcomes, store adjustments, notes."""
+    """Everything a plan node takes from the decisions: operations, outcomes, store adjustments, notes."""
     ops: list[dict[str, Any]] = []
     outcomes: list[dict[str, Any]] = []
     adjust: dict[str, dict[str, Any]] = {}

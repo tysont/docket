@@ -1,24 +1,19 @@
-"""Configuration models for the ``journal`` and ``hooks`` sections (TD §13.5, §13.6).
+"""Configuration models for the ``journal`` section (TD §13.5).
 
 ``journal`` renders the run journal from sections, each a template over the
 closed journal context (``docket.config.contexts.JOURNAL``). Without sections
 the built-in layout is used. ``destination`` names a ``journal`` destination
 the entry is written through; the run directory's ``journal.md`` is always
-written. ``ledgers`` append generic rows at close, one per element of a
-context list, that later journals aggregate across runs.
-
-``hooks`` declares commands run at ``after_collect``, ``after_apply`` and
-``after_close``. A workflow's ``hooks`` map (event -> hook ids) replaces the
-default selection for that event. References and templates are checked in
-``docket.close.checks``.
+written. ``ledgers`` append generic rows at the seal, one per element of a
+context list, that later journals aggregate across runs. References and
+templates are checked in ``docket.seal.checks``.
 """
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-HOOK_EVENTS: tuple[str, ...] = ("after_collect", "after_apply", "after_close")
 # Context lists a ledger may draw its rows from.
 LEDGER_SOURCES: tuple[str, ...] = ("findings", "questions", "answers", "operations", "not_asked", "dropped",
                                    "coverage_notes", "context", "sources", "dispositions", "unexpected")

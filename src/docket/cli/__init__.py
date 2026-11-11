@@ -26,7 +26,7 @@ def _load_commands() -> None:
     global _LOADED
     if _LOADED:
         return
-    from docket.cli.commands import config_cmds, meta, run_cmds, shape_cmds, stage_cmds  # noqa: F401
+    from docket.cli.commands import config_cmds, meta, node_cmds, run_cmds, shape_cmds  # noqa: F401
     _LOADED = True
 
 

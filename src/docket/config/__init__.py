@@ -55,7 +55,7 @@ def invalid_error(issues: list[Issue]) -> ConfigError:
 
 # A resolved workspace, keyed by its root and the modification time and size of every file it read
 # (TD §15.6). Presets ship with the code and never change under a running process. A process that
-# runs many commands (the rehearsal loop, an in-process agent, the tests) loads each configuration
+# runs many commands (an in-process agent, the tests) loads each configuration
 # once; any edit to any workspace file misses the cache. Workspaces are never mutated after loading.
 _CACHE: dict[str, tuple[tuple[Any, ...], Workspace]] = {}
 _CACHE_MAX = 16

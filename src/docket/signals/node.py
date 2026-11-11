@@ -1,9 +1,9 @@
-"""Signals in the engine: assess item selection and the merge stage's inputs (TD §5.1, §7.3).
+"""Signals in the engine: assess item selection and a merge node's inputs (TD §5.1, §7.3).
 
 Unit classifications come from the unit registry and are part of the merge
-stage digest (``merge_extra``). Dispositions and the task store's snapshot are
+node's digest (``merge_extra``). Dispositions and the task store's snapshot are
 read when merge runs and recorded in the artifact: a later write by apply or
-close never stales merge, so a run is never pushed back across apply (TD §5.4).
+the seal never stales merge, so a run is never pushed back across apply (TD §5.4).
 """
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ def inputs_for(ws: Any, store: Any, run: Any, items: list[dict[str, Any]], agent
 
 
 def agent_rows(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Accepted assess rows as the assess stage's output carries them (``keep``, ``score``,
+    """Accepted assess rows as an assess node's output carries them (``keep``, ``score``,
     and the assessment's ``topic`` and ``kind`` when the task supplies them)."""
     out = {}
     for it in items:

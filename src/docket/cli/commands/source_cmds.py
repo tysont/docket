@@ -1,77 +1,17 @@
-"""Collection commands (M2): ``collect [--refresh] [--sources]``, ``source list``,
-``source test <id> [--unit] [--limit]`` and ``units list``."""
+"""Source, unit and ledger commands: ``source list``, ``source test <id> [--unit] [--limit]``,
+``units list|preview|set|unset`` and ``ledger list|show|import|reconcile``. A source is read
+in a run by its read node (``docket do <node>``)."""
 from __future__ import annotations
 
 from typing import Any
 
-from docket.cli.commands import stage_cmds
-from docket.cli.commands.run_cmds import _guard_mutable, _step_next, step_summary
 from docket.cli.envelope import Result
-from docket.cli.errors import ExternalError, InputError, StateError
+from docket.cli.errors import ExternalError, InputError
 from docket.cli.registry import Arg, command
 
 
-def _split_ids(text: str | None) -> list[str]:
-    return [s.strip() for s in (text or "").split(",") if s.strip()]
-
-
-def _check_ids(rc: Any, ids: list[str]) -> None:
-    from docket.config.loader import closest
-    known = [s for s in rc.source_ids() if s in rc.ws.config.sources]
-    for s in ids:
-        if s not in known:
-            raise InputError("input.unknown_source", f"Workflow {rc.workflow_name()!r} reads no source {s!r}.",
-                             hint="docket source list", details={"suggestion": closest(s, known), "sources": known})
-
-
-def collect_command(ctx: Any, ns: Any) -> Result:
-    """``docket collect``: the collect stage, or a refresh generation (TD §4.5)."""
-    from docket.sources.stage import open_refresh, refresh_sources
-    rc = ctx.run_context()
-    requested = _split_ids(getattr(ns, "sources", None))
-    if requested and not ns.refresh:
-        raise InputError("input.bad_argument", "--sources selects the sources of a refresh; add --refresh.",
-                         hint=" ".join(rc.argv("collect", "--refresh", "--sources", ",".join(requested))))
-    ev = rc.eval("collect")
-    waiting = ev.reason == "sources_unavailable"
-    # A first collect, or a stale one (configuration changed, or a refresh interrupted before
-    # its artifact), runs the current generation; a refresh opens the next one.
-    if (not ns.refresh and not waiting) or ev.state in ("pending", "stale"):
-        return stage_cmds.advance(ctx, "collect")
-    _guard_mutable(rc)
-    if rc.run.header.applied_plan:
-        raise StateError("stage.post_apply_change", "Apply wrote receipts; a refresh cannot change this run's inputs.",
-                         hint="docket run start <workflow> --new")
-    if requested:
-        _check_ids(rc, requested)
-    sids = refresh_sources(rc, requested) if requested or ns.refresh else []
-    if waiting and not requested:
-        sids = sorted(set(sids) | set(ev.extra["unavailable"]))
-    if not sids:
-        step = stage_cmds._compute(ctx, rc)
-        return Result({"refresh": True, "sources": [], "changed": False, "step": step.model_dump()},
-                      f"no volatile sources to refresh\n{step_summary(step)}", next=_step_next(step))
-    if ctx.dry_run:
-        return Result({"dry_run": True, "refresh": True, "would_read": sids},
-                      f"would open a new generation reading {', '.join(sids)}")
-    ctx.acquire(rc)
-    rc.materialize()
-    n = open_refresh(rc, sids)
-    ev = rc.eval("collect")
-    from docket.engine.stages import STAGE_IMPLS
-    impl = STAGE_IMPLS["collect"]
-    data = impl.execute(rc, ev, None)
-    impl.finish(rc, ev, data)
-    rc.invalidate()
-    issued = stage_cmds._auto_issue(rc)
-    step = stage_cmds._compute(ctx, rc)
-    return Result({"stage": "collect", "status": "current", "changed": True, "digest": ev.digest, "refresh": True,
-                   "generation": n, "sources": sids, "result": stage_cmds._brief(data), "issued_tasks": issued,
-                   "step": step.model_dump()},
-                  f"refreshed {', '.join(sids)} as generation {n}\n{step_summary(step)}", next=_step_next(step))
-
-
-@command("source list", "List configured sources: transport, cursor model, capabilities and workflows.",
+@command("source list", "List configured sources: transport, cursor model, capabilities and the graphs that read "
+                        "them.",
          examples=["docket source list --json"])
 def cmd_source_list(ctx: Any, ns: Any) -> Result:
     ws = ctx.workspace()
@@ -89,8 +29,8 @@ def cmd_source_list(ctx: Any, ns: Any) -> Result:
         rows.append({"id": sid, "kind": kind, "transport": s.transport, "extends": s.extends,
                      "cursor": s.cursor.model, "capabilities": sorted(caps), "target": s.target,
                      "volatile": s.volatile, "required": s.required, "description": s.description,
-                     "workflows": sorted(w for w, wf in ws.config.workflows.items()
-                                         if wf.sources is None or sid in wf.sources)})
+                     "graphs": sorted(g for g, nodes in ws.config.graphs.items()
+                                      if any(n.read == sid for n in nodes.values()))})
     text = "\n".join(f"{r['id']:<16} {r['kind']:<11} {r['cursor']:<12} {','.join(r['capabilities'])}" for r in rows)
     return Result({"sources": rows}, text or "no sources")
 
@@ -106,7 +46,7 @@ def cmd_source_test(ctx: Any, ns: Any) -> Result:
 
     from docket.config.loader import closest
     from docket.sources.collect import Starts, read_sources
-    from docket.sources.generations import map_entry
+    from docket.sources.records import map_entry
     from docket.transports.base import Secrets
     ws = ctx.workspace()
     if ns.id not in ws.config.sources:
@@ -354,7 +294,7 @@ def cmd_ledger_import(ctx: Any, ns: Any) -> Result:
 
 
 @command("ledger reconcile", "Follow what happened in the destinations: an item whose task line was closed or "
-         "removed there moves to done. Every durable close does this; run it by hand to see or apply it sooner.",
+         "removed there moves to done. Every durable seal does this; run it by hand to see or apply it sooner.",
          mutating=True, effects=["moves ledger items to done; reads destinations and writes none"],
          examples=["docket ledger reconcile --dry-run --json"])
 def cmd_ledger_reconcile(ctx: Any, ns: Any) -> Result:

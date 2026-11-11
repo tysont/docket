@@ -32,11 +32,10 @@ class Unit:
 @dataclass
 class Cursor:
     model: str
-    position: str | None = None        # where reading starts (durable cursor, or a refresh start)
+    position: str | None = None        # where reading starts: the durable cursor
     coverage_end: str | None = None
     interval_from: str | None = None
     interval_to: str | None = None
-    start_generation: int | None = None  # the generation the start position came from (refresh)
 
 
 @dataclass

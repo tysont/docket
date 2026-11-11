@@ -8,7 +8,7 @@ calendar, messages, journal), plan order within a destination. For each:
    anything else happens;
 3. ``verify(op, receipt)`` reads back and the result is committed.
 
-A crash at any point resumes from receipts: an applied but unverified
+After a crash the next attempt starts from the receipts: an applied but unverified
 operation is applied again, which the adapter's idempotence turns into
 ``already_present`` (kept as ``applied`` when this plan's receipt said so), and
 then verified. Plan operations from scheduling are normalized first
@@ -17,7 +17,7 @@ then verified. Plan operations from scheduling are normalized first
 recorded with its code and details as outcome ``refused``; an external failure
 as ``failed``. Later operations that do not depend on a refused or failed one
 continue; dependants are reported ``blocked``. Approval and freshness (TD
-§13.1, §13.2) belong to the approve stage, not here.
+§13.1, §13.2) belong to the approve node, not here.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from docket.cli.errors import DocketError
 from docket.destinations import ORDER, for_run
 from docket.destinations.base import Operation, Receipt
 
-# Test hooks for crash injection: called with the operation after the write, after the receipt commit
+# Crash injection points for tests: called with the operation after the write, after the receipt commit
 # and after the verify commit.
 AFTER_WRITE: Callable[[Operation], None] | None = None
 AFTER_RECEIPT: Callable[[Operation], None] | None = None

@@ -87,7 +87,7 @@ def candidates(rc: "RunContext", tasks: list[StoreTask] | None = None) -> list[d
             by_key.setdefault(block_key(prefix, f"{t.id}#{n}"), t)
     out = []
     from docket.shapes.unexpected import collecting
-    with collecting():  # calendar shapes are recorded by plan build, not by every evaluation
+    with collecting():  # calendar shapes are recorded by the plan node, not by every evaluation
         events = _provider(rc, tz).list_events(lo, hi)
     for ev in events:
         key = ev.owned_key or ""

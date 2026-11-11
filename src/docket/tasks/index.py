@@ -17,7 +17,6 @@ from docket.store.paths import read_json, write_atomic
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
-    from docket.tasks.kinds import TaskKind
 
 
 def accepted(rc: "RunContext", packs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

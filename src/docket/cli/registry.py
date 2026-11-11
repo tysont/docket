@@ -11,7 +11,7 @@ from docket.cli.errors import InputError
 
 @dataclass
 class Arg:
-    name: str  # "workflow" (positional) or "--date"
+    name: str  # "graph" (positional) or "--date"
     help: str
     required: bool = False
     nargs: str | None = None

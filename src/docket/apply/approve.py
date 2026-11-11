@@ -1,7 +1,8 @@
 """Approval (TD §13.1, FR-APP-01) and its freshness check (TD §13.2).
 
-``docket ask answer approve yes --digest <plan_digest>`` binds the approval to
-that digest. The approval record is the ``approve`` answer::
+``docket ask answer <approve node> yes --digest <plan_digest>`` binds the approval
+to that digest. The approval record is the answer stored under the approve node's
+name::
 
     {"option": "yes", "action": "approve", "digest": "<plan digest>",
      "destinations": {"<dest_id>": "<snapshot digest>"}, "overrides": {...}, "input": "yes"}
@@ -23,6 +24,11 @@ from docket.cli.errors import InputError, IntegrityError
 from docket.store.paths import read_json
 
 
+def applying(rc: Any, node: str) -> bool:
+    """Whether an apply node that writes what approve node ``node`` approved has started writing."""
+    return any(rc.graph[n].apply == node and n in rc.run.header.applied for n in rc.by_verb("apply"))
+
+
 def plan_paths(rc: Any, plan_digest: str) -> tuple[dict[str, Any], Any]:
     pdir = rc.run.paths.plan(plan_digest)
     p = pdir / "plan.json"
@@ -34,7 +40,7 @@ def bind(rc: Any, q: dict[str, Any], option_id: str, given: str | None, answer: 
     """Validate ``--digest`` and freshness; return the approval record to store as the answer."""
     if not given:
         raise InputError("input.missing_digest", "Approving a plan requires --digest with the plan digest.",
-                         hint=" ".join(rc.argv("ask", "answer", "approve", option_id, "--digest", q["digest"])))
+                         hint=" ".join(rc.argv("ask", "answer", q["id"], option_id, "--digest", q["digest"])))
     if given != q["digest"]:
         raise IntegrityError("approve.digest_mismatch",
                              "The digest does not match the current plan; the plan changed since it was shown.",
@@ -44,26 +50,28 @@ def bind(rc: Any, q: dict[str, Any], option_id: str, given: str | None, answer: 
     out = {**answer, "digest": given}
     if option_id != "yes":
         return out
-    if rc.run.header.applied_plan:
+    if applying(rc, q["id"]):
         # past the apply boundary nothing is re-checked: a repeat of the approval is a no-op, a change is refused
-        prior = rc.run.answers().get("approve") or {}
+        prior = rc.run.answers().get(q["id"]) or {}
         if prior.get("digest") == given:
             out["destinations"] = prior.get("destinations")
         return out
     doc, pdir = plan_paths(rc, given)
     changes = freshness.check(rc, doc, pdir, mark=not dry_run)
     if changes:
-        raise freshness.refusal(rc, changes, given)
+        raise freshness.refusal(rc, changes, given, rc.graph[q["id"]].approve)
     out["destinations"] = dict((doc.get("inputs") or {}).get("destinations") or {})
     return out
 
 
-def check_unreachable(rc: Any, *, dry_run: bool = False) -> None:
-    """``approve`` was answered while the plan is stale: refuse with the destination change when that is why."""
-    p = rc.run.paths.artifacts("plan") / "latest"
+def check_unreachable(rc: Any, node: str, *, dry_run: bool = False) -> None:
+    """Approve node ``node`` was answered while its plan is stale: refuse with the destination change
+    when that is why."""
+    plan_node = rc.graph[node].approve
+    p = rc.run.paths.artifacts(plan_node) / "latest"
     if not p.is_file():
         return
-    art_path = rc.run.paths.artifact("plan", p.read_text().strip())
+    art_path = rc.run.paths.artifact(plan_node, p.read_text().strip())
     if not art_path.is_file():
         return
     pd = (read_json(art_path).get("data") or {}).get("plan_digest")
@@ -72,12 +80,12 @@ def check_unreachable(rc: Any, *, dry_run: bool = False) -> None:
     doc, pdir = plan_paths(rc, pd)
     changes = freshness.check(rc, doc, pdir, mark=not dry_run)
     if changes:
-        raise freshness.refusal(rc, changes, pd)
+        raise freshness.refusal(rc, changes, pd, plan_node)
 
 
 def record(rc: Any, plan_digest: str, record_: dict[str, Any]) -> None:
     """Append the approval's wall-clock facts to the ``approvals`` ledger (outside the run directory)."""
-    from docket.close import ledgers
+    from docket.seal import ledgers
     _, pdir = plan_paths(rc, plan_digest)
     built = None
     try:

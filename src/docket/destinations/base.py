@@ -4,7 +4,7 @@ A destination turns an ``Action`` into fully concrete ``Operation`` rows
 (``preview``), performs one (``apply``, idempotent by ``op_id``) and reads it
 back (``verify``). ``snapshot`` returns a ``DestState`` whose digest changes
 whenever anything an operation could depend on changes. ``sandbox`` returns a
-twin: the same adapter class over a swapped I/O layer, so a rehearsal runs the
+twin: the same adapter class over a swapped I/O layer, so a sandbox run runs the
 code a live run will run.
 
 Refusals are integrity errors with a ``dest.*`` code; the executor records

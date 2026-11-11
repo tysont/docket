@@ -2,7 +2,7 @@
 
 Configured ledgers (``journal.ledgers``) draw one row per element of a journal
 context list that matches every ``where`` pair; ``key`` and each field are
-templates over that element. Rows are appended in close's state transaction,
+templates over that element. Rows are appended in the seal's state transaction,
 once per run, and the journal context carries each ledger's rows from the
 most recent runs so a template can aggregate across them (for example a
 surfaced-items audit or a carries ledger).

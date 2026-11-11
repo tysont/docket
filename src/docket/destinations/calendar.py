@@ -333,7 +333,7 @@ class CalendarAdapter(BaseDestination):
                 return k, row
         if t in (state.data.get("unowned_ids") or []):
             raise self.unowned(t, "the event carries no ownership marker for this destination")
-        raise IntegrityError("dest.state_changed", f"{self.id}: no owned event matches {t!r}", hint="docket plan build",
+        raise IntegrityError("dest.state_changed", f"{self.id}: no owned event matches {t!r}", hint="docket do <plan node>, then approve again",
                              details={"destination": self.id, "target": t})
 
     def unowned(self, ref: str | None, why: str) -> IntegrityError:
@@ -349,12 +349,12 @@ class CalendarAdapter(BaseDestination):
         if action.kind == "calendar.place":
             if not action.key:
                 raise IntegrityError("dest.not_accepted", f"{self.id}: a calendar block needs a key seed",
-                                     hint="docket plan build", details={"destination": self.id})
+                                     hint="docket do <plan node>, then approve again", details={"destination": self.id})
             key = ownership_key(self.id, action.key)
             start, end = ctx.get("start"), ctx.get("end")
             if not start or not end:
                 raise IntegrityError("dest.not_accepted", f"{self.id}: a calendar block needs a start and an end",
-                                     hint="docket plan build", details={"destination": self.id, "key": key})
+                                     hint="docket do <plan node>, then approve again", details={"destination": self.id, "key": key})
             title, notes = self.render(ctx)
             cur = (state.data.get("owned") or {}).get(key)
             if cur is None:
@@ -403,7 +403,7 @@ class CalendarAdapter(BaseDestination):
                 if self._same(ev, op):
                     return self.receipt(op, "already_present", ev.id)
                 raise IntegrityError("dest.state_changed", f"{self.id}: an owned event with key {op.key} already "
-                                     "exists with different content", hint="docket plan build",
+                                     "exists with different content", hint="docket do <plan node>, then approve again",
                                      details={"destination": self.id, "key": op.key, "current": self._norm(ev)})
             eid = self.backend.create(cal, op.key, op.start, op.end, op.title or "", notes)
             return self.receipt(op, "applied", eid)
@@ -434,7 +434,7 @@ class CalendarAdapter(BaseDestination):
 
     def _missing(self, op: Operation) -> IntegrityError:
         return IntegrityError("dest.state_changed", f"{self.id}: the owned event {op.key} no longer exists",
-                              hint="docket plan build", details={"destination": self.id, "key": op.key})
+                              hint="docket do <plan node>, then approve again", details={"destination": self.id, "key": op.key})
 
     def _same(self, ev: Event, op: Operation) -> bool:
         return (instant(ev.start), instant(ev.end), ev.title, self.marker.strip(ev.notes)) == \

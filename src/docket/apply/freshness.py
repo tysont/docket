@@ -1,16 +1,16 @@
 """State-based freshness (TD §13.2, FR-APP-02).
 
-At plan build, ``attach`` snapshots every destination the plan touches and
+When a plan node builds a plan, ``attach`` snapshots every destination the plan touches and
 records each snapshot digest in the plan as ``inputs.destinations``
 (``{dest_id: digest}``); the snapshot data goes beside the plan as
 ``snapshots.json`` so a refusal can say what changed. At approval, ``check``
 snapshots the same destinations again. Equal digests: the plan is fresh, however
 long ago it was built (there is no clock check). Any difference refuses the
 approval with ``apply.stale_inputs``, a per-destination change summary and
-``docket plan build`` as the next command.
+``docket do <plan node>`` as the next command.
 
 A refusal also records the observed state as the plan's rebuild token
-(``freshness.json`` in the run directory). The plan stage folds the token into
+(``freshness.json`` in the run directory). A plan node folds the token into
 its digest, so the plan is stale until it is rebuilt against the state that
 was observed, and the approval goes with it.
 """
@@ -164,8 +164,8 @@ def check(rc: Any, plan_doc: dict[str, Any], pdir: Path, *, mark: bool = True) -
     return out
 
 
-def refusal(rc: Any, changes: list[Change], plan_digest: str) -> IntegrityError:
-    build = rc.argv("plan", "build")
+def refusal(rc: Any, changes: list[Change], plan_digest: str, plan_node: str) -> IntegrityError:
+    build = rc.argv("do", plan_node)
     text = "; ".join(f"{c.destination}: {c.summary}" for c in changes)
     return IntegrityError("apply.stale_inputs",
                           f"The plan is stale: {text}. Rebuild it and show the new diff before approving.",

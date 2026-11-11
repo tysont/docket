@@ -1,4 +1,4 @@
-"""Step receipts: one row per completed close step or hook run, keyed by ``(run, step)``.
+"""Step receipts: one row per completed seal step, keyed by ``(run, step)``.
 
 A receipt is written in the same transaction as the step's own database
 writes when it has any, so a step is either done and receipted or not done.

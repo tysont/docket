@@ -79,7 +79,7 @@ class MarkdownBase(BaseDestination):
         current = "\n".join(ln for _, ln in rows).strip("\n")
         path = op_or_path.path if isinstance(op_or_path, Operation) else op_or_path
         return IntegrityError(
-            "dest.line_changed", f"{self.id}: {message}", hint="docket plan build",
+            "dest.line_changed", f"{self.id}: {message}", hint="docket do <plan node>, then approve again",
             details={"destination": self.id, "path": path, "anchor": anchor, "matches": matches, "current": current})
 
     def own_path(self, op: Operation, allowed: set[str]) -> None:
@@ -102,7 +102,7 @@ class MarkdownBase(BaseDestination):
                        extend=f"destinations.{self.id}.section")
         elif capacity is not None and self.items(doc, op.anchor) >= capacity:
             raise IntegrityError("dest.not_accepted", f"{self.id}: {op.path} {op.anchor} is full ({capacity})",
-                                 hint="docket plan build",
+                                 hint="docket do <plan node>, then approve again",
                                  details={"destination": self.id, "path": op.path, "capacity": capacity})
         doc.append_in(op.anchor, op.line)
         self.save(op.path, doc)
@@ -358,7 +358,7 @@ class MarkdownAgenda(MarkdownBase):
     def _preview_add(self, action: Action, state: DestState, **_: Any) -> list[Operation]:
         acc = self._accept(action, state.data.get("files") or {})
         if not acc.ok:
-            raise IntegrityError("dest.not_accepted", acc.reason or "not accepted", hint="docket plan build",
+            raise IntegrityError("dest.not_accepted", acc.reason or "not accepted", hint="docket do <plan node>, then approve again",
                                  details={"destination": self.id, **acc.details})
         line = templates.render(self.cfg.line_template or DEFAULT_AGENDA_LINE, action.fields)
         line = self.shared_text(line, "line_template")
@@ -391,7 +391,7 @@ class MarkdownAgenda(MarkdownBase):
         files = state.data.get("files") or {}
         if path is None or files.get(path) is None:
             raise IntegrityError("dest.not_accepted", f"{self.id}: no agenda found for this item",
-                                 hint="docket plan build", details={"destination": self.id, "path": path})
+                                 hint="docket do <plan node>, then approve again", details={"destination": self.id, "path": path})
         text = files[path]
         date = str(f.get("date") or "")[:10]
         last = self.last_dated(text)
@@ -451,7 +451,7 @@ class MarkdownAgenda(MarkdownBase):
         if action.kind == "agenda.roll":
             base = BaseDestination.can_accept(self, action)
             if not base.ok:
-                raise IntegrityError("dest.not_accepted", base.reason or "not accepted", hint="docket plan build",
+                raise IntegrityError("dest.not_accepted", base.reason or "not accepted", hint="docket do <plan node>, then approve again",
                                      details={"destination": self.id})
             return self._roll(action, state)
         return self._preview_add(action, state, **kw)

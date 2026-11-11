@@ -4,8 +4,8 @@
 artifacts; ``docket.config.contexts.JOURNAL`` declares every field, and
 validation rejects a template naming any other. ``render`` turns the
 configured sections (or the built-in layout) into Markdown. The context is a
-pure function of the run's artifacts, receipts and database rows, so a resumed
-close renders the same journal and its journal operation keeps its id.
+pure function of the run's artifacts, receipts and database rows, so a repeated
+seal renders the same journal and its journal operation keeps its id.
 
 Context lists: ``sources`` (outcomes and coverage), ``findings``, ``questions``,
 ``answers``, ``operations`` (with receipt outcomes), ``not_asked``, ``dropped``
@@ -23,7 +23,7 @@ from docket.text import templates
 
 JOURNAL_TEMPLATE = """# Docket journal: {run.id}
 
-Workflow {run.workflow} for {run.date}{?run.sandbox} (sandbox run){/run.sandbox}.
+Graph {run.graph} for {run.date}{?run.sandbox} (sandbox run){/run.sandbox}.
 
 ## Sources
 {#sources}- {id}: {outcome} ({records} records)
@@ -75,7 +75,7 @@ def plan_document(rc: Any, plan_digest: str | None) -> dict[str, Any]:
 
 def approval_view(rc: Any, plan_digest: str | None) -> dict[str, Any]:
     """The approval record of this plan from the ``approvals`` ledger, with the delay since the build."""
-    from docket.close.ledgers import rows
+    from docket.seal.ledgers import rows
     out: dict[str, Any] = {"digest": plan_digest or "", "delay": "", "delay_minutes": "", "approved_at": "",
                            "built_at": ""}
     if not plan_digest:
@@ -100,19 +100,13 @@ def build_context(rc: Any, *, cursors: dict[str, Any] | None = None,
                   dispositions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     r = rc.run
     hdr = r.header
-    col = rc.eval_or_none("collect")
-    mrg = rc.eval_or_none("merge")
-    dec = rc.eval_or_none("decide")
-    appr = rc.eval_or_none("approve")
-    app = rc.eval_or_none("apply")
-    col_out = (col.output or {}) if col else {}
+    read = rc.output("read")
     sources = []
-    for sid, row in sorted((col_out.get("sources") or {}).items()):
+    for sid, row in sorted((read.get("sources") or {}).items()):
         sources.append({"id": sid, "outcome": row.get("outcome"), "records": row.get("records", 0),
-                        "reason": row.get("reason") or "", "coverage_end": row.get("coverage_end") or "",
-                        "generations": ",".join(str(g) for g in row.get("generations") or [])})
+                        "reason": row.get("reason") or "", "coverage_end": row.get("coverage_end") or ""})
     findings, questions, answers, not_asked = [], [], [], []
-    dec_out = (dec.output or {}) if dec else {}
+    dec_out = rc.output("ask")
     items = {f["question_id"]: f["item"] for f in dec_out.get("findings") or []}
     for qid, it in items.items():
         findings.append({"question_id": qid, "item_id": it.get("id"), "title": it.get("title", ""),
@@ -133,22 +127,24 @@ def build_context(rc: Any, *, cursors: dict[str, Any] | None = None,
         not_asked.append({"item_id": x.get("item_id"), "title": x.get("title", ""), "score": x.get("score"),
                           "source": x.get("source")})
     ops = []
-    if app is not None and app.output:
-        recs = {x["op_id"]: x for x in app.output.get("receipts") or []}
-        for o in ((appr.output or {}).get("operations") if appr else None) or []:
-            rec = recs.get(o["op_id"]) or {}
-            err = rec.get("error") or {}
-            ops.append({**o, "outcome": rec.get("outcome", "pending"), "verify_status": rec.get("verify_status", ""),
-                        "line": o.get("line") or o.get("title") or o.get("subject") or "",
-                        "error_code": err.get("code", ""), "error_message": err.get("message", "")})
-    mrg_out = (mrg.output or {}) if mrg else {}
+    applied = rc.output("apply")
+    approved = [*((rc.output("approve").get("operations") or []) if applied else []),
+                *(rc.output("write").get("operations") or [])]
+    recs = {x["op_id"]: x for x in [*(applied.get("receipts") or []), *(rc.output("write").get("receipts") or [])]}
+    for o in approved:
+        rec = recs.get(o["op_id"]) or {}
+        err = rec.get("error") or {}
+        ops.append({**o, "outcome": rec.get("outcome", "pending"), "verify_status": rec.get("verify_status", ""),
+                    "line": o.get("line") or o.get("title") or o.get("subject") or "",
+                    "error_code": err.get("code", ""), "error_message": err.get("message", "")})
+    mrg_out = rc.output("merge")
     dropped = [{"item_id": it.get("id"), "title": it.get("title", ""), "source": it.get("source"),
                 "status": it.get("status"), "reason": it.get("reason") or "", "topic": it.get("topic")}
                for it in mrg_out.get("items") or [] if it.get("status") in ("dropped", "suppressed")]
     coverage = [{k: n.get(k) for k in ("note", "home", "value", "item_id", "source", "title", "home_outcome")}
                 for n in mrg_out.get("coverage_notes") or []]
     context = [{k: c.get(k) for k in ("id", "source", "title", "text", "at", "url")}
-               for c in col_out.get("context") or []]
+               for c in read.get("context") or []]
     cur = cursors or {}
     disp = [{"topic": d["topic_id"], "decision": d["decision"], "item_id": d.get("item"),
              "destination": d.get("destination"), "op_id": d.get("op_id"), "until": d.get("until"),
@@ -159,9 +155,9 @@ def build_context(rc: Any, *, cursors: dict[str, Any] | None = None,
               "failed": sum(1 for o in ops if o["outcome"] in ("failed", "refused", "blocked")),
               "not_asked": len(not_asked), "dropped": len(dropped), "coverage_notes": len(coverage),
               "unexpected": len(unexpected_rows), "dispositions": len(disp)}
-    plan_digest = (appr.output or {}).get("plan_digest") if appr else None
+    plan_digest = rc.output("approve").get("plan_digest")
     return {
-        "run": {"id": r.id, "date": hdr.clock.date, "workflow": hdr.workflow, "sandbox": hdr.sandbox,
+        "run": {"id": r.id, "date": hdr.clock.date, "graph": hdr.graph, "sandbox": hdr.sandbox,
                 "timezone": hdr.clock.timezone, "instant": hdr.clock.instant},
         "sources": sources, "findings": findings, "questions": questions, "answers": answers,
         "operations": ops, "not_asked": not_asked, "dropped": dropped, "coverage_notes": coverage,

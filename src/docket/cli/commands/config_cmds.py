@@ -19,16 +19,16 @@ def cmd_validate(ctx: Any, ns: Any) -> Result:
         raise invalid_error(issues)
     data = {
         "valid": True, "files": loaded.files, "presets": loaded.presets, "digest": ws.digest,
-        "sections": ws.sections, "workflows": sorted(ws.config.workflows),
+        "sections": ws.sections, "graphs": sorted(ws.config.graphs),
         "relationship_sets": ws.relationship_sets(),
     }
     return Result(data, f"configuration valid ({len(loaded.files)} file(s), digest {ws.digest[:12]})",
-                  next=(["docket", "run", "start", sorted(ws.config.workflows)[0], "--json"], "start a run")
-                  if ws.config.workflows else None)
+                  next=(["docket", "run", "start", sorted(ws.config.graphs)[0], "--json"], "start a run")
+                  if ws.config.graphs else None)
 
 
 @command("config explain", "Show a configuration value and where it came from (core, preset or workspace file).",
-         args=[Arg("path", "Dotted path, for example profile.timezone or workflows.daily.stages.")],
+         args=[Arg("path", "Dotted path, for example profile.timezone or graphs.daily.decide.")],
          examples=["docket config explain profile.timezone --json", "docket config explain destinations --json"])
 def cmd_explain(ctx: Any, ns: Any) -> Result:
     from docket.config import explain
@@ -39,10 +39,19 @@ def cmd_explain(ctx: Any, ns: Any) -> Result:
     return Result(out, f"{out['path']} = {shown}\norigin: {out['origin']}")
 
 
+# The init graph: the operator decides, the plan is approved, then applied. ``init_graph``
+# puts a read node per scaffolded source, an assessment and a merge in front of it.
+INIT_GRAPH = "daily"
+INIT_TAIL: dict[str, Any] = {
+    "decide": {"ask": "default"},
+    "plan": {"plan": ["decide"]},
+    "approve": {"approve": "plan"},
+    "apply": {"apply": "approve"},
+}
 INIT_BASE: dict[str, Any] = {
     "version": 1,
     "presets": [],
-    "workflows": {"daily": {"stages": ["collect", "assess", "merge", "decide", "plan", "approve", "apply", "close"]}},
+    "graphs": {},
     "profile": {"timezone": "UTC", "workdays": ["mon", "tue", "wed", "thu", "fri"], "me": {"name": "Your Name"}},
     "sources": {},
     "destinations": {"backlog": {"adapter": "markdown_tasks", "path": "tasks.md"}},
@@ -91,7 +100,26 @@ def init_document(presets: list[str]) -> tuple[dict[str, Any], list[str], list[d
             if path and not path.endswith(".extends"):
                 placeholders.append({"path": path, "value": value, "preset": pid, "scope": scope})
         _merge_into(doc, sc)
+    doc["graphs"] = {INIT_GRAPH: init_graph(scaffolded)}
     return doc, scaffolded, placeholders
+
+
+def init_graph(sources: list[str]) -> dict[str, Any]:
+    """The init graph's nodes: one read node per source, then assess, merge, decide, plan, approve
+    and apply."""
+    import re
+    nodes: dict[str, Any] = {}
+    reads = []
+    for sid in sources:
+        name = "read-" + re.sub(r"[^a-z0-9-]+", "-", sid.lower()).strip("-")
+        nodes[name[:40]] = {"read": sid}
+        reads.append(name[:40])
+    tail = copy.deepcopy(INIT_TAIL)
+    if reads:
+        nodes["assess"] = {"judge": "assess", "from": reads}
+        nodes["merge"] = {"merge": ["assess"]}
+        tail["decide"]["from"] = ["merge"]
+    return {**nodes, **tail}
 
 
 def _render_init(doc: dict[str, Any], placeholders: list[dict[str, Any]]) -> str:

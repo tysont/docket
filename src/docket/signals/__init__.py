@@ -5,7 +5,7 @@
 - ``engine``: enrichment and rule evaluation;
 - ``scoring``: components, the formula, floors, caps and budgets;
 - ``merge``: grouping by topic, suppression, coverage, the merge artifact;
-- ``stage``: inputs from a run, assess item selection;
+- ``node``: a merge node's inputs from a run, assess item selection;
 - ``replay``: ``docket config test``;
 - ``plugins``: plugin predicates and formulas.
 """

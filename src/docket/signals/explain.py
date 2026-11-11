@@ -5,8 +5,8 @@ a topic id, a URL, a record identity, a reference value carried by one item, the
 a unique case-insensitive substring of a title or text.
 The explanation is the item's trace: mapping, every matching rule with its
 file position, the assess outcome, score components, cap and floor decisions,
-merges, suppressions, plus the later stages' verdict, question and answer when
-those exist.
+merges, suppressions, plus what the graph's later nodes did with it: a review
+verdict, a question and its answer, an approved operation.
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _fmt(v: Any) -> str:
 
 
 def line(e: dict[str, Any]) -> str:
-    st, step = e.get("stage"), e.get("step")
+    st, step = e.get("verb"), e.get("step")
     if step == "rule":
         eff = e.get("effects") or {}
         parts = [f"{k} {('+' if isinstance(v, int) and not isinstance(v, bool) and v > 0 else '')}{_fmt(v)}"
@@ -86,37 +86,40 @@ def line(e: dict[str, Any]) -> str:
         w = e.get("weights") or {}
         terms = ", ".join(f"{k} {comp[k]} (weight {w.get(k)})" for k in comp)
         return f"[{st}] score {e.get('score')} = {e.get('formula')} of {terms}; base {e.get('base')}"
-    rest = {k: v for k, v in e.items() if k not in ("stage", "step")}
+    rest = {k: v for k, v in e.items() if k not in ("verb", "step")}
     return f"[{st}] {step}" + (": " + "; ".join(f"{k} {_fmt(v)}" for k, v in rest.items()) if rest else "")
 
 
-def later_stages(rc: Any, item_id: str) -> list[dict[str, Any]]:
-    """Review verdict, question, answer and operations for the item, when those stages exist."""
+def later_nodes(rc: Any, item_id: str) -> list[dict[str, Any]]:
+    """Review verdict, question, answer and operations for the item, from the graph's current
+    review, ask and approve nodes."""
+    from docket.engine.nodes import SEAL
     out: list[dict[str, Any]] = []
-    for name in ("review", "decide", "approve"):
-        if name not in rc.workflow.stages:
+    for name in rc.order:
+        if name == SEAL:
             continue
-        ev = rc.eval_or_none(name)
-        if ev is None or not ev.output:
+        ev = rc.eval(name)
+        if ev.state != "current" or not ev.output:
             continue
-        if name == "review":
+        verb = rc.graph[name].verb
+        if verb == "judge" and rc.impls[name].kind(rc).family == "review":
             row = next((it for it in ev.output.get("items") or [] if it.get("id") == item_id), None)
             if row and row.get("verdict"):
-                out.append({"stage": "review", "step": "verdict", "verdict": row["verdict"]})
-        elif name == "decide":
+                out.append({"verb": "judge", "node": name, "step": "verdict", "verdict": row["verdict"]})
+        elif verb == "ask":
             qid = "q_" + item_id
             if any(q["id"] == qid for q in ev.output.get("questions") or []):
-                out.append({"stage": "decide", "step": "question", "question": qid})
+                out.append({"verb": "ask", "node": name, "step": "question", "question": qid})
                 ans = (ev.output.get("answers") or {}).get(qid)
                 if ans:
-                    out.append({"stage": "decide", "step": "answer", "option": ans.get("option"),
+                    out.append({"verb": "ask", "node": name, "step": "answer", "option": ans.get("option"),
                                 "action": ans.get("action")})
             elif any(n.get("item_id") == item_id for n in ev.output.get("not_asked") or []):
-                out.append({"stage": "decide", "step": "not_asked", "reason": "past the question budget"})
-        else:
+                out.append({"verb": "ask", "node": name, "step": "not_asked", "reason": "past the question budget"})
+        elif verb == "approve":
             for op in ev.output.get("operations") or []:
                 if op.get("question_id") == "q_" + item_id:
-                    out.append({"stage": "approve", "step": "operation", "op_id": op.get("op_id"),
+                    out.append({"verb": "approve", "node": name, "step": "operation", "op_id": op.get("op_id"),
                                 "destination": op.get("destination")})
     return out
 
@@ -125,7 +128,7 @@ def explain(top: dict[str, Any], mem: dict[str, Any] | None, extra: list[dict[st
     row = mem or top
     trace = list(row.get("trace") or [])
     if mem is not None:
-        trace.append({"stage": "merge", "step": "topic", "into": top["id"], "status": top.get("status"),
+        trace.append({"verb": "merge", "step": "topic", "into": top["id"], "status": top.get("status"),
                       "score": top.get("score"), "reason": top.get("reason")})
     trace += extra
     rules = [e["rule"] for e in trace if e.get("step") == "rule"]

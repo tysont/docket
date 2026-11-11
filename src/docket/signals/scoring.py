@@ -13,7 +13,7 @@ component with a positive weight. ``plugin``: a registered formula. The result i
 rounded half up and clamped to 0..100.
 
 ``keep`` decides, in order: ``surface: always`` keeps an item whatever its score,
-raised to ``surface_floor`` (default: the floor) so later stages that rank by
+raised to ``surface_floor`` (default: the floor) so later nodes that rank by
 score keep it; below ``floor`` drops; at or above ``always_keep`` bypasses caps
 and budgets; ``caps.per_source`` keeps the top N per source (``default`` for
 sources not named); ``budgets.daily`` keeps the top N across sources. Items that
@@ -69,7 +69,7 @@ def score_item(it: dict[str, Any], scoring: Scoring, agent: int | None) -> None:
     comp = components(it["signals"], scoring, agent)
     it["components"] = comp
     it["score"] = combine(comp, scoring)
-    it["trace"].append({"stage": "merge", "step": "score", "formula": scoring.formula,
+    it["trace"].append({"verb": "merge", "step": "score", "formula": scoring.formula,
                         "weights": {k: scoring.weights.get(k, 0.0) for k in comp},  # type: ignore[call-overload]
                         "base": scoring.base, "components": comp, "score": it["score"]})
 
@@ -92,7 +92,7 @@ def decide_keep(cands: list[dict[str, Any]], scoring: Scoring, budgets: Budgets)
         if it["signals"]["surface"]:
             lift = scoring.surface_floor if scoring.surface_floor is not None else floor
             if it["score"] < lift:
-                it["trace"].append({"stage": "merge", "step": "surface_floor", "from": it["score"], "to": lift,
+                it["trace"].append({"verb": "merge", "step": "surface_floor", "from": it["score"], "to": lift,
                                     "rules": it["signals"]["surface_rules"]})
                 it["score"] = lift
     ranked = sorted(cands, key=rank_key)
@@ -111,7 +111,7 @@ def decide_keep(cands: list[dict[str, Any]], scoring: Scoring, budgets: Budgets)
             per_source[it["source"]] = pos + 1
         if bypass:
             why = "surface: always" if surface else f"score {s} at or above always_keep {ak}"
-            it["trace"].append({"stage": "merge", "step": "bypass", "reason": why,
+            it["trace"].append({"verb": "merge", "step": "bypass", "reason": why,
                                 **({"rules": it["signals"]["surface_rules"]} if surface else {})})
         elif cap is not None and pos >= cap:
             _drop(it, "cap", f"rank {pos + 1} past the {it['source']} cap {cap}", cap=cap)
@@ -128,9 +128,9 @@ def decide_keep(cands: list[dict[str, Any]], scoring: Scoring, budgets: Budgets)
         if not bypass:
             n += 1
         it["keep"], it["status"], it["reason"] = True, "kept", None
-        it["trace"].append({"stage": "merge", "step": "kept", "score": s})
+        it["trace"].append({"verb": "merge", "step": "kept", "score": s})
 
 
 def _drop(it: dict[str, Any], step: str, reason: str, **kw: Any) -> None:
     it["keep"], it["status"], it["reason"] = False, "dropped", reason
-    it["trace"].append({"stage": "merge", "step": step, "reason": reason, "score": it["score"], **kw})
+    it["trace"].append({"verb": "merge", "step": step, "reason": reason, "score": it["score"], **kw})

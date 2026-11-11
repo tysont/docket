@@ -55,11 +55,8 @@ def decode_entry(blob: bytes, entries_path: str | None, entry: int | None) -> st
 
 
 class RecordTexts:
-    """Decoded raw text per record id for one run, read lazily from the record indexes.
-
-    A record read again in a later generation is that generation's version only,
-    as in the collect artifact (later generations win).
-    """
+    """Decoded raw text per record id for one run, read lazily from the record indexes
+    (``read/<source>/records.jsonl``)."""
 
     def __init__(self, rc: "RunContext", sources: set[str] | None = None) -> None:
         self.rc = rc
@@ -69,13 +66,10 @@ class RecordTexts:
 
     def _load(self) -> dict[str, list[dict[str, Any]]]:
         if self._index is None:
-            idx: dict[str, tuple[int, list[dict[str, Any]]]] = {}
-            for p in self.rc.run.dir.glob("gen-*/records/*.jsonl"):
-                if self.sources is not None and p.stem not in self.sources:
-                    continue
-                try:
-                    gen = int(p.parent.parent.name.split("-", 1)[1])
-                except ValueError:
+            from docket.sources.records import index_paths
+            idx: dict[str, list[dict[str, Any]]] = {}
+            for p in index_paths(self.rc.run.dir):
+                if self.sources is not None and p.parent.name not in self.sources:
                     continue
                 for ln in p.read_text(encoding="utf-8").splitlines():
                     if '"record_id"' not in ln:
@@ -87,12 +81,8 @@ class RecordTexts:
                     rid = row.get("record_id")
                     if not rid or not row.get("blob") or row.get("outcome") == "tombstone":
                         continue
-                    cur = idx.get(rid)
-                    if cur is None or gen > cur[0]:
-                        idx[rid] = (gen, [row])
-                    elif gen == cur[0]:
-                        cur[1].append(row)
-            self._index = {k: v[1] for k, v in idx.items()}
+                    idx.setdefault(rid, []).append(row)
+            self._index = idx
         return self._index
 
     def text(self, record_id: str) -> str | None:

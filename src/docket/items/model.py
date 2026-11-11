@@ -1,8 +1,8 @@
 """The item model of the merge artifact (TD §7, §8.4).
 
-Upstream stages pass items as plain dicts; ``normalize`` validates a merged
+Upstream nodes pass items as plain dicts; ``normalize`` validates a merged
 item against ``Item`` and returns its JSON form, so the artifact's shape is
-fixed here. Unknown keys (fields later stages add) pass through.
+fixed here. Unknown keys (fields later nodes add) pass through.
 
 ``from`` stays the sender's display string, which templates render; the
 resolved sender (``from.handle``, ``from.person``, ``from.relation`` of TD §7.1)

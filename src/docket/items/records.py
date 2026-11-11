@@ -10,7 +10,6 @@ class Record(BaseModel):
     record_id: str
     source: str
     unit: str
-    generation: int
     query: dict[str, Any]
     interval: dict[str, Any]
     page: int

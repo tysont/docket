@@ -3,7 +3,7 @@
 An answer's ``--when`` is a day, a day with a time range, ``this week``
 (parsed by ``text/dates.py``), or the title of a calendar event to schedule
 over. ``normalize_when`` stores the normalized text; ``resolve_window`` turns
-it into a ``PlanWindow`` at plan build, when the calendar is known. Named
+it into a ``PlanWindow`` when the plan is built, when the calendar is known. Named
 events are stored as ``event:<title>`` and match by case-insensitive
 substring within the horizon, earliest first.
 """

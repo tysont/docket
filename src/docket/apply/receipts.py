@@ -21,7 +21,7 @@ def existing(conn: sqlite3.Connection, op: dict[str, Any]) -> sqlite3.Row | None
         raise IntegrityError(
             "apply.receipt_conflict",
             f"Operation {op['op_id']} already has a receipt with a different payload.",
-            hint="docket plan build",
+            hint="docket do <plan node>, then approve again",
             details={"op_id": op["op_id"], "receipt_run": row["run_id"]},
         )
     return row

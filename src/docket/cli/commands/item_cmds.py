@@ -24,11 +24,11 @@ def _run_context(ctx: Any) -> Any:
 
 def _merge_data(ctx: Any, rc: Any) -> dict[str, Any]:
     from docket.signals.replay import stored_merge
-    if "merge" in rc.workflow.stages:
-        ev = rc.eval("merge")
-        if ev.state == "current" and ev.output:
-            return ev.output
-    dg, data = stored_merge(rc.run)
+    merged = rc.of("merge")
+    if merged is not None and merged.output:
+        return merged.output
+    nodes = rc.by_verb("merge")
+    dg, data = stored_merge(rc.run, nodes[0] if nodes else None)
     if data is None:
         nxt = rc.argv("next")
         raise StateError("item.not_merged", f"Run {rc.run.id} has no merge artifact yet.", hint=" ".join(nxt),
@@ -42,11 +42,11 @@ def _merge_data(ctx: Any, rc: Any) -> dict[str, Any]:
          run=True, args=[Arg("ref", "Item id, topic id, URL, or words of the item's title or text.")],
          examples=["docket item why 3f9c0a1b2d4e5f60 --json", "docket item why 'capacity doc' --json"])
 def cmd_item_why(ctx: Any, ns: Any) -> Result:
-    from docket.signals.explain import explain, find, later_stages
+    from docket.signals.explain import explain, find, later_nodes
     rc = _run_context(ctx)
     data = _merge_data(ctx, rc)
     top, mem = find(data, ns.ref)
-    out = explain(top, mem, later_stages(rc, top["id"]) if mem is None else [])
+    out = explain(top, mem, later_nodes(rc, top["id"]) if mem is None else [])
     head = f"{out['id']} [{out['source']}] {out['title'][:90]}\nstatus {out['status']}, score {out['score']}" + \
         (f", reason: {out['reason']}" if out["reason"] else "") + \
         (f"\nmerged into {out['topic_item']} (topic {out['topic']})" if out["merged"] else f"\ntopic {out['topic']}")
@@ -93,14 +93,15 @@ def cmd_config_test(ctx: Any, ns: Any) -> Result:
     if getattr(ns, "run", None):
         run = load_run(store, ns.run)
     else:
+        from docket.sources.records import index_paths
         for row in store.list_runs():
             cand = load_run(store, row["run_id"])
-            if any(cand.dir.glob("gen-*/records/*.jsonl")):
+            if index_paths(cand.dir):
                 run = cand
                 break
     if run is None:
-        raise StateError("run.no_records", "No run of this workspace has collected records to test against.",
-                         hint="docket run start <workflow>, then docket collect")
+        raise StateError("run.no_records", "No run of this workspace has read records to test against.",
+                         hint="docket run start <graph>, then docket do <read node>")
     ctx.run_id = run.id
     out = config_test(ws, store, run)
     d = out["diff"]

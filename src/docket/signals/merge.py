@@ -1,6 +1,6 @@
 """Merge, suppression and coverage (TD §7.2, §7.3, §8.3, §8.4; FR-SIG-05, 07, 08, 09).
 
-``build_merge(inputs)`` is a pure function of its inputs; the merge stage and
+``build_merge(inputs)`` is a pure function of its inputs; the merge node and
 ``docket config test`` both call it.
 
 1. Rules (``docket.signals.engine``) and scores (``docket.signals.scoring``) per item.
@@ -75,7 +75,7 @@ def _open_commitment(rep: dict[str, Any], members: list[dict[str, Any]]) -> bool
     promised = [m["id"] for m in members if m["sender"]["is_me"] and (m.get("agent") or {}).get("keep")
                 and (m.get("agent") or {}).get("kind") == "commitment"]
     if promised:
-        rep["trace"].append({"stage": "merge", "step": "open_commitment", "items": promised})
+        rep["trace"].append({"verb": "merge", "step": "open_commitment", "items": promised})
     return bool(promised)
 
 
@@ -191,7 +191,7 @@ def coverage(items: list[dict[str, Any]], inp: MergeInputs) -> list[dict[str, An
                                     "home_outcome": outcome,
                                     "note": f"{it['source']} names {v}, which {home} did not return "
                                             f"(home outcome: {outcome})"}
-                it["trace"].append({"stage": "merge", "step": "coverage_miss", "home": home, "value": v,
+                it["trace"].append({"verb": "merge", "step": "coverage_miss", "home": home, "value": v,
                                     "rule": exp.get("rule"), "home_outcome": outcome})
     return [notes[k] for k in sorted(notes)]
 
@@ -212,12 +212,12 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
         agent = None
         if not needs_agent(it):
             why = "rules_only" if it["signals"]["assess"] == "rules_only" else "dismissed"
-            it["trace"].append({"stage": "assess", "step": why, **(
+            it["trace"].append({"verb": "judge", "step": why, **(
                 {"rules": it["signals"]["assess_rules"]} if why == "rules_only" else
                 {"rules": [d["rule"] for d in it["signals"]["dismiss"]]})})
         elif row is None:
             it["agent_pending"] = True
-            it["trace"].append({"stage": "assess", "step": "agent_pending",
+            it["trace"].append({"verb": "judge", "step": "agent_pending",
                                 "reason": "no accepted assess result for this item"})
         else:
             agent = int(row.get("score") or 0)
@@ -225,7 +225,7 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
                            **({"topic": row["topic"]} if row.get("topic") else {}),
                            **({"kind": row["kind"]} if row.get("kind") else {}),
                            **({"decision": row["decision"]} if row.get("decision") else {})}
-            it["trace"].append({"stage": "assess", "step": "agent", "keep": bool(row.get("keep")), "score": agent})
+            it["trace"].append({"verb": "judge", "step": "agent", "keep": bool(row.get("keep")), "score": agent})
             if row.get("topic") and not it["keys"]:
                 it["keys"].append(f"agent:{row['topic']}")
         score_item(it, sc, agent)
@@ -255,11 +255,11 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
         rep["trace"] = list(rep["trace"])
         if len(members) > 1:
             rep["members"] = [_member_view(m) for m in members[1:]]
-            rep["trace"].append({"stage": "merge", "step": "merged", "topic": topic, "basis": basis,
+            rep["trace"].append({"verb": "merge", "step": "merged", "topic": topic, "basis": basis,
                                  "members": ids[1:], "keys": sorted({k for m in members for k in m["keys"]})})
             for m in members[1:]:
                 merged[m["id"]] = rep["id"]
-                m["trace"].append({"stage": "merge", "step": "merged_into", "into": rep["id"], "topic": topic})
+                m["trace"].append({"verb": "merge", "step": "merged_into", "into": rep["id"], "topic": topic})
         else:
             rep["members"] = []
         latest = max(members, key=at_key)
@@ -268,25 +268,25 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
         if all(m["signals"]["dismissed"] for m in members):
             d = rep["signals"]["dismiss"][0]
             rep.update(keep=False, status="dropped", reason=f"dismissed: {d['reason']}")
-            rep["trace"].append({"stage": "merge", "step": "dismissed", "rules": [x["rule"] for x in sig["dismiss"]],
+            rep["trace"].append({"verb": "merge", "step": "dismissed", "rules": [x["rule"] for x in sig["dismiss"]],
                                  "reason": d["reason"]})
         elif (disp := _disposition(group_ids, latest_at, inp.dispositions, inp.run_date, inp.run_id)) is not None:
             rep.update(keep=False, status="suppressed", reason=disp["reason"], suppressed=disp)
-            rep["trace"].append({"stage": "merge", "step": "suppressed", **disp})
+            rep["trace"].append({"verb": "merge", "step": "suppressed", **disp})
         elif latest["sender"]["is_me"] and not _open_commitment(rep, members):
             sup = {"reason": "answered", "item": latest["id"]}
             rep.update(keep=False, status="suppressed", reason="answered: the latest record is the operator's",
                        suppressed=sup)
-            rep["trace"].append({"stage": "merge", "step": "suppressed", **sup})
+            rep["trace"].append({"verb": "merge", "step": "suppressed", **sup})
         elif (tr := _tracked(rep, inp.task_stores)) is not None:
             rep.update(keep=False, status="tracked", reason=f"tracked in {tr['destination']}", tracked=tr)
             rep["signals"]["route"] = "verify"
-            rep["trace"].append({"stage": "merge", "step": "tracked", **tr})
+            rep["trace"].append({"verb": "merge", "step": "tracked", **tr})
         else:
             assessed = [m for m in members if m.get("agent")]
             if assessed and not any(m["agent"]["keep"] for m in assessed) and not sig["surface"]:
                 rep.update(keep=False, status="dropped", reason="assess: the agent kept nothing")
-                rep["trace"].append({"stage": "merge", "step": "agent_drop", "members": [m["id"] for m in assessed]})
+                rep["trace"].append({"verb": "merge", "step": "agent_drop", "members": [m["id"] for m in assessed]})
         groups_out.append(rep)
 
     decide_keep([g for g in groups_out if g["status"] == "pending"], sc, budgets)

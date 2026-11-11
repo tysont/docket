@@ -1,17 +1,15 @@
-"""Reference and template checks for the ``journal`` and ``hooks`` sections (TD §3.4 passes 2 and 3).
+"""Reference and template checks for the ``journal`` section (TD §3.4 passes 2 and 3).
 
-Structure is checked by ``docket.config.close_models``. Here: journal titles,
+Structure is checked by ``docket.config.journal_models``. Here: journal titles,
 section headings and templates, ledger keys and fields, and the approval delay
-note use only the declared journal context; ``journal.destination`` and a
-workflow's ``journal`` name a ``journal`` destination; a workflow's ``hooks``
-map names known events and hooks; hook argv elements use only run facts.
+note use only the declared journal context; ``journal.destination`` names a
+``journal`` destination.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from docket.config import contexts
-from docket.config.close_models import HOOK_EVENTS
 from docket.config.loader import Issue, Loaded, closest, dotted, origin_for
 from docket.text import templates
 

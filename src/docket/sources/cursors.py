@@ -5,11 +5,10 @@ integers, by instant when both are ISO-8601 timestamps, and are otherwise
 treated as incomparable (an opaque page token): an incomparable proposal is
 taken as forward, because only an order Docket knows can prove a regression.
 
-During collection each source and unit writes a ``cursor_proposal`` with the
-contiguous coverage it proved, from the durable cursor forward; a proposal
+When a read node reads its source, each unit writes a ``cursor_proposal`` with
+the contiguous coverage it proved, from the durable cursor forward; a proposal
 with a gap ends at the gap, and a unit that proved nothing writes none (its
-cursor holds). Within a run a proposal only moves forward, so a refresh
-generation extends the coverage of the generation before it. ``docket close``
+cursor holds). Within a run a proposal only moves forward. ``docket seal``
 applies proposals in one transaction; a proposal behind the durable cursor is
 ignored and recorded in the ``cursor_regressions`` ledger.
 """
@@ -103,8 +102,8 @@ def cadence_skip(cfg: CursorConfig, run_date: date, last_read: str | None) -> st
 
 
 def schedule_skip(schedule: Any, run_date: date, last_read: str | None) -> str | None:
-    """A workflow's schedule for one source (``workflows.<id>.schedule``): the reason this
-    run skips it, or None to read. No schedule means every run."""
+    """A read node's schedule (``graphs.<id>.<node>.schedule``): the reason this run
+    skips the source, or None to read. No schedule means every run."""
     if schedule is None:
         return None
     if schedule.weekdays and WEEKDAYS[run_date.weekday()] not in schedule.weekdays:
@@ -156,17 +155,17 @@ def write_proposal(db: sqlite3.Connection, run_id: str, source: str, unit: str, 
             return False
         kept = row["position"] if row is not None else None  # a position already proposed stays
         db.execute("INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end, "
-                   "generation, model, complete) VALUES (?,?,?,?,?,?,?,?)",
-                   (run_id, source, unit, kept, coverage_end, 0, model,
+                   "model, complete) VALUES (?,?,?,?,?,?,?)",
+                   (run_id, source, unit, kept, coverage_end, model,
                     int(row["complete"]) if row is not None and kept is not None else 1))
         return True
     if row is not None and row["position"] is not None:
         same = compare(position, row["position"]) == 0
         if not (is_ahead(position, row["position"]) or (same and complete and not row["complete"])):
             return False
-    db.execute("INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end, generation, "
-               "model, complete) VALUES (?,?,?,?,?,?,?,?)",
-               (run_id, source, unit, str(position), coverage_end, 0, model, int(complete)))
+    db.execute("INSERT OR REPLACE INTO cursor_proposals (run_id, source, unit, position, coverage_end, model, "
+               "complete) VALUES (?,?,?,?,?,?,?)",
+               (run_id, source, unit, str(position), coverage_end, model, int(complete)))
     return True
 
 

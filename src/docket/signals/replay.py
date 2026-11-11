@@ -22,55 +22,52 @@ def _rows(path: Any) -> list[dict[str, Any]]:
 
 
 def rebuild_items(ws: Any, store: Any, run: Any) -> tuple[list[dict[str, Any]], list[str]]:
-    """Re-map every generation's records under the current source configuration.
-    Later generations win; tombstones remove what they name (TD §4.5)."""
+    """Re-map every source's records under the current source configuration; tombstones
+    remove what they name (TD §4.5)."""
     from docket.items.mapping import item_id
     from docket.sources.base import ALL_UNITS
     from docket.sources.contracts import ContractChecker, lookup
-    from docket.sources.generations import map_entry
+    from docket.sources.records import index_paths, map_entry
     notes: list[str] = []
-    gens = sorted(int(p.parent.name.split("-", 1)[1]) for p in run.dir.glob("gen-*/generation.json")
-                  if p.parent.name.split("-", 1)[1].isdigit())
     items: dict[str, dict[str, Any]] = {}
     bodies: dict[str, Any] = {}
     missing: set[str] = set()
     with collecting():  # shapes found again are already recorded on the run; this pass reports none
-        for g in gens:
-            for idx in sorted((run.dir / f"gen-{g}" / "records").glob("*.jsonl")):
-                sid = idx.stem
-                cfg = ws.config.sources.get(sid)
-                if cfg is None:
-                    if sid not in missing:
-                        missing.add(sid)
-                        notes.append(f"source {sid} is no longer configured; its records were skipped")
+        for idx in index_paths(run.dir):
+            sid = idx.parent.name
+            cfg = ws.config.sources.get(sid)
+            if cfg is None:
+                if sid not in missing:
+                    missing.add(sid)
+                    notes.append(f"source {sid} is no longer configured; its records were skipped")
+                continue
+            if cfg.target == "context":
+                continue
+            checker = ContractChecker(sid, cfg.contract, extend_base=f"sources.{sid}.contract")
+            for row in _rows(idx):
+                blob = row.get("blob")
+                if blob not in bodies:
+                    try:
+                        bodies[blob] = json.loads(store.blobs.get(blob).decode("utf-8"))
+                    except (OSError, ValueError, UnicodeDecodeError):
+                        bodies[blob] = None
+                entries = lookup(bodies[blob], cfg.paging.entries) if bodies[blob] is not None else None
+                entry = row.get("entry")
+                if not isinstance(entries, list) or not isinstance(entry, int) or not 0 <= entry < len(entries):
                     continue
-                if cfg.target == "context":
+                raw = entries[entry]
+                unit = row.get("unit") or ALL_UNITS
+                if row.get("outcome") == "tombstone":
+                    ident = lookup(raw, cfg.mapping.get("id", "$.id"))
+                    if ident is not None:
+                        u = "" if unit == ALL_UNITS else unit
+                        items.pop(item_id(sid, u, str(ident)), None)
                     continue
-                checker = ContractChecker(sid, cfg.contract, extend_base=f"sources.{sid}.contract")
-                for row in _rows(idx):
-                    blob = row.get("blob")
-                    if blob not in bodies:
-                        try:
-                            bodies[blob] = json.loads(store.blobs.get(blob).decode("utf-8"))
-                        except (OSError, ValueError, UnicodeDecodeError):
-                            bodies[blob] = None
-                    entries = lookup(bodies[blob], cfg.paging.entries) if bodies[blob] is not None else None
-                    entry = row.get("entry")
-                    if not isinstance(entries, list) or not isinstance(entry, int) or not 0 <= entry < len(entries):
-                        continue
-                    raw = entries[entry]
-                    unit = row.get("unit") or ALL_UNITS
-                    if row.get("outcome") == "tombstone":
-                        ident = lookup(raw, cfg.mapping.get("id", "$.id"))
-                        if ident is not None:
-                            u = "" if unit == ALL_UNITS else unit
-                            items.pop(item_id(sid, u, str(ident)), None)
-                        continue
-                    checked = checker.check(cfg.paging.kind, raw)
-                    if checked.view is None:
-                        continue
-                    it = map_entry(sid, unit, checked.view, cfg.mapping, f"{blob}#{entry}")
-                    items[it["id"]] = it
+                checked = checker.check(cfg.paging.kind, raw)
+                if checked.view is None:
+                    continue
+                it = map_entry(sid, unit, checked.view, cfg.mapping, f"{blob}#{entry}")
+                items[it["id"]] = it
     return [items[k] for k in sorted(items)], notes
 
 
@@ -99,12 +96,12 @@ def stored_agent_rows(run: Any) -> dict[str, dict[str, Any]]:
     return out
 
 
-def stored_merge(run: Any) -> tuple[str | None, dict[str, Any] | None]:
-    latest = run.paths.artifacts("merge") / "latest"
-    if not latest.is_file():
+def stored_merge(run: Any, node: str | None) -> tuple[str | None, dict[str, Any] | None]:
+    latest = run.paths.artifacts(node) / "latest" if node else None
+    if latest is None or not latest.is_file():
         return None, None
     dg = latest.read_text().strip()
-    p = run.paths.artifact("merge", dg)
+    p = run.paths.artifact(node, dg)
     if not p.is_file():
         return dg, None
     return dg, json.loads(p.read_text(encoding="utf-8")).get("data")
@@ -121,7 +118,7 @@ def _index(data: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
 
 
 def questions(data: dict[str, Any] | None, budget: int | None) -> list[str]:
-    """The items decide would ask, by its own selection: kept, at or above the floor, by score."""
+    """The items an ask node would ask, by its own selection: kept, at or above the floor, by score."""
     if not data:
         return []
     floor = int((data.get("scoring") or {}).get("floor") or 0)
@@ -176,22 +173,24 @@ def compare(old: dict[str, Any] | None, new: dict[str, Any], budget: int | None)
 
 def config_test(ws: Any, store: Any, run: Any) -> dict[str, Any]:
     from docket.signals.merge import build_merge
-    from docket.signals.stage import inputs_for
+    from docket.signals.node import inputs_for
+    from docket.sources.records import index_paths
     items, notes = rebuild_items(ws, store, run)
-    col_latest = run.paths.artifacts("collect") / "latest"
     sources: dict[str, Any] = {}
-    if col_latest.is_file():
-        p = run.paths.artifact("collect", col_latest.read_text().strip())
-        if p.is_file():
-            sources = (json.loads(p.read_text(encoding="utf-8")).get("data") or {}).get("sources") or {}
-    dg, old = stored_merge(run)
+    for idx in index_paths(run.dir):
+        outcome = idx.parent / "outcome.json"
+        if outcome.is_file():
+            sources[idx.parent.name] = json.loads(outcome.read_text(encoding="utf-8"))
+    graph = ws.config.graphs.get(run.header.graph) or {}
+    merges = [n for n, node in graph.items() if node.verb == "merge"]
+    asks = [node for node in graph.values() if node.verb == "ask"]
+    dg, old = stored_merge(run, merges[0] if merges else None)
     with collecting() as col:
         inp = inputs_for(ws, store, run, items, stored_agent_rows(run), sources,
                          suppression=(old or {}).get("suppression_inputs"))
         new = build_merge(inp)
         shapes = [s.as_dict() for s in col.drain()]
-    wf = ws.config.workflows.get(run.header.workflow)
-    budget = wf.questions.budget if wf is not None else None
+    budget = asks[0].questions.budget if asks else None
     diff = compare(old, new, budget)
     return {"run": run.id, "stored_merge": dg, "compared": old is not None, "records_items": len(items),
             "notes": notes, "unexpected": shapes, "counts": new["counts"], "diff": diff, "written": False}

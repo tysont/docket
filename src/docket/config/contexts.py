@@ -25,7 +25,7 @@ _VERIFY = ["task.id", "task.title", "task.line", "ref", "state", "last_actor", "
 VERIFY = FieldSet(_VERIFY)
 MERGE_TITLE = FieldSet(["title", "titles[]", "count"])
 JOURNAL = FieldSet([
-    "run.id", "run.date", "run.workflow", "run.sandbox",
+    "run.id", "run.date", "run.graph", "run.sandbox",
     "sources[]", "sources[].id", "sources[].outcome", "sources[].records",
     "findings[]", "findings[].question_id", "findings[].title", "findings[].source",
     "answers[]", "answers[].question_id", "answers[].option", "answers[].title",
@@ -36,7 +36,7 @@ JOURNAL = FieldSet([
     "unexpected[].extend",
     # --- M8: the closed journal context (TD §13.5) ---
     "run.timezone", "run.instant",
-    "sources[].reason", "sources[].coverage_end", "sources[].generations",
+    "sources[].reason", "sources[].coverage_end",
     "findings[].item_id", "findings[].topic", "findings[].score", "findings[].url", "findings[].from",
     "findings[].reason",
     "questions[]", "questions[].id", "questions[].kind", "questions[].prompt", "questions[].item_id",
@@ -61,16 +61,11 @@ JOURNAL = FieldSet([
     "approval.digest", "approval.delay", "approval.delay_minutes", "approval.approved_at", "approval.built_at",
 ])
 
-# Hook argv elements (TD §13.6): run facts only, never source content (TD §16).
-HOOK_ARG = FieldSet(["run.id", "run.date", "run.workflow", "run.dir", "run.sandbox", "event", "journal",
-                     "workspace"])
-
 SITES: dict[str, FieldSet] = {
     "task_line": TASK_LINE,
     "option_label": OPTION_LABEL,
     "finding_prompt": FINDING_PROMPT,
     "journal": JOURNAL,
-    "hook_arg": HOOK_ARG,
 }
 
 # decisions.templates.<name> -> context

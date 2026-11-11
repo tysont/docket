@@ -1,8 +1,8 @@
 """Configuration models for the ``tasks`` section (TD §9).
 
 ``tasks`` sets the dispatch concurrency, each core kind's pack budget and
-vocabulary, and declares workspace-defined kinds. A workspace kind names the
-delegated stage that issues it, which items it reads (``select``), its output
+vocabulary, and declares workspace-defined kinds. A workspace kind names its
+family (it judges items one by one, or reviews the kept set), its output
 fields from a closed field-type set, cross-field rules and its instructions.
 Docket renders and validates a workspace kind exactly like a core kind
 (FR-TSK-01); see ``docket.tasks.kinds``. References and templates are checked

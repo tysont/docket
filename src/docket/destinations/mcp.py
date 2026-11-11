@@ -180,7 +180,7 @@ class MessageMcp(BaseDestination):
         ctx = action.fields
         if not action.key:
             raise IntegrityError("dest.not_accepted", f"{self.id}: a draft needs a key seed",
-                                 hint="docket plan build", details={"destination": self.id})
+                                 hint="docket do <plan node>, then approve again", details={"destination": self.id})
         key = ownership_key(self.id, action.key)
         subject = templates.render(self.cfg.title_template or "{title}", ctx)
         body = templates.render(self.cfg.notes_template or "{note}", ctx)
@@ -201,7 +201,7 @@ class MessageMcp(BaseDestination):
             if cur.get("subject") == op.subject and self.marker.strip(str(cur.get("body", ""))) == (op.body or "").rstrip():
                 return self.receipt(op, "already_present", str(cur.get("id")))
             raise IntegrityError("dest.state_changed", f"{self.id}: an owned draft with key {op.key} exists with "
-                                 "different content", hint="docket plan build",
+                                 "different content", hint="docket do <plan node>, then approve again",
                                  details={"destination": self.id, "key": op.key})
         res = self.call(self._tool("draft"), {"to": op.to, "subject": op.subject,
                                               "body": self.marker.attach(op.body or "", op.key)})

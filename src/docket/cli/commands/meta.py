@@ -19,7 +19,7 @@ def schemas() -> dict[str, Any]:
     from docket.cli.envelope import Envelope, ErrorBody, UnexpectedRow
     from docket.config import models as cm
     from docket.decide.answers import Answer, answers_file_schema
-    from docket.engine.stages import StageStatus
+    from docket.engine.nodes import NodeStatus
     from docket.engine.steps import Step, StepEnvelopeData
     from docket.items.records import Record
     from docket.plan.models import Operation, Plan
@@ -31,8 +31,8 @@ def schemas() -> dict[str, Any]:
         **task_schemas(),
         "assess-result": core["assess"].result_model, "review-result": core["review"].result_model,
         "envelope": Envelope, "error": ErrorBody, "unexpected": UnexpectedRow,
-        "step": TypeAdapter(Step), "next-data": StepEnvelopeData, "stage-status": StageStatus,
-        "config": cm.DocketConfig, "profile": cm.Profile, "workflow": cm.Workflow, "source": cm.Source,
+        "step": TypeAdapter(Step), "next-data": StepEnvelopeData, "node-status": NodeStatus,
+        "config": cm.DocketConfig, "profile": cm.Profile, "node": cm.Node, "source": cm.Source,
         "destination": cm.Destination, "decisions": cm.Decisions, "option": cm.OptionConfig,
         "run-header": RunHeader, "record": Record,
         "answer": Answer, "answers-file": answers_file_schema(), "plan": Plan, "operation": Operation,
@@ -48,13 +48,13 @@ def _json_schema(obj: Any) -> dict[str, Any]:
 @command("version", "Print the Docket version and the schema versions it reads.", workspace=False,
          examples=["docket version --json"])
 def cmd_version(ctx: Any, ns: Any) -> Result:
-    from docket.engine.stages import STAGE_IMPLS
+    from docket.engine.nodes import SCHEMAS
     from docket.store.db import SCHEMA_VERSION
     from docket.store.runs import RUN_SCHEMA
     data = {
         "version": __version__, "python": sys.version.split()[0],
         "schemas": {"config": 1, "database": SCHEMA_VERSION, "run": RUN_SCHEMA,
-                    "stages": {k: v.schema_version for k, v in STAGE_IMPLS.items()}},
+                    "nodes": dict(SCHEMAS)},
     }
     return Result(data, f"docket {__version__}")
 
@@ -137,7 +137,8 @@ def cmd_help(ctx: Any, ns: Any) -> Result:
     text += ["", "Every command takes --json. 'docket help <command>' for details; 'docket help errors' for codes."]
     return Result({
         "usage": "docket <command> [args] [--json] [--workspace DIR] [--run RUN] [--dry-run]",
-        "loop": "Repeat: step = docket next --json; act on step.kind (run, dispatch, ask, wait, done).",
+        "loop": "Repeat: docket next --json; do every step in data.steps (run, dispatch, ask, wait) until "
+                "data.done.",
         "commands": descs,
         "exit_codes": catalog.KINDS,
     }, "\n".join(text))

@@ -323,7 +323,7 @@ class Acceptor:
         if action == "calendar.place":
             from docket.plan.build import planning_active
             if not planning_active(rc):
-                return False, "calendar blocks need planning.calendar for this workflow"
+                return False, "calendar blocks need planning.calendar and a plan node with schedule_tasks"
             if dest_id is None:
                 return True, None  # the scheduler places the block; apply needs a calendar adapter (TD §12)
         if dest_id is None:

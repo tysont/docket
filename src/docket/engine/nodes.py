@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 from docket.cli.errors import ExternalError
-from docket.close.journal import JOURNAL_TEMPLATE  # noqa: F401  (the built-in journal layout)
 from docket.config.digest import digest, pretty_json
 from docket.config.models import Node
 from docket.engine.steps import (
@@ -250,7 +249,7 @@ class ReadNode(BaseNode):
         return super().step(run)
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
-        from docket.sources.stage import read_source
+        from docket.sources.read import read_source
         assert self.cfg is not None
         return read_source(run, self.source, self.cfg.schedule)
 
@@ -342,12 +341,12 @@ class JudgeNode(BaseNode):
         items = list(data.get("items") or [])
         if kind.family == "review":
             return [it for it in items if it.get("keep")]
-        from docket.signals.stage import assess_selection
+        from docket.signals.node import assess_selection
         cands = assess_selection(run, items).candidates
         if kind.name == "recap":
             from docket.plan.agenda_roll import with_agendas
             cands = with_agendas(run, cands)
-        return [c for c in cands if kind.select is None or kind.select.matches(c)]
+        return cands
 
     def combine(self, run: "RunContext", up: Eval | None, plan: Any) -> dict[str, Any]:
         from docket.tasks import runner
@@ -403,11 +402,11 @@ class MergeNode(BaseNode):
     expect = "the merge artifact: topics with scores, statuses, traces and coverage notes"
 
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
-        from docket.signals.stage import merge_extra
+        from docket.signals.node import merge_extra
         return self.computed_eval(run, up, extra=merge_extra(run))
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
-        from docket.signals.stage import execute_merge
+        from docket.signals.node import execute_merge
         return execute_merge(run, up)
 
 
@@ -738,7 +737,7 @@ class WriteNode(BaseNode):
 
 class SealNode(BaseNode):
     """The end of every run: cursors, dispositions, the ledger and the journal, each step
-    receipted (``docket.close.run``). It is not written in a graph; every graph ends with it."""
+    receipted (``docket.seal.run``). It is not written in a graph; every graph ends with it."""
     verb = "seal"
     config_sections = ("journal", "sources")
     expect = "cursors advanced, dispositions and the ledger written, journal.md written and the run sealed"
@@ -748,8 +747,8 @@ class SealNode(BaseNode):
         return RunStep(node=self.name, command=Command.of(run.argv("seal")), why=self._why(ev), expect=self.expect)
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
-        from docket.close.run import execute_close
-        return execute_close(run)
+        from docket.seal.run import execute_seal
+        return execute_seal(run)
 
 
 KINDS: dict[str, type[BaseNode]] = {

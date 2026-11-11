@@ -1,26 +1,24 @@
-"""``docket close``: the close steps in order, each receipted (TD §13.4 to §13.7, FR-APP-06).
+"""``docket seal``: the seal steps in order, each receipted (TD §13.4 to §13.7, FR-APP-06).
 
-1. ``close:state``, one transaction: apply cursor proposals, write
+1. ``seal:state``, one transaction: apply cursor proposals, write
    dispositions, append configured ledgers, and the step receipt. A sandbox
    run writes none of the three durable records (only the receipt); its journal
    still lists the dispositions it would have written.
-2. ``close:journal``: render the journal, write ``journal.md`` in the run
-   directory and, when ``journal.destination`` (or the workflow's ``journal``)
-   names a destination, write the entry through it as an operation with an
-   apply receipt.
-3. ``after_close`` hooks, each with its own receipt.
+2. ``seal:journal``: render the journal, write ``journal.md`` in the run
+   directory and, when ``journal.destination`` names a destination, write the
+   entry through it as an operation with an apply receipt.
 
-The engine then writes the close artifact and seals the run. A close that
-stops anywhere resumes at the first step without a receipt.
+The engine then writes the seal artifact and marks the run sealed. A seal that
+stops anywhere starts again at the first step without a receipt.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from docket.close import cursors as close_cursors
-from docket.close import dispositions as disp_mod
-from docket.close import journal as journal_mod
-from docket.close import ledgers, receipts
+from docket.seal import cursors as seal_cursors
+from docket.seal import dispositions as disp_mod
+from docket.seal import journal as journal_mod
+from docket.seal import ledgers, receipts
 from docket.items import ledger as item_ledger
 from docket.store.paths import write_atomic
 
@@ -113,7 +111,7 @@ def destination_for(rc: Any) -> str | None:
 def state_step(rc: Any) -> dict[str, Any]:
     r = rc.run
     db = r.store.db
-    prior = receipts.done(db, r.id, "close:state")
+    prior = receipts.done(db, r.id, "seal:state")
     if prior is not None:
         return prior
     decide, outcomes, ops, recs = _decided(rc)
@@ -129,7 +127,7 @@ def state_step(rc: Any) -> dict[str, Any]:
     labels_now = dict(rc.output("judge").get("labels") or {})
     label_texts = durable_texts(rc) if labels_now else {}
     with db:
-        moved = close_cursors.advance(db, r)
+        moved = seal_cursors.advance(db, r)
         if durable:
             disp_mod.write(db, rows)
             item_ledger.write(db, items)
@@ -156,7 +154,7 @@ def state_step(rc: Any) -> dict[str, Any]:
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
                 "items": len(items) if durable else 0, "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered),
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
-        receipts.put(db, r.id, "close:state", "ok", body)
+        receipts.put(db, r.id, "seal:state", "ok", body)
     return {**body, "outcome": "ok"}
 
 
@@ -170,13 +168,13 @@ def journal_step(rc: Any, state: dict[str, Any]) -> dict[str, Any]:
     write_atomic(r.paths.journal, text)
     out: dict[str, Any] = {"path": "journal.md", "destination": None}
     dest = destination_for(rc)
-    prior = receipts.done(db, r.id, "close:journal")
+    prior = receipts.done(db, r.id, "seal:journal")
     if prior is not None:
         return prior
     if dest is not None:
         out.update(entry_through_destination(rc, dest, cfg, ctx))
     with db:
-        receipts.put(db, r.id, "close:journal", "ok", out)
+        receipts.put(db, r.id, "seal:journal", "ok", out)
     return {**out, "outcome": "ok"}
 
 
@@ -201,7 +199,7 @@ def entry_through_destination(rc: Any, dest_id: str, cfg: Any, ctx: dict[str, An
             "verify_status": row.get("verify_status"), "error": row.get("error")}
 
 
-def execute_close(rc: Any) -> dict[str, Any]:
+def execute_seal(rc: Any) -> dict[str, Any]:
     state = state_step(rc)
     jr = journal_step(rc, state)
     cur = state.get("cursors") or {}
@@ -213,10 +211,10 @@ def execute_close(rc: Any) -> dict[str, Any]:
             "sealed": True, "sandbox": rc.run.header.sandbox}
 
 
-def preview_close(rc: Any) -> dict[str, Any]:
+def preview_seal(rc: Any) -> dict[str, Any]:
     """``docket seal --dry-run``: what sealing would do."""
     db = rc.run.store.db
-    done = {s: receipts.done(db, rc.run.id, s) is not None for s in ("close:state", "close:journal")}
+    done = {s: receipts.done(db, rc.run.id, s) is not None for s in ("seal:state", "seal:journal")}
     props = [dict(p) for p in db.execute("SELECT source, unit, position FROM cursor_proposals WHERE run_id=? "
                                          "ORDER BY source, unit", (rc.run.id,))]
     if rc.run.header.sandbox:

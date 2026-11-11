@@ -11,7 +11,7 @@ Deletions are remembered in a ledger: a hold Docket has seen on the calendar
 deleted by the operator, and is not recreated when ``respect_deletions`` is
 set. Counts always reconcile: ``qualifying == created + moved + kept + suppressed``.
 
-``plan_mirrors`` is pure. The plan stage reads the ledger before and writes
+``plan_mirrors`` is pure. A plan node reads the ledger before and writes
 ``ledger_updates`` after a build.
 """
 from __future__ import annotations

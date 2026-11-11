@@ -14,7 +14,7 @@ Decisions:
 - ``now``: handled during the session, with the recorded ``outcome``; re-surfaces on new activity.
 
 Sources, in order: the plan's ``outcomes`` list (question, item, topic,
-decision, note, until) when the plan carries one; otherwise the decide
+decision, note, until) when the plan carries one; otherwise the ask node's
 answers whose action is an outcome; then a ``routed`` disposition for every
 applied operation whose provenance names a question that has no outcome.
 """

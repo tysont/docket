@@ -203,7 +203,7 @@ class IcsBackend:
             if b.event is not None and b.event.id == ev.id:
                 return b
         raise IntegrityError("dest.state_changed", f"{self.where}: event {ev.id} left the file between the listing "
-                             "and the write", hint="docket plan build", details={"event": ev.id})
+                             "and the write", hint="docket do <plan node>, then approve again", details={"event": ev.id})
 
     def list(self, calendar: str | None, window: tuple[str, str] | None) -> list[Event]:
         out = []

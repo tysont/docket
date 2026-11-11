@@ -92,7 +92,7 @@ def candidates(rc: "RunContext", decide: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def for_run(rc: "RunContext", decide: dict[str, Any]) -> dict[str, str]:
-    """The labels planning uses: those this run's ``label`` stage wrote, over the remembered ones."""
+    """The labels planning uses: those this run's ``label`` judge nodes wrote, over the remembered ones."""
     texts, _, _ = task_texts(rc, decide)
     out = known(rc.run.store.db, texts)
     out.update({k: v for k, v in (decide.get("labels") or {}).items() if v})

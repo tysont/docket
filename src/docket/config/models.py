@@ -3,8 +3,8 @@
 Every top-level section is a Pydantic model with ``extra="forbid"``. Sections
 whose full content belongs to later milestones (signals) are typed as open
 maps for now; ``shapes`` holds reviewed shape acceptances (TD §14.2);
-``journal`` and ``hooks`` are modelled in ``docket.config.close_models``; the top-level structure, ``profile``,
-``workflows``, ``sources``, ``transports``, ``decisions``, ``destinations``,
+``journal`` is modelled in ``docket.config.journal_models``; the top-level structure, ``profile``,
+``graphs``, ``sources``, ``transports``, ``decisions``, ``destinations``,
 ``planning`` and ``tasks`` are strict. ``sources``, ``transports`` and
 ``signals.units`` are modelled in ``docket.config.source_models``; ``tasks`` in
 ``docket.config.task_models``.
@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from docket.config.source_models import MAPPING_KEY_DOCS, Source, TransportConfig  # noqa: F401  (sections owned there)
 from docket.config.task_models import TasksConfig  # M4: the tasks section (TD §9)
-from docket.config.close_models import JournalConfig  # the journal section (TD §13.5)
+from docket.config.journal_models import JournalConfig  # the journal section (TD §13.5)
 
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 

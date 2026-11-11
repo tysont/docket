@@ -10,7 +10,7 @@ _ANSWER = ["question_id", "due", "est", "when", "note", "area", "run.id", "run.d
 AGENDA_LINE = FieldSet(_ITEM + _ANSWER + ["forum.id", "forum.name", "action", "ask", "owner", "kind", "topic", "quote"])
 CALENDAR_TEXT = FieldSet(_ITEM + _ANSWER + ["start", "end", "forum.id", "forum.name"])
 MESSAGE_TEXT = FieldSet(_ITEM + _ANSWER + ["to"])
-JOURNAL_HEADING = FieldSet(["run.id", "run.date", "run.workflow"])
+JOURNAL_HEADING = FieldSet(["run.id", "run.date", "run.graph"])
 MARKER = FieldSet(["key", "destination"])
 CLASS_TITLE = CALENDAR_TEXT
 

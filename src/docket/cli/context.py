@@ -72,10 +72,10 @@ class Ctx:
     # --- runs --------------------------------------------------------------
     def start_hint(self) -> str:
         try:
-            wfs = list(self.workspace().config.workflows)
+            graphs = sorted(self.workspace().config.graphs)
         except Exception:
-            wfs = []
-        return f"docket run start {wfs[0] if wfs else '<workflow>'}"
+            graphs = []
+        return f"docket run start {graphs[0] if graphs else '<graph>'}"
 
     def run_context(self, run_id: str | None = None) -> Any:
         if self._rc is None:

@@ -109,7 +109,7 @@ class Pack(_Open):
     task_id: str
     input_digest: str
     kind: str
-    stage: str
+    family: str
     spec: str = Field(description="Digest of the kind's instructions and output model.")
     items: list[PackItem]
     units: list[PackUnit] = []

@@ -23,10 +23,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from docket.cli.commands.run_cmds import _guard_mutable, _step_next, brief_text, step_brief, step_summary
-from docket.cli.commands.stage_cmds import _compute, _not_ready
+from docket.cli.commands.node_cmds import _dump, _not_ready, _steps
+from docket.cli.commands.run_cmds import _guard_mutable, brief_text, steps_brief, steps_next, steps_summary
 from docket.cli.envelope import Result
-from docket.cli.errors import DocketError, InputError, IntegrityError, StateError
+from docket.cli.errors import DocketError, InputError, StateError
 from docket.cli.registry import Arg, command
 from docket.decide.answers import ANSWERS_FILE_EXAMPLE, ANSWERS_FILE_FORMS
 
@@ -34,19 +34,20 @@ _KEYS = ("option", "action", "overrides", "digest", "destinations", "merged_into
 
 
 def _questions(rc: Any) -> list[tuple[Any, dict[str, Any], dict[str, Any] | None]]:
-    """(stage eval, question, current answer) for every question reachable now."""
+    """(node eval, question, current answer) for every question reachable now: the questions of
+    every evaluated ask node and the question of every evaluated approve node."""
     out = []
     for ev in rc.evaluate():
-        if ev.name == "decide" and "questions" in ev.extra:
+        if ev.verb == "ask" and "questions" in ev.extra:
             for q in ev.extra["questions"]:
                 out.append((ev, q, ev.extra["answers"].get(q["id"])))
-        if ev.name == "approve" and "question" in ev.extra:
+        if ev.verb == "approve" and "question" in ev.extra:
             out.append((ev, ev.extra["question"], ev.extra["answer"]))
     return out
 
 
 def _row(ev: Any, q: dict[str, Any], a: dict[str, Any] | None) -> dict[str, Any]:
-    out = {"id": q["id"], "kind": q["kind"], "stage": ev.name, "prompt": q["prompt"],
+    out = {"id": q["id"], "kind": q["kind"], "node": ev.name, "prompt": q["prompt"],
            "options": [{"position": i, "id": o["id"], "label": o["label"], "action": o.get("action"),
                         "destination": o.get("destination"), "defaults": o.get("defaults") or {},
                         **({"batch": True} if o.get("batch") else {})}
@@ -80,7 +81,7 @@ def cmd_ask_show(ctx: Any, ns: Any) -> Result:
             lines += [f"  ! {n}" for n in q.get("notes") or []]
             if q.get("previous"):
                 lines.append(f"  previous answer: {q['previous'].get('option')}")
-            return Result({"question": q, "answer": a, "stage": ev.name, **_row(ev, q, a)}, "\n".join(lines))
+            return Result({"question": q, "answer": a, **_row(ev, q, a)}, "\n".join(lines))
     raise InputError("input.unknown_question", f"No question {ns.question_id!r}.", hint="docket ask list")
 
 
@@ -88,21 +89,33 @@ def cmd_ask_show(ctx: Any, ns: Any) -> Result:
 
 
 def _find(rc: Any, ctx: Any, qid: str) -> tuple[Any, dict[str, Any], dict[str, Any] | None]:
+    """The question ``qid`` with its node and answer. An approve node's question id is the node's
+    name; a question of an ask node that cannot be asked yet is refused as not ready."""
     match = next(((ev, q, a) for ev, q, a in _questions(rc) if q["id"] == qid), None)
-    if match is None:
-        if qid == "approve" and "approve" in rc.workflow.stages and not rc.run.header.applied_plan:
-            from docket.apply.approve import check_unreachable
-            check_unreachable(rc, dry_run=ctx.dry_run)  # a plan stale because a destination changed (TD §13.2)
-        blocker = rc.first_pending()
-        if blocker is not None and blocker.name not in ("decide", "approve") and \
-                any(s in rc.workflow.stages for s in ("decide", "approve")):
-            raise _not_ready(rc, ctx, blocker, "ask answer")
-        known = [q["id"] for _, q, _ in _questions(rc)]
-        raise InputError("input.unknown_question", f"No question {qid!r}.", hint="docket ask list",
-                         details={"known": known[:50]})
-    if match[0].reason == "paused":
-        raise _not_ready(rc, ctx, match[0], "ask answer")
-    return match
+    if match is not None:
+        return match
+    from docket.apply.approve import applying
+    owners = [qid] if qid in rc.by_verb("approve") else rc.by_verb("ask")
+    if qid in rc.by_verb("approve") and not applying(rc, qid):
+        from docket.apply.approve import check_unreachable
+        check_unreachable(rc, qid, dry_run=ctx.dry_run)  # a plan stale because a destination changed (TD §13.2)
+    for name in owners:
+        ev = rc.eval(name)
+        if ev.state == "blocked":
+            raise _not_ready(rc, ctx, ev)
+    known = [q["id"] for _, q, _ in _questions(rc)]
+    raise InputError("input.unknown_question", f"No question {qid!r}.", hint="docket ask list",
+                     details={"known": known[:50]})
+
+
+def _guard_pinned(rc: Any, nodes: set[str]) -> None:
+    """Answers of a node that a write has pinned cannot change: the run does not go backward (TD §5.4)."""
+    from docket.apply.boundary import pins
+    hit = sorted(nodes & set(pins(rc.run)))
+    if hit:
+        raise StateError("node.post_apply_change",
+                         f"Answers of {', '.join(hit)} cannot change after a node downstream wrote receipts.",
+                         hint="docket run status", details={"nodes": hit})
 
 
 class Session:
@@ -113,23 +126,26 @@ class Session:
         self.answers = rc.run.answers()
         self.original = dict(self.answers)
         self._cal: Any = None
-        ev = rc.eval_or_none("decide")
-        self.decide = ev
-        self.qset = ev.extra.get("set") if ev is not None else None
-        self.questions = {q["id"]: q for q in (ev.extra.get("questions") or [])} if ev is not None and \
-            "questions" in ev.extra else {}
-        self.previous = (ev.extra.get("previous") or {}) if ev is not None else {}
+        asked = [ev for ev in rc.evaluate() if ev.verb == "ask" and "questions" in ev.extra]
+        self.qsets = [ev.extra["set"] for ev in asked]
+        self.by_node = {ev.name: {q["id"]: q for q in ev.extra["questions"]} for ev in asked}
+        self.questions = {qid: q for qs in self.by_node.values() for qid, q in qs.items()}
+        self.previous = {k: v for ev in asked for k, v in (ev.extra.get("previous") or {}).items()}
 
     def calendar(self) -> Any:
         if self._cal is None:
             from docket.plan.build import calendar_ctx
             from docket.shapes.unexpected import collecting
-            with collecting():  # calendar shapes are recorded by plan build, not by every answer
+            with collecting():  # calendar shapes are recorded by the plan node, not by every answer
                 self._cal = calendar_ctx(self.rc)
         return self._cal
 
     def subject(self, qid: str) -> dict[str, Any] | None:
-        return self.qset.subjects().get(qid) if self.qset is not None else None
+        for qs in self.qsets:
+            hit = qs.subjects().get(qid)
+            if hit is not None:
+                return hit
+        return None
 
 
 def _day_info(s: Session, overrides: dict[str, Any]) -> dict[str, Any]:
@@ -148,7 +164,7 @@ def _day_info(s: Session, overrides: dict[str, Any]) -> dict[str, Any]:
         try:
             w = resolve_window(overrides["when"], cal.today, instances=cal.cal.instances, lo=cal.today,
                                hi=cal.today + timedelta(days=cal.policy.horizon_days), tz=cal.tz)
-        except DocketError as e:  # plan build refuses it; the echo says so now
+        except DocketError as e:  # the plan node refuses it; the echo says so now
             out["window"] = {"when": overrides["when"], "resolved": None, "error": e.code, "message": e.message}
         else:
             if w is not None:
@@ -185,7 +201,7 @@ def _preview(s: Session, q: dict[str, Any], answer: dict[str, Any]) -> dict[str,
             out["schedule"] = {"title": ov.get("title") or ov.get("action") or item.get("title"),
                                "est": ov.get("est") or (q.get("defaults") or {}).get("est"),
                                "when": ov.get("when") or "the scheduler's choice"} if planning_active(rc) else None
-        elif "plan" in rc.workflow.stages:
+        elif rc.by_verb("plan"):
             merged = [s.subject(m) for m in ov.get("merge_with") or []]
             opt = next(o for o in q["options"] if o["id"] == answer["option"])
             out["operations"] = dops.finding_ops(rc, q["id"], item, opt, ov, [m for m in merged if m])
@@ -214,7 +230,7 @@ def _normalize(rc: Any, ctx: Any, s: Session, qid: str, option_text: str, raw: d
     opt = resolve_option(str(option_text), q["options"], question_id=q["id"])
     ov = normalize_overrides(rc, raw, run_date(rc.run.header.clock))
     if ov.get("merge_with"):
-        ov["merge_with"] = resolve_merge_targets(ov["merge_with"], q["id"], s.questions, s.answers)
+        ov["merge_with"] = resolve_merge_targets(ov["merge_with"], q["id"], s.by_node.get(ev.name, {}), s.answers)
     base_argv = rc.argv("ask", "answer", q["id"], opt["id"])
     check_required(q, opt["id"], ov, base_argv)
     answer: dict[str, Any] = {"kind": q["kind"], "option": opt["id"], "action": opt.get("action"),
@@ -243,7 +259,7 @@ def _record(s: Session, row: dict[str, Any]) -> None:
     from docket.decide.answers import with_answer
     q = row["q"]
     if q["kind"] == "approve":
-        s.answers = {**s.answers, "approve": row["answer"]}
+        s.answers = {**s.answers, q["id"]: row["answer"]}
         return
     s.answers = with_answer(s.answers, q, row["answer"], s.questions, s.previous)
 
@@ -314,38 +330,37 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
         return {"question_id": r["q"]["id"], "answer": r["echo"], "preview": ops[0] if ops else None,
                 "action_preview": r["preview"]}
     if _core(s.answers) == _core(s.original):
-        step = _compute(ctx, rc)
-        brief = step_brief(rc, step)
+        steps = _steps(ctx, rc)
+        brief = steps_brief(rc, steps)
         data = {"answers": [body(r) for r in rows]} if batch else body(rows[0])
-        return Result({**data, "changed": False, "step": brief},
+        return Result({**data, "changed": False, "steps": brief},
                       "\n".join(f"{r['q']['id']}: unchanged ({r['answer']['option']})" for r in rows)
-                      + f"\n{brief_text(brief)}", next=_step_next(step))
+                      + f"\n{brief_text(brief)}", next=steps_next(steps))
     _guard_mutable(rc)
-    if rc.run.header.applied_plan:
-        raise StateError("stage.post_apply_change", "Answers cannot change after apply wrote receipts.",
-                         hint="docket run status")
+    _guard_pinned(rc, {r["ev"].name for r in rows})
     if ctx.dry_run:
         data = {"answers": [body(r) for r in rows]} if batch else body(rows[0])
         return Result({"dry_run": True, **data}, "\n".join("would record " + _row_text(r) for r in rows))
     ctx.acquire(rc)
     rc.run.write_answers(s.answers)
-    appr = s.answers.get("approve")
-    if any(r["q"]["kind"] == "approve" for r in rows) and isinstance(appr, dict) and appr.get("option") == "yes":
-        from docket.apply.approve import record
-        record(rc, appr["digest"], appr)
+    for r in rows:
+        appr = s.answers.get(r["q"]["id"])
+        if r["q"]["kind"] == "approve" and isinstance(appr, dict) and appr.get("option") == "yes":
+            from docket.apply.approve import record
+            record(rc, appr["digest"], appr)
     rc.invalidate()
     rc.materialize()
-    step = _compute(ctx, rc)
-    brief = step_brief(rc, step)
+    steps = _steps(ctx, rc)
+    brief = steps_brief(rc, steps)
     data = {"answers": [body(r) for r in rows]} if batch else body(rows[0])
-    return Result({**data, "changed": True, "step": brief},
-                  "\n".join(_row_text(r) for r in rows) + f"\n{brief_text(brief)}", next=_step_next(step))
+    return Result({**data, "changed": True, "steps": brief},
+                  "\n".join(_row_text(r) for r in rows) + f"\n{brief_text(brief)}", next=steps_next(steps))
 
 
 @command("ask answer", "Record an answer. Options resolve by id, label, leading words, position or destination; "
                        "overrides carry due, estimate, window, title, task text, links, area, forum, merge and note.",
          run=True, mutating=True,
-         args=[Arg("question_id", "Question id (q_..., r_..., v_..., or approve).", nargs="?"),
+         args=[Arg("question_id", "Question id (q_..., r_..., v_..., or the name of an approve node).", nargs="?"),
                Arg("option", "Option id, label, leading words of the label, 1-based position or destination.",
                    nargs="?"),
                Arg("--due", "Due date: today, tomorrow, a weekday name (next occurrence after the run date), YYYY-MM-DD."),
@@ -409,28 +424,26 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
 def cmd_ask_undo(ctx: Any, ns: Any) -> Result:
     from docket.decide.answers import without_answer
     rc = ctx.run_context()
-    _find(rc, ctx, ns.question_id)
+    ev, _, _ = _find(rc, ctx, ns.question_id)
     stored = rc.run.answers()
     after, removed = without_answer(stored, ns.question_id)
     if not removed:
-        step = _compute(ctx, rc)
-        brief = step_brief(rc, step)
-        return Result({"question_id": ns.question_id, "removed": [], "changed": False, "step": brief},
-                      f"{ns.question_id} has no answer\n{brief_text(brief)}", next=_step_next(step))
+        steps = _steps(ctx, rc)
+        brief = steps_brief(rc, steps)
+        return Result({"question_id": ns.question_id, "removed": [], "changed": False, "steps": brief},
+                      f"{ns.question_id} has no answer\n{brief_text(brief)}", next=steps_next(steps))
     _guard_mutable(rc)
-    if rc.run.header.applied_plan:
-        raise StateError("stage.post_apply_change", "Answers cannot change after apply wrote receipts.",
-                         hint="docket run status")
+    _guard_pinned(rc, {ev.name})
     if ctx.dry_run:
         return Result({"dry_run": True, "question_id": ns.question_id, "removed": removed},
                       f"would remove {', '.join(removed)}")
     ctx.acquire(rc)
     rc.run.write_answers(after)
     rc.invalidate()
-    step = _compute(ctx, rc)
-    brief = step_brief(rc, step)
-    return Result({"question_id": ns.question_id, "removed": removed, "changed": True, "step": brief},
-                  f"removed {', '.join(removed)}\n{brief_text(brief)}", next=_step_next(step))
+    steps = _steps(ctx, rc)
+    brief = steps_brief(rc, steps)
+    return Result({"question_id": ns.question_id, "removed": removed, "changed": True, "steps": brief},
+                  f"removed {', '.join(removed)}\n{brief_text(brief)}", next=steps_next(steps))
 
 
 @command("ask resolve", "Resolve the task references verification needs through their sources, before the burst.",
@@ -440,26 +453,26 @@ def cmd_ask_undo(ctx: Any, ns: Any) -> Result:
 def cmd_ask_resolve(ctx: Any, ns: Any) -> Result:
     from docket.decide.verify import resolve_pending
     rc = ctx.run_context()
-    ev = rc.eval_or_none("decide")
-    if ev is None or ev.reason != "resolve":
-        if ev is None:
-            raise StateError("stage.not_in_workflow", f"Workflow {rc.workflow_name()!r} has no decide stage.",
-                             hint=" ".join(rc.argv("next")))
-        blocker = rc.first_pending()
-        if blocker is not None and blocker.name != "decide" and ev.state != "current" and \
-                rc.workflow.stages.index(blocker.name) < rc.workflow.stages.index("decide"):
-            raise _not_ready(rc, ctx, blocker, "ask resolve")
-        step = _compute(ctx, rc)
-        return Result({"resolved": [], "changed": False, "step": step.model_dump()},
-                      f"nothing to resolve\n{step_summary(step)}", next=_step_next(step))
-    refs = list(ev.extra["set"].pending_refs)
+    asks = rc.by_verb("ask")
+    if not asks:
+        raise StateError("node.not_in_graph", f"Graph {rc.graph_name()!r} has no ask node.",
+                         hint=" ".join(rc.argv("next")), details={"nodes": list(rc.order)})
+    pending = [ev for ev in (rc.eval(n) for n in asks) if ev.reason == "resolve"]
+    if not pending:
+        blocked = next((ev for ev in (rc.eval(n) for n in asks) if ev.state == "blocked"), None)
+        if blocked is not None:
+            raise _not_ready(rc, ctx, blocked)
+        steps = _steps(ctx, rc)
+        return Result({"resolved": [], "changed": False, "steps": _dump(steps)},
+                      f"nothing to resolve\n{steps_summary(steps)}", next=steps_next(steps))
+    refs = list(dict.fromkeys(r for ev in pending for r in ev.extra["set"].pending_refs))
     _guard_mutable(rc)
     if ctx.dry_run:
         return Result({"dry_run": True, "would_resolve": refs}, f"would resolve {len(refs)} reference(s)")
     ctx.acquire(rc)
     cache = resolve_pending(rc, refs)
     rc.invalidate()
-    step = _compute(ctx, rc)
+    steps = _steps(ctx, rc)
     rows = [{"ref": r, **{k: cache[r].get(k) for k in ("source", "status", "state", "last_actor")}} for r in refs]
-    return Result({"resolved": rows, "changed": True, "step": step.model_dump()},
-                  f"resolved {len(refs)} reference(s)\n{step_summary(step)}", next=_step_next(step))
+    return Result({"resolved": rows, "changed": True, "steps": _dump(steps)},
+                  f"resolved {len(refs)} reference(s)\n{steps_summary(steps)}", next=steps_next(steps))

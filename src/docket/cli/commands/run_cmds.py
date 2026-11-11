@@ -1,4 +1,5 @@
-"""Run commands and the loop entry point: ``next``, ``run start|status|list|steal|abandon``."""
+"""Run commands and the loop entry point: ``next``, ``run start|status|list|continue|steal|abandon``
+and ``graph show``."""
 from __future__ import annotations
 
 from typing import Any
@@ -16,7 +17,7 @@ def steps_next(steps: list[Any]) -> tuple[list[str], str] | None:
     return None
 
 
-def step_summary(step: Any) -> str:
+def step_text(step: Any) -> str:
     k = step.kind
     if k == "run":
         return f"{step.node}: run {step.command.shell}\n  why: {step.why}"
@@ -37,7 +38,7 @@ def step_summary(step: Any) -> str:
 def steps_summary(steps: list[Any]) -> str:
     if not steps:
         return "nothing is ready"
-    return f"{len(steps)} step(s) ready:\n" + "\n".join(step_summary(s) for s in steps)
+    return f"{len(steps)} step(s) ready:\n" + "\n".join(step_text(s) for s in steps)
 
 
 def steps_brief(rc: Any, steps: list[Any]) -> list[dict[str, Any]]:
@@ -176,6 +177,32 @@ def _guard_mutable(rc: Any) -> None:
         raise StateError("run.sealed", f"Run {rc.run.id} is sealed.", hint="docket run start <graph> --new")
     if rc.run.header.status == "abandoned":
         raise StateError("run.abandoned", f"Run {rc.run.id} was abandoned.", hint="docket run start <graph> --new")
+
+
+@command("run continue", "Finish a run on what it wrote after upstream changed past the apply boundary.",
+         run=True, mutating=True,
+         effects=["records in run.json that the operator saw the post-apply change"],
+         examples=["docket run continue --json"])
+def cmd_run_continue(ctx: Any, ns: Any) -> Result:
+    from docket.apply.boundary import drift_digest, unacknowledged
+    from docket.engine.next import compute_steps
+    rc = ctx.run_context()
+    rows = unacknowledged(rc)
+    if not rows:
+        steps = compute_steps(rc, token=ctx.token(rc, create=False))
+        return Result({"run": rc.run.id, "acknowledged": [], "changed": False,
+                       "steps": [s.model_dump() for s in steps]},
+                      f"nothing to continue past\n{steps_summary(steps)}", next=steps_next(steps))
+    _guard_mutable(rc)
+    if ctx.dry_run:
+        return Result({"dry_run": True, "would_acknowledge": rows}, f"would continue past {len(rows)} change(s)")
+    ctx.acquire(rc)
+    rc.run.header.drift_ack = drift_digest(rows)
+    rc.run.save_header()
+    rc.invalidate()
+    steps = compute_steps(rc, token=ctx.token(rc, create=False))
+    return Result({"run": rc.run.id, "acknowledged": rows, "changed": True, "steps": [s.model_dump() for s in steps]},
+                  f"continuing on what was written\n{steps_summary(steps)}", next=steps_next(steps))
 
 
 @command("run steal", "Take the run lease from another session.", mutating=True,

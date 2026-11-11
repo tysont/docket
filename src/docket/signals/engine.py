@@ -168,7 +168,7 @@ def enrich(items: list[dict[str, Any]], env: SignalEnv) -> list[dict[str, Any]]:
         if it.get("thread"):
             keys.append(f"thread:{it['source']}:{it['thread']}")
         it["keys"] = keys
-        it["trace"] = [{"stage": "collect", "step": "mapped", "source": it["source"], "unit": it.get("unit") or "",
+        it["trace"] = [{"verb": "read", "step": "mapped", "source": it["source"], "unit": it.get("unit") or "",
                         "record_id": it.get("record_id"), "identity": it.get("identity")}]
         out.append(it)
     from docket.signals.conversations import assign
@@ -401,7 +401,7 @@ def _deadline(t: Then, it: dict[str, Any], env: SignalEnv, rid: str) -> dict[str
 def apply(rule: Rule, origin: str, it: dict[str, Any], env: SignalEnv) -> None:
     t, sig = rule.then, it["signals"]
     effects = t.model_dump(mode="json", by_alias=True, exclude_none=True, exclude_defaults=True)
-    entry: dict[str, Any] = {"stage": "signals", "step": "rule", "rule": rule.id, "origin": origin, "effects": effects}
+    entry: dict[str, Any] = {"verb": "merge", "step": "rule", "rule": rule.id, "origin": origin, "effects": effects}
     sig["rules"].append(rule.id)
     if t.importance:
         sig["importance"] += t.importance
@@ -447,7 +447,7 @@ def evaluate(items: list[dict[str, Any]], env: SignalEnv) -> list[dict[str, Any]
         sig = it["signals"]
         if sig["dismiss"]:
             if sig["surface"]:
-                it["trace"].append({"stage": "signals", "step": "surface_over_dismiss",
+                it["trace"].append({"verb": "merge", "step": "surface_over_dismiss",
                                     "surface_rules": sig["surface_rules"],
                                     "dismissed_by": [d["rule"] for d in sig["dismiss"]],
                                     "reason": "; ".join(d["reason"] for d in sig["dismiss"])})

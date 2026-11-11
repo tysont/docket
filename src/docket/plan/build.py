@@ -1,11 +1,11 @@
-"""Planning inside the plan stage (TD §12.6), plus ``plan diff``, ``plan explain`` and day load.
+"""Placing open tasks on the calendar inside a plan node (TD §12.6), plus ``plan diff``,
+``plan explain`` and day load.
 
-Planning is active for a run when ``planning.calendar`` is configured and the
-run's workflow is listed in ``planning.workflows`` (or that list is absent).
-Without it the plan stage behaves exactly as before.
+Planning is active for a plan node when ``planning.calendar`` is configured and the
+node sets ``schedule_tasks``. Without it the node plans only what the decisions write.
 
 Calendar operations are plain dicts, kept compatible with the task-store
-operations the stage already emits:
+operations the node emits for the decisions:
 
 ```
 {"op_id", "destination", "verb", "calendar", "key", "start", "end", "title", "notes",
@@ -167,7 +167,7 @@ def _light_instances(inp: Inputs) -> list[tuple[Any, str]]:
 
 
 def input_digests(rc: "RunContext") -> dict[str, Any]:
-    """What planning reads besides decide: folded into the plan stage digest (TD §4.4)."""
+    """What planning reads besides the decisions: folded into the plan node's digest (TD §4.4)."""
     from docket.shapes.unexpected import collecting
     with collecting():  # shapes are recorded by the build, not by every evaluation
         inp = gather(rc)
@@ -455,7 +455,7 @@ def render_diff(plan: dict[str, Any], pd: str, tz: ZoneInfo) -> str:
         for u in plan["unschedulable"]:
             lines.append(f"- {u['title']}: {u['reason']} ({u['detail']})")
         lines.append("")
-    if plan.get("outcomes"):  # M5: answers that write nothing (dispositions are recorded at close)
+    if plan.get("outcomes"):  # M5: answers that write nothing (dispositions are recorded at the seal)
         lines.append("## Decisions without operations")
         for r in plan["outcomes"]:
             lines.append(f"- {r['question']}: {r['decision']}" + (f" until {r['until']}" if r.get("until") else ""))

@@ -96,9 +96,9 @@ def advance(ctx: Any, node: str, *, again: bool = False) -> Result:
                          ". Inspect it, then finish on what was written with the continue command.",
                          hint=" ".join(cont), next_command=cont, details={"drift": drift})
     if ctx.dry_run and node == SEAL:
-        from docket.close.run import preview_close
+        from docket.seal.run import preview_seal
         return Result({"dry_run": True, "node": node, "state": ev.state, "digest": ev.digest,
-                       "would": impl.expect, "preview": preview_close(rc)}, f"would run {node}: {impl.expect}")
+                       "would": impl.expect, "preview": preview_seal(rc)}, f"would run {node}: {impl.expect}")
     if ctx.dry_run:
         return Result({"dry_run": True, "node": node, "state": ev.state, "digest": ev.digest,
                        "would": impl.expect}, f"would run {node}: {impl.expect}")

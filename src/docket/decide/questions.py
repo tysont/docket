@@ -1,13 +1,13 @@
-"""Question generation (TD §10.1).
+"""Building the questions (TD §10.1).
 
 ``build(rc, items, node)`` turns the items an ask node works on, the reconcile window and
 the verification results into the ordered questions of the burst:
 
 - ``finding``: one per retained item (``q_`` + item id), at or above the
-  scoring floor, best score first, capped by the workflow's question budget;
+  scoring floor, best score first, capped by the ask node's question budget;
   the rest are ``not_asked`` with their traces;
 - ``reconcile``: one per elapsed owned block whose task is open (``r_`` +
-  block key), when the workflow's ``questions.kinds`` lists ``reconcile``;
+  block key), when the ask node's ``questions.kinds`` lists ``reconcile``;
 - ``verify``: one per open task that looks done (``v_`` + task key), when the
   kinds list ``verify``.
 

@@ -3,8 +3,8 @@
 Answers live in the run's ``answers.json``, keyed by question id. Question ids
 derive from the subject (``q_`` + item id, ``r_`` + block key, ``v_`` + task
 key), so an answer binds to identity, not position. Each stored answer carries
-the digest of its subject as it was when answered (``subject``). On refresh an
-answer whose subject digest is unchanged stays bound; a changed subject's
+the digest of its subject as it was when answered (``subject``). When the items
+change, an answer whose subject digest is unchanged stays bound; a changed subject's
 answer becomes ``previous`` and the question is asked again showing it.
 
 A stored answer::
