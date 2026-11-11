@@ -20,12 +20,11 @@ def test_a_new_database_has_the_current_schema_and_reopens_unchanged(tmp_path):
     assert TABLES <= names
     assert db.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == str(SCHEMA_VERSION)
     assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-    # one schema: no generation column on proposals, no migration bookkeeping
     cols = {r[1] for r in db.execute("PRAGMA table_info(cursor_proposals)")}
-    assert "generation" not in cols and {"run_id", "source", "unit", "position", "coverage_end"} <= cols
+    assert cols == {"run_id", "source", "unit", "position", "coverage_end", "model", "complete"}
     db.close()
     db = open_db(tmp_path / "docket.db")
-    assert db.execute("SELECT COUNT(*) FROM schema_meta").fetchone()[0] == 1
+    assert db.execute("SELECT COUNT(*) FROM schema_meta").fetchone()[0] == 1  # the version alone
     assert {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")} == names
     db.close()
 
