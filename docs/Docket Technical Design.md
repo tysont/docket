@@ -869,6 +869,8 @@ Destinations are projections of the ledger. Templates can write the item's `key`
 
 Close writes the ledger with the dispositions; a sandbox run leaves it as it was. `docket ledger list [--state S]` and `docket ledger show <key>` read it, and `docket ledger import <file>` enters items by hand from a JSON array or JSON lines, never overwriting a row.
 
+The operator works in the destination, not in Docket, so the ledger follows it. A destination that can report the status of the keys it holds does so (`key_status`: `open` or `done` per key; the Markdown task store reads its lines). After its own writes, every durable close reads each destination back: an item whose line is closed moves to `done`, and so does one whose line is gone after having been seen there. A destination that cannot be read, or whose lines never carried the key, moves nothing: absence is evidence only where presence was observed. `docket ledger reconcile [--dry-run]` does the same on demand.
+
 ## 14. Robustness
 
 ### 14.1 Integrity checks and shape checks
@@ -928,7 +930,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, hooks) runs w
 | Stages | `apply`, `close`, `collect`, `merge`, `plan build`, `plan diff`, `plan explain`, `plan load` |
 | Tasks | `task issue`, `task kinds`, `task list`, `task show`, `task submit` |
 | Decisions | `ask answer`, `ask list`, `ask resolve`, `ask show`, `ask undo` |
-| Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import` |
+| Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import`, `ledger reconcile` |
 | Config | `config explain`, `config test`, `config validate`, `init`, `presets list`, `presets show` |
 | Sources | `source list`, `source test` |
 | Health | `doctor [--workflow <name>]` |

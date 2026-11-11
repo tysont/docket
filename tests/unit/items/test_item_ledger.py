@@ -105,3 +105,41 @@ def test_items_can_be_imported_by_hand(db):
                                          "state": "done"}], run_id="import-2", at=T2)
     assert again["imported"] == 0 and again["skipped"] == 1
     assert ledger.get(db, plan["key"])["state"] == "backlog"
+
+
+def test_the_ledger_follows_what_happened_in_a_destination(db):
+    """The operator works in the destination, not in Docket: a task is ticked there, or
+    removed. The ledger reads each placement back through its destination and follows."""
+    a, b, c, d = (item(x, f"topic-{x}") for x in "abcd")
+    routed = lambda t: {"topic": t, "decision": "routed", "destination": "backlog", "adapter": "markdown_tasks",  # noqa: E731
+                        "op_id": "op_" + t}
+    with db:
+        ledger.write(db, ledger.derive("r1", T1, kept=[a, b, c, d], decided=[
+            routed("topic-a"), routed("topic-b"), routed("topic-c"), {"topic": "topic-d", "decision": "watch"}]))
+    key = {t: ledger.item_key(f"topic-{t}") for t in "abcd"}
+    with db:   # at close every line is there and open; a destination that never wrote a key says nothing
+        assert ledger.observe(db, {"backlog": {key["a"]: "open", key["c"]: "open"}}, run_id="r1", at=T1) == []
+    assert ledger.get(db, key["b"])["state"] == "backlog"
+    seen = {"backlog": {key["a"]: "open", key["b"]: "done"}}          # c is no longer there
+    moves = ledger.observe(db, seen, run_id="r2", at=T2, write=False)
+    assert {(m["key"], m["state"]) for m in moves} == {(key["b"], "done"), (key["c"], "done")}
+    assert ledger.get(db, key["b"])["state"] == "backlog"              # a preview writes nothing
+    with db:
+        ledger.observe(db, seen, run_id="r2", at=T2)
+    got = {t: ledger.get(db, key[t]) for t in "abcd"}
+    assert [got[t]["state"] for t in "abcd"] == ["backlog", "done", "done", "monitoring"]
+    assert got["b"]["history"][-1] == {"run": "r2", "at": T2, "decision": "observed", "state": "done",
+                                       "note": "closed in backlog"}
+    assert got["c"]["history"][-1]["note"] == "no longer in backlog"
+    with db:
+        assert ledger.observe(db, seen, run_id="r3", at=T2) == []       # settled: nothing moves twice
+
+
+def test_a_destination_that_could_not_be_read_moves_nothing(db):
+    """An unreadable or empty destination is not evidence that every task was removed."""
+    with db:
+        ledger.write(db, ledger.derive("r1", T1, kept=[item("a", "topic-a")], decided=[
+            {"topic": "topic-a", "decision": "routed", "destination": "backlog", "adapter": "markdown_tasks", "op_id": "o"}]))
+        assert ledger.observe(db, {}, run_id="r2", at=T2) == []
+        assert ledger.observe(db, {"backlog": None}, run_id="r2", at=T2) == []
+    assert ledger.rows(db)[0]["state"] == "backlog"

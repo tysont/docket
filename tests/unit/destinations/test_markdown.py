@@ -319,3 +319,14 @@ def test_a_task_line_can_carry_the_items_ledger_key(tmp_path):
     [op] = preview(d, add("x", action="Call the vendor", key="i3k9q2ab"))
     assert op.line == "- [ ] Call the vendor [id:: i3k9q2ab]"
     assert d.grammar.parse(op.line).get("id") == "i3k9q2ab"
+
+
+def test_a_task_store_reports_the_status_of_the_keys_it_holds(tmp_path):
+    """Read-back for the item ledger: which keyed lines are open and which are closed. A
+    store with no file reports None, which is not the same as holding nothing."""
+    d = tasks(tmp_path)
+    (tmp_path / "tasks.md").unlink()
+    assert d.key_status() is None
+    (tmp_path / "tasks.md").write_text("## Inbox\n- [ ] Call the vendor [id:: iaaaaaaaa]\n- [x] Send the note [id:: ibbbbbbbb]\n"
+                                       "- [ ] No key here\n")
+    assert d.key_status() == {"iaaaaaaaa": "open", "ibbbbbbbb": "done"}

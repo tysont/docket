@@ -94,15 +94,19 @@ def state_step(rc: Any) -> dict[str, Any]:
     entries = ledgers.compute(specs, ctx)
     durable = not r.header.sandbox  # a sandbox run leaves cursors, dispositions and ledgers as they were
     items = _ledger_rows(rc, decide, ops, rows)
+    observed: list[dict[str, Any]] = []
     with db:
         moved = close_cursors.advance(db, r)
         if durable:
             disp_mod.write(db, rows)
             item_ledger.write(db, items)
+            # after the run's own writes: follow what the operator did in the destinations
+            observed = item_ledger.observe(db, item_ledger.read_back(rc.ws, run=r, env=rc.env), run_id=r.id,
+                                           at=r.header.clock.instant)
             for name, key, row in entries:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
-                "items": len(items) if durable else 0,
+                "items": len(items) if durable else 0, "items_observed": len(observed),
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "close:state", "ok", body)
     return {**body, "outcome": "ok"}

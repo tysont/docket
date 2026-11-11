@@ -155,3 +155,67 @@ def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: st
              raw.get("due"), est, raw.get("area"), "[]", json.dumps(history, sort_keys=True)))
         imported += 1
     return {"imported": imported, "skipped": skipped, "problems": problems}
+
+
+def observe(db: sqlite3.Connection, seen: dict[str, dict[str, str] | None], *, run_id: str, at: str,
+            write: bool = True) -> list[dict[str, Any]]:
+    """Follow what happened in the destinations (the caller holds the transaction).
+
+    ``seen`` maps a destination to the status of the keys it holds (``open`` or ``done``),
+    or to None when it could not be read. An item whose state came from a placement there
+    moves to ``done`` when its line is closed, or gone after having been seen there. A
+    destination that is absent from ``seen``, unreadable, or that never wrote the key moves
+    nothing. Returns the moves; with ``write`` false nothing
+    is written.
+    """
+    moves = []
+    for row in rows(db):
+        if row["state"] not in ("backlog", "raised") or not row["placements"]:
+            continue
+        want = "backlog" if row["state"] == "backlog" else "raised"
+        placed = [p for p in row["placements"] if state_of("routed", p.get("adapter")) == want]
+        if not placed:
+            continue
+        dest = placed[-1].get("destination")
+        status = seen.get(dest) if dest else None
+        if status is None:
+            continue
+        found = status.get(row["key"])
+        if found == "open":
+            if not placed[-1].get("seen") and write:
+                placed[-1]["seen"] = True      # the key is on a line there: its absence will mean something
+                db.execute("UPDATE item_ledger SET placements=? WHERE key=?",
+                           (json.dumps(row["placements"], sort_keys=True), row["key"]))
+            continue
+        if found is None and not placed[-1].get("seen"):
+            continue  # a destination that never wrote the key says nothing by not holding it
+        note = f"closed in {dest}" if found == "done" else f"no longer in {dest}"
+        moves.append({"key": row["key"], "title": row["title"], "was": row["state"], "state": "done", "note": note})
+        if write:
+            history = row["history"] + [{"run": run_id, "at": at, "decision": "observed", "state": "done", "note": note}]
+            db.execute("UPDATE item_ledger SET state='done', state_at=?, history=? WHERE key=?",
+                       (at, json.dumps(history, sort_keys=True), row["key"]))
+    return moves
+
+
+def read_back(ws: Any, *, run: Any = None, env: Any = None) -> dict[str, dict[str, str] | None]:
+    """What every destination that can report it says about the keys it holds. A destination
+    reports through ``key_status``; one without it is left out, and one that fails reads None."""
+    from docket.destinations import build, env_for
+    out: dict[str, dict[str, str] | None] = {}
+    for did in sorted(ws.config.destinations):
+        dest = None
+        try:
+            dest = build(did, ws.config.destinations[did], env_for(ws, run=run, env=env))
+            if not hasattr(dest, "key_status"):
+                continue
+            out[did] = dest.key_status()
+        except Exception:  # a destination that cannot be read is not evidence of anything
+            out[did] = None
+        finally:
+            if dest is not None:
+                try:
+                    dest.close()
+                except Exception:
+                    pass
+    return out

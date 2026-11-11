@@ -191,6 +191,20 @@ class MarkdownTasks(MarkdownBase):
             out.append({"index": i, "line": ln, "section": doc.section_of(i), "task": t})
         return out
 
+    def key_status(self, id_field: str = "id") -> dict[str, str] | None:
+        """Read-back for the item ledger (TD §13.8): the status of every line that carries an
+        id, ``open`` or ``done``. None when there is no file, which is not an empty store."""
+        state = self.snapshot()
+        if state.data.get("text") is None:
+            return None
+        out: dict[str, str] = {}
+        for r in self.tasks(state):
+            t = r["task"]
+            key = (t.get(id_field) or "").strip()
+            if key and t.status in ("open", "done") and out.get(key) != "open":
+                out[key] = t.status
+        return out
+
     def task_id(self, t: TaskLine, id_field: str = "id") -> str:
         """A task's identity: its id field, else the destination and its normalized title.
 

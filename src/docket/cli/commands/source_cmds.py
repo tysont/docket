@@ -342,3 +342,26 @@ def cmd_ledger_import(ctx: Any, ns: Any) -> Result:
     db.execute("RELEASE ledger_import")
     db.commit()
     return Result(report, f"imported {report['imported']}, skipped {report['skipped']}, problems {len(report['problems'])}")
+
+
+@command("ledger reconcile", "Follow what happened in the destinations: an item whose task line was closed or "
+         "removed there moves to done. Every durable close does this; run it by hand to see or apply it sooner.",
+         mutating=True, effects=["moves ledger items to done; reads destinations and writes none"],
+         examples=["docket ledger reconcile --dry-run --json"])
+def cmd_ledger_reconcile(ctx: Any, ns: Any) -> Result:
+    from datetime import datetime, timezone
+
+    from docket.items import ledger
+    ctx.workspace_root()
+    at = datetime.now(timezone.utc).isoformat()
+    seen = ledger.read_back(ctx.workspace())
+    dry = bool(getattr(ns, "dry_run", False))
+    db = ctx.store().db
+    moves = ledger.observe(db, seen, run_id="reconcile-" + at[:10], at=at, write=not dry)
+    db.commit()
+    unread = sorted(d for d, v in seen.items() if v is None)
+    text = [f"{'would move' if dry else 'moved'} {len(moves)} item(s)"] + \
+           [f"  {m['key']} {m['was']} -> {m['state']}: {m['note']}  {(m['title'] or '')[:70]}" for m in moves] + \
+           [f"  could not read {d}" for d in unread]
+    return Result({"moves": moves, "read": sorted(d for d, v in seen.items() if v is not None), "unread": unread,
+                   "dry_run": dry}, "\n".join(text))

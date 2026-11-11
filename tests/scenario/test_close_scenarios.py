@@ -516,6 +516,8 @@ def test_closing_a_run_writes_the_item_ledger_and_a_sandbox_run_does_not(persona
     placed = [r for r in rows if r["placements"]]
     assert placed and all(p["destination"] and p["op_id"] for r in placed for p in r["placements"])
     assert all(r["history"] for r in rows if r["state"] != "new")
+    # this workspace's task lines carry no key, so their absence from the file says nothing
+    assert any(r["state"] == "backlog" for r in placed)
     code, env = cli("ledger", "show", placed[0]["key"], "--workspace", str(ws))
     assert code == 0 and env["data"]["item"]["topic"] == placed[0]["topic"]
     code, env = cli("ledger", "list", "--state", "nope", "--workspace", str(ws))
@@ -531,3 +533,27 @@ def test_closing_a_run_writes_the_item_ledger_and_a_sandbox_run_does_not(persona
     assert env["data"]["imported"] == 1 and [p["row"] for p in env["data"]["problems"]] == [1]
     code, env = cli("ledger", "list", "--state", "backlog", "--workspace", str(ws))
     assert any(r["title"] == "Draft the plan" and r["est"] == 60 and r["source"] == "import" for r in env["data"]["items"])
+
+
+def test_a_task_ticked_in_its_file_moves_the_item_to_done(persona, cli, pinned_now):
+    ws = persona("reference-like")
+    dst = ws / "destinations.yaml"
+    dst.write_text(dst.read_text().replace('{/links}"', '{/links} [id:: {key}]"', 1))
+    cli("run", "start", "daily", "--now", pinned_now, "--workspace", str(ws))
+    assert run_agent(ws).final["kind"] == "done"
+    rows = cli("ledger", "list", "--state", "backlog", "--workspace", str(ws))[1]["data"]["items"]
+    assert rows, "the persona routes at least one item to its task store"
+    it = rows[0]
+    path = ws / it["placements"][-1]["path"]
+    text = path.read_text()
+    assert it["key"] in text, "the task line carries the item's key"
+    line = next(ln for ln in text.splitlines() if it["key"] in ln)
+    code, env = cli("ledger", "reconcile", "--dry-run", "--workspace", str(ws))
+    assert code == 0 and env["data"]["moves"] == []                       # untouched: nothing to follow
+    path.write_text(text.replace(line, line.replace("- [ ]", "- [x]", 1)))
+    code, env = cli("ledger", "reconcile", "--dry-run", "--workspace", str(ws))
+    assert [m["key"] for m in env["data"]["moves"]] == [it["key"]] and env["data"]["dry_run"] is True
+    assert cli("ledger", "show", it["key"], "--workspace", str(ws))[1]["data"]["item"]["state"] == "backlog"
+    code, env = cli("ledger", "reconcile", "--workspace", str(ws))
+    got = cli("ledger", "show", it["key"], "--workspace", str(ws))[1]["data"]["item"]
+    assert got["state"] == "done" and got["history"][-1]["decision"] == "observed"
