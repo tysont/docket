@@ -153,3 +153,61 @@ def test_an_empty_result_is_an_empty_page():
     p = subprocess.run([NODE, "-e", code, "text", json.dumps({"rooms_list": None})], capture_output=True, text=True, timeout=20)
     # JSON.stringify(null) is "null": a result with no spaces is an empty page, not a crash.
     assert p.returncode == 0 and json.loads(p.stdout)["out"] == {"spaces": [], "nextPageToken": None}
+
+
+# --- mail through a code tool ---------------------------------------------------------------
+
+FOUND = {"messages": [{"id": "m2", "threadId": "t1"}, {"id": "m1", "threadId": "t1"}], "nextPageToken": "p2"}
+GOT = [
+    {"id": "m2", "message": {"id": "m2", "threadId": "t1", "internalDate": "1792054800000", "labelIds": ["UNREAD"],
+                             "snippet": "Second message", "body": "y" * 5000,
+                             "headers": {"From": "Kim Osei <kim@northwind.example>", "To": "dana@northwind.example",
+                                         "Cc": '"Park, Lee" <lee@northwind.example>, sam@northwind.example',
+                                         "Subject": "Re: Budget", "Date": "Wed, 15 Oct 2026 09:00:00 +0000"}}},
+    {"id": "m1", "message": {"id": "m1", "threadId": "t1", "internalDate": "1792051200000", "snippet": "First message",
+                             "payload": {"headers": [{"name": "From", "value": "casey@acme-corp.example"},
+                                                     {"name": "To", "value": "Dana Reyes <dana@northwind.example>"},
+                                                     {"name": "Subject", "value": "Budget"}]}}},
+]
+MAIL_ARGS = {"search_tool": "mail_search", "get_tool": "mail_get", "query": "is:unread", "after": "2026-10-14T00:00:00Z",
+             "after_term": "after:{epoch}", "page_size": 10, "token": None, "query_arg": "query", "size_arg": "maxResults",
+             "token_arg": "pageToken", "ids_arg": "messageIds", "get_args": {"format": "full"}, "body_chars": 100,
+             "link": "https://mail.example.org/#all/{thread}"}
+
+
+def _mail() -> dict:
+    from importlib import resources
+    from ruamel.yaml import YAML
+    text = resources.files("docket.presets").joinpath("mcp/mail-codemode.yaml").read_text(encoding="utf-8")
+    return YAML(typ="safe").load(text)["source"]
+
+
+@pytest.mark.parametrize("wrapping", WRAPPINGS)
+def test_mail_read_searches_then_fetches_in_one_script_and_projects_each_message(wrapping):
+    src = _mail()
+    got = run(src["request"]["read"]["script"], MAIL_ARGS, wrapping, {"mail_search": FOUND, "mail_get": GOT})
+    assert got["calls"] == [["mail_search", {"query": "is:unread after:1791936000", "maxResults": 10}],
+                            ["mail_get", {"format": "full", "messageIds": ["m2", "m1"]}]]
+    first, second = got["out"]["messages"]                                   # oldest first
+    assert first == {"id": "m1", "threadId": "t1", "date": "2026-10-15T08:00:00.000Z", "subject": "Budget",
+                     "from": {"name": "casey@acme-corp.example", "address": "casey@acme-corp.example"},
+                     "to": ["dana@northwind.example"], "cc": [], "snippet": "First message", "body": "First message",
+                     "labels": [], "url": "https://mail.example.org/#all/t1"}
+    assert second["from"] == {"name": "Kim Osei", "address": "kim@northwind.example"}
+    assert second["cc"] == ["lee@northwind.example", "sam@northwind.example"]  # a quoted name with a comma stays one person
+    assert len(second["body"]) == 100 and second["labels"] == ["UNREAD"]
+    assert got["out"]["nextPageToken"] == "p2"
+
+
+def test_mail_read_with_nothing_found_makes_one_call_and_an_empty_page():
+    src = _mail()
+    got = run(src["request"]["read"]["script"], {**MAIL_ARGS, "after": None, "token": "p2"}, "object",
+              {"mail_search": {"messages": []}, "mail_get": []})
+    assert got["calls"] == [["mail_search", {"query": "is:unread", "maxResults": 10, "pageToken": "p2"}]]
+    assert got["out"] == {"messages": [], "nextPageToken": None}
+
+
+def test_the_mail_mapping_carries_people_thread_and_link():
+    m = _mail()["mapping"]
+    assert (m["from"], m["from.handle"], m["to"], m["cc"]) == ("$.from.name", "$.from.address", "$.to", "$.cc")
+    assert m["thread"] == "$.threadId" and m["url"] == "$.url" and m["at"] == "$.date"

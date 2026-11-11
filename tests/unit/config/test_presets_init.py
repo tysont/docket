@@ -12,7 +12,8 @@ from docket.config.presets import preset_ids
 
 pytestmark = pytest.mark.smoke
 
-SOURCE_PRESETS = {"files/jsonl", "exec/jsonl-source", "http/json-api", "mcp/mail", "mcp/chat-codemode"}
+SOURCE_PRESETS = {"files/jsonl", "exec/jsonl-source", "http/json-api", "mcp/mail", "mcp/mail-codemode",
+                  "mcp/chat-codemode"}
 
 
 def _yaml(path):

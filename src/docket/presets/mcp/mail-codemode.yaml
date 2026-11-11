@@ -1,0 +1,126 @@
+# Mail through an MCP gateway's code-execution tool: one script searches for message ids and
+# fetches those messages in the same call, so a page costs one request. Read incrementally by
+# message date. The workspace names the gateway's two tools, the query, and, where they differ
+# from the defaults, the argument names those tools take.
+source:
+  volatile: true
+  cursor: { model: incremental, position: order_key, lookback: 1d }
+  params:
+    search_tool: null
+    get_tool: null
+    query: ""                      # the mail system's own search syntax
+    after_term: "after:{epoch}"    # appended to the query to bound it below; {epoch} is seconds
+    query_arg: query
+    size_arg: maxResults
+    token_arg: pageToken
+    ids_arg: messageIds
+    get_args: {}                   # fixed arguments of the get tool, for example a body format
+    body_chars: 1500               # characters of body kept per message
+    link: ""                       # the item's url; {thread} and {message} are their ids
+  request:
+    # A gateway hands a tool result back as a parsed object, as JSON text, or as MCP content
+    # (text blocks, bare or under "content"). An argument with no value is left out of a call.
+    read:
+      script: |
+        async () => {
+          const read = (r) => {
+            if (r && !Array.isArray(r) && Array.isArray(r.content)) r = r.content;
+            if (Array.isArray(r) && r.every(b => b && typeof b.text === "string")) r = r.map(b => b.text).join("");
+            return (typeof r === "string" ? JSON.parse(r) : r) ?? {};
+          };
+          const given = (a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== null && x !== undefined && x !== ""));
+          const start = {{after}} ? Math.floor(Date.parse({{after}}) / 1000) : null;
+          const bound = start && {{after_term}} ? {{after_term}}.replace("{epoch}", String(start)) : "";
+          const query = [{{query}}, bound].filter(Boolean).join(" ");
+          const found = read(await codemode[{{search_tool}}](given({
+            [{{query_arg}}]: query, [{{size_arg}}]: {{page_size}}, [{{token_arg}}]: {{token}} })));
+          const ids = (found.messages ?? []).map(m => m.id).filter(Boolean);
+          let got = [];
+          if (ids.length) got = read(await codemode[{{get_tool}}]({ ...({{get_args}} ?? {}), [{{ids_arg}}]: ids }));
+          const list = Array.isArray(got) ? got : (got.messages ?? []);
+          const header = (m, name) => {
+            const h = m.headers ?? m.payload?.headers ?? {};
+            if (Array.isArray(h)) return h.find(x => String(x.name).toLowerCase() === name.toLowerCase())?.value ?? null;
+            const key = Object.keys(h).find(k => k.toLowerCase() === name.toLowerCase());
+            return key ? h[key] : null;
+          };
+          const split = (v) => {  // on commas outside quotes and angle brackets
+            const out = []; let cur = "", quoted = false, angle = false;
+            for (const ch of String(v ?? "")) {
+              if (ch === '"') quoted = !quoted;
+              else if (ch === "<" && !quoted) angle = true;
+              else if (ch === ">" && !quoted) angle = false;
+              if (ch === "," && !quoted && !angle) { out.push(cur); cur = ""; } else cur += ch;
+            }
+            out.push(cur);
+            return out;
+          };
+          const people = (v) => split(v).map(s => s.trim()).filter(Boolean).map(s => {
+            const m = s.match(/^(.*?)<([^>]+)>$/);
+            return m ? { name: m[1].trim().replace(/^"|"$/g, "") || null, address: m[2].trim() } : { name: null, address: s };
+          });
+          const when = (m) => {
+            const ms = Number(m.internalDate);
+            if (Number.isFinite(ms) && ms > 0) return new Date(ms).toISOString();
+            const d = Date.parse(header(m, "Date") ?? "");
+            return Number.isFinite(d) ? new Date(d).toISOString() : null;
+          };
+          const limit = Number({{body_chars}}) || 1500;
+          const link = (m) => ({{link}} || "")
+            ? {{link}}.replace("{thread}", m.threadId ?? m.id ?? "").replace("{message}", m.id ?? "") : null;
+          const messages = list.map(x => x.message ?? x).filter(m => m && m.id).map(m => {
+            const from = people(header(m, "From"))[0] ?? { name: null, address: null };
+            return {
+              id: m.id, threadId: m.threadId ?? null, date: when(m), subject: header(m, "Subject"),
+              from: { name: from.name ?? from.address, address: from.address },
+              to: people(header(m, "To")).map(p => p.address), cc: people(header(m, "Cc")).map(p => p.address),
+              snippet: m.snippet ?? null, body: String(m.body ?? m.snippet ?? "").slice(0, limit),
+              labels: m.labelIds ?? [], url: link(m) };
+          }).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+          return JSON.stringify({ messages, nextPageToken: found.nextPageToken ?? null });
+        }
+      args:
+        search_tool: "{params.search_tool}"
+        get_tool: "{params.get_tool}"
+        query: "{params.query}"
+        after: "{cursor.start}"
+        after_term: "{params.after_term}"
+        page_size: "{page.size}"
+        token: "{page.token}"
+        query_arg: "{params.query_arg}"
+        size_arg: "{params.size_arg}"
+        token_arg: "{params.token_arg}"
+        ids_arg: "{params.ids_arg}"
+        get_args: "{params.get_args}"
+        body_chars: "{params.body_chars}"
+        link: "{params.link}"
+  # A mail system answers a search with a few too-large pages and the odd dropped call.
+  retry:
+    transient: ["timed out", "timeout", "stream ended", "connection (reset|closed|lost)", "temporar", "try again"]
+  paging:
+    kind: message
+    page_size: 20
+    min_page_size: 2
+    entries: "$.messages"
+    next: "$.nextPageToken"
+    end_when: [token_absent]
+    order_key: "$.date"
+    too_large: ["too large", "truncat"]
+  contract:
+    message:
+      required: { id: str, date: timestamp }
+      optional: { threadId: str, subject: str, snippet: str, body: str, from.name: str, from.address: str,
+                  to: list, cc: list, labels: list, url: str }
+      variations:
+        subject: { missing: { reading: "use the snippet as the title", use: snippet, record: false } }
+  mapping: { id: "$.id", title: "$.subject", text: "$.body", from: "$.from.name", from.handle: "$.from.address",
+             at: "$.date", thread: "$.threadId", to: "$.to", cc: "$.cc", url: "$.url", fields.labels: "$.labels" }
+
+# Metadata (never merged): scope, and the placeholders docket init writes.
+preset:
+  scope: source
+  scaffold:
+    sources:
+      mail: { transport: gateway, params: { search_tool: search_messages, get_tool: get_messages, query: "is:unread" } }
+    transports:
+      gateway: { kind: codemode, command: [path/to/mcp-gateway], tool: execute_code }
