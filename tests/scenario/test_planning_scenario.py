@@ -168,3 +168,22 @@ def test_planning_inactive_workflows_plan_as_before(persona, cli, pinned_now):
     code, env = cli("plan", "explain", "anything", "--workspace", str(ws))
     assert code == 3 and env["error"]["code"] == "plan.no_calendar"
     Path(ws)  # the triage workflow is not in planning.workflows
+
+
+def test_a_stored_task_whose_window_has_passed_is_planned_without_it(persona, cli, pinned_now):
+    """A task line can carry the window it was once given. When every day of that window is
+    behind the run, the window cannot be met and says nothing about when to do the work now:
+    the task is placed like any other and the plan says so. It does not fail the plan."""
+    ws = persona("reference-like")
+    p = ws / "Backlog.md"
+    p.write_text(p.read_text().replace("- [ ] Review the ingest service runbook [source:: seed]",
+                                       "- [ ] Review the ingest service runbook [source:: seed] [when:: 2026-10-01 14:00-14:30]"))
+    run_id = _start(cli, ws, pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "run" and s["stage"] == "close")
+    assert res.failures == []
+    code, env = cli("plan", "diff", "--workspace", str(ws))
+    assert code == 0, env
+    plan = _plan(ws, run_id, env["data"]["plan_digest"])
+    ops = [o for o in plan["operations"] if o.get("title") == "Review the ingest service runbook"]
+    assert ops and ops[0]["verb"] in ("create", "keep") and ops[0]["start"][:10] >= "2026-10-15"
+    assert any("window that has passed" in n and "1 task" in n for n in plan["notes"])

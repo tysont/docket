@@ -23,7 +23,7 @@ effect`` (an explicit record that the block stays). ``op_id`` is
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -206,8 +206,12 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         fields = dict(st.fields)
         if adj.get("est"):
             fields["est"] = str(adj["est"])
-        out[st.id] = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store",
-                                       instances=instances)
+        task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances)
+        if task.window is not None and task.window.days() and max(task.window.days()) < inp.today:
+            # every day of the stored window is behind the run: it cannot be met, and it says
+            # nothing about when to do the work now. Place the task like any other.
+            task = replace(task, window=None, window_text=None, elapsed_window=fields.get("when"))
+        out[st.id] = task
     for row in scheduling_inputs(rc, decide):  # M5: finding answers, merges applied (docket.decide.operations)
         qid, ov, op = row["question_id"], row["overrides"], row["op"]
         title = row["title"]
@@ -292,6 +296,9 @@ def run_planning(rc: "RunContext", decide: dict[str, Any]) -> Built:
     n_def = sum(1 for t in tasks if t.defaulted_est)
     if n_def:
         notes.append(f"{n_def} task(s) had no estimate and used the default of {inp.policy.default_est}m.")
+    n_past = sum(1 for t in tasks if t.elapsed_window)
+    if n_past:
+        notes.append(f"{n_past} task(s) carried a window that has passed and were placed without it.")
     cc = cal.counts
     notes.append(f"Calendar: {cc['considered']} event(s) listed, {cc['concrete']} in the horizon, "
                  f"{cc['tombstones']} cancelled, {cc['generated']} recurring occurrence(s).")

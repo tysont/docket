@@ -248,6 +248,7 @@ class Task:
     source: str = "store"
     question_id: str | None = None
     defaulted_est: bool = False
+    elapsed_window: str | None = None   # the stored window, when every day of it was behind the run
 
     def with_flags(self, today: date, imminent_days: int) -> "Task":
         overdue = self.due is not None and self.due < today

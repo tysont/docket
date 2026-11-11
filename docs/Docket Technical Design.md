@@ -804,7 +804,7 @@ Planning 200 tasks over 42 days runs in well under 5 seconds because `free_inter
 
 ### 12.4 Scheduling windows
 
-An answer's `--when` becomes a window: a day, a day and time range, or a named event (resolved by title match within the horizon). Inside a window, `search` takes the estimate's length in the first stretch free of meetings, and treats the operator's own soft holds and out-of-office as available, which is how "schedule it over my flight" works without a hand edit (FR-PLN-04). A window that cannot fit the estimate fails at plan build with `plan.window_too_small`, naming the window's free minutes and the answer command that changes it.
+An answer's `--when` becomes a window: a day, a day and time range, or a named event (resolved by title match within the horizon). Inside a window, `search` takes the estimate's length in the first stretch free of meetings, and treats the operator's own soft holds and out-of-office as available, which is how "schedule it over my flight" works without a hand edit (FR-PLN-04). A window that cannot fit the estimate fails at plan build with `plan.window_too_small`, naming the window's free minutes and the answer command that changes it. A window read from a stored task line whose every day is behind the run is not a failure: it cannot be met and says nothing about when to do the work now, so the task is placed like any other and the plan notes it.
 
 ### 12.5 Mirrors
 
