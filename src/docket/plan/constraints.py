@@ -266,7 +266,7 @@ def search(task: Task, ctx: Ctx) -> Placement | Unschedulable:
         return Unschedulable(task.id, "max_block", f"needs {n}m; the maximum block is {p.max_block}m")
     on_time, late = candidate_days(task, ctx)
     for days, is_late in ((on_time, False), (late, True)):
-        blk = _choose(task, ctx, days, n)
+        blk = _choose(task, ctx, days, n, plain=is_late)
         if blk is not None:
             return Placement(blk, late=is_late)
     return tightest(task, ctx)
@@ -287,14 +287,15 @@ def _first(task: Task, ctx: Ctx, day: date, n: int, within: tuple[int, int] | No
     return None
 
 
-def _choose(task: Task, ctx: Ctx, days: list[date], n: int) -> Block | None:
+def _choose(task: Task, ctx: Ctx, days: list[date], n: int, *, plain: bool = False) -> Block | None:
     """The slot among ``days``. With no preference set, or for a task with a window, the
     earliest legal slot. Otherwise, in order: the earliest day under the daily target with a
     slot in the preferred window; the earliest day under the target with any slot; then the
     lightest day, the preferred window first. Preferences choose among days that are all on
-    time (or all late), so they never make a task late."""
+    time, so they never make a task late; a task that is already late (``plain``) takes the
+    earliest slot."""
     p = ctx.policy
-    if task.window is not None or (p.prefer_window is None and p.daily_target is None):
+    if plain or task.window is not None or (p.prefer_window is None and p.daily_target is None):
         return next((b for b in (_first(task, ctx, d, n) for d in days) if b is not None), None)
     key = task_key(task, p.key_prefix)
     load = {d: ctx.minutes(d, excluding=key) for d in days}

@@ -255,3 +255,12 @@ def test_parts_are_sized_evenly_on_the_grid_and_a_windowed_task_is_not_split():
     w = resolve_window(normalize_when("2026-10-16", TODAY), TODAY)
     pinned = run([task("pin", 120, window=w)], pol=p)
     assert [r["minutes"] for r in pinned.schedule] == [120]
+
+
+def test_a_task_that_is_already_late_takes_the_earliest_slot_whatever_the_preference():
+    """A preference chooses among days that are on time. Once a task cannot be on time, the
+    only thing that matters is how soon: it does not wait days for a free morning."""
+    p = policy(prefer_window=(hm("09:00"), hm("12:00")), daily_target=90)
+    busy = [ev(f"m{i}", d(i), "09:00", "12:00") for i in (0, 1, 4)]              # mornings taken through Monday
+    res = run([task("late", 60, due=d(-1))], busy, pol=p)
+    assert placed(res, "late") == (TODAY, hm("12:00"), hm("13:00")) and res.unit_for("late").late
