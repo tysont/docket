@@ -45,7 +45,9 @@ class StoreTask:
 def _field_names(rc: "RunContext", did: str) -> dict[str, str]:
     fmap = rc.ws.config.planning.tasks.fields or {}
     carry = rc.ws.config.destinations[did].carry_field or "carry"
-    return {a: fmap.get(a) or (carry if a == "carry" else a) for a in FIELD_NAMES}
+    # A configured name is used as it is, the empty one included: a list may keep an
+    # attribute in a field with no name ([:: 2026-10-20]).
+    return {a: fmap[a] if fmap.get(a) is not None else (carry if a == "carry" else a) for a in FIELD_NAMES}
 
 
 def _attributes(raw: dict[str, str], names: dict[str, str]) -> dict[str, str]:

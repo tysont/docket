@@ -147,3 +147,18 @@ def test_task_store_reads_a_delimited_grammar_with_the_same_ids_it_writes(tmp_pa
     again = dest.read_line("TODO Call the customer back | queue=billing | carried=1")
     assert again is not None and again.id == tasks[0].id
     assert dest.read_line("- [ ] Call the customer back") is None
+
+
+def test_a_planning_attribute_can_live_in_a_field_with_no_name(tmp_path):
+    """A task list may write its due date as a bare field, ``[:: 2026-10-20]``. Mapping
+    ``due`` to the empty name reads it; an empty name is a name, not a missing setting."""
+    from types import SimpleNamespace
+    from docket.config.models import PlanningTasks
+    from docket.plan.taskstore import _attributes, _field_names
+    cfg = SimpleNamespace(planning=SimpleNamespace(tasks=PlanningTasks(fields={"due": "", "est": "size"})),
+                          destinations={"backlog": SimpleNamespace(carry_field=None)})
+    names = _field_names(SimpleNamespace(ws=SimpleNamespace(config=cfg)), "backlog")
+    assert names["due"] == "" and names["est"] == "size" and names["carry"] == "carry" and names["start"] == "start"
+    dest = _store(tmp_path, "## Now\n- [ ] Write the spec [:: 2026-10-20] [size:: 45m]\n", grammar={"fields": "bracket"})
+    (t,) = dest.open_tasks(dest.snapshot())
+    assert _attributes(t.fields, names) == {"due": "2026-10-20", "est": "45m"}
