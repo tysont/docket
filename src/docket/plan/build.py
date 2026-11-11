@@ -179,7 +179,8 @@ def input_digests(rc: "RunContext") -> dict[str, Any]:
 
 
 def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs, *, tier: int, source: str,
-                      instances: list[tuple[Any, str]], qid: str | None = None) -> Task:
+                      instances: list[tuple[Any, str]], qid: str | None = None,
+                      raw: dict[str, str] | None = None) -> Task:
     p = inp.policy
     est = parse_field_minutes(fields["est"]) if "est" in fields else None
     due = parse_field_date(fields["due"], inp.today) if "due" in fields else None
@@ -192,7 +193,7 @@ def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs,
     return Task(id=tid, title=title, est=est if est is not None else p.default_est, due=due, earliest=earliest,
                 tier=t_tier if t_tier is not None else tier, window=window, window_text=fields.get("when"),
                 carry=carry or 0, deadline=str(fields.get("deadline", "")).lower() in ("true", "yes", "1"),
-                source=source, question_id=qid, defaulted_est=est is None)
+                source=source, question_id=qid, defaulted_est=est is None, fields=dict(raw or {}))
 
 
 def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instances: list[tuple[Any, str]]) -> list[Task]:
@@ -206,7 +207,8 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         fields = dict(st.fields)
         if adj.get("est"):
             fields["est"] = str(adj["est"])
-        task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances)
+        task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances,
+                                 raw=st.raw)
         if task.window is not None and task.window.days() and max(task.window.days()) < inp.today:
             # every day of the stored window is behind the run: it cannot be met, and it says
             # nothing about when to do the work now. Place the task like any other.
@@ -247,26 +249,31 @@ def _titler(rc: "RunContext", by_id: dict[str, Task]):
         from docket.text.redact import Redactor
         redactor = Redactor.from_config(rc.ws.config.profile, dest.redact)
 
-    def shared(pair: tuple[str, str]) -> tuple[str, str]:
+    def view(task: Task) -> dict[str, Any]:
+        """What a template sees of a task. On a shared calendar a private matter shows its
+        private title in place of every word of its own."""
+        fields = {str(k): str(v) for k, v in dict(task.fields or {}).items()}
+        title = task.title
+        if redactor is not None and redactor.is_private(title, *fields.values()):
+            title, fields = redactor.private_title, {k: redactor.private_title for k in fields}
+        return {"title": title, "est": task.est, "id": task.id, "fields": fields}
+
+    def f(task: Task) -> tuple[str, str]:
+        members = [by_id[m] for m in task.members if m in by_id]
+        ctx = {**view(task), "count": len(members),
+               "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
+               "members": [view(m) for m in members]}
+        if task.kind == "batch":
+            pair = templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()
+        else:
+            pair = templates.render(tpl["task"], ctx), templates.render(tpl["notes"], ctx)
         if redactor is None:
             return pair
         title, notes = redactor.redact(pair[0]), redactor.redact(pair[1])
         redactor.check(title, where=f"destinations.{cal.destination}.title")
         redactor.check(notes, where=f"destinations.{cal.destination}.notes")
         return title, notes
-
-    def g(task: Task) -> tuple[str, str]:
-        return shared(f(task))
-
-    def f(task: Task) -> tuple[str, str]:
-        members = [by_id[m] for m in task.members if m in by_id]
-        ctx = {"title": task.title, "count": len(members), "est": task.est,
-               "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
-               "members": [{"title": m.title, "est": m.est, "id": m.id} for m in members]}
-        if task.kind == "batch":
-            return templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()
-        return templates.render(tpl["task"], ctx), templates.render(tpl["notes"], ctx)
-    return g
+    return f
 
 
 # --- the build ------------------------------------------------------------------

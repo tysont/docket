@@ -25,6 +25,8 @@ from docket.text import templates
 
 DEFAULTS = {"entity": "[redacted]", "person": "[person]", "figure": "[figure]", "class_field": "sensitivity"}
 _TOKEN = re.compile(r"[A-Za-z0-9]+")
+_WORD = re.compile(r"[A-Za-z0-9]+(?:['\u2019&.-][A-Za-z0-9]+)*")
+_LINK = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
 
 
 def _tokens(text: str) -> list[str]:
@@ -65,6 +67,9 @@ class Redactor:
     person: str = DEFAULTS["person"]
     figure: str = DEFAULTS["figure"]
     class_field: str = DEFAULTS["class_field"]
+    allow: list[re.Pattern[str]] | None = None      # None: names are not redacted
+    private: list[re.Pattern[str]] = field(default_factory=list)
+    private_title: str = "Private"
 
     @classmethod
     def from_config(cls, profile: Any, cfg: Any = None) -> "Redactor":
@@ -93,6 +98,11 @@ class Redactor:
             person=c.get("person") or DEFAULTS["person"],
             figure=c.get("figure") or DEFAULTS["figure"],
             class_field=c.get("class_field") or DEFAULTS["class_field"],
+            allow=None if not c.get("names") else [
+                _alias_pattern(a) for a in sorted((c["names"].get("allow") or []), key=lambda a: (-len(a), a))
+                if a.strip()],
+            private=[re.compile(p) for p in ((c.get("private") or {}).get("patterns") or [])],
+            private_title=(c.get("private") or {}).get("title") or "Private",
         )
 
     # --- rewriting ---------------------------------------------------------
@@ -104,7 +114,47 @@ class Redactor:
             out = _alias_pattern(t.alias).sub(self.entity if t.kind == "entity" else self.person, out)
         for rx in self.figures:
             out = rx.sub(self.figure, out)
+        if self.allow is not None:
+            out = self._names(out)
         return out
+
+    def _names(self, text: str) -> str:
+        """Replace every word written like a name (it has a capital letter) that the workspace
+        does not allow. Links, allowed words and phrases, and the placeholders stay."""
+        keep: list[tuple[int, int]] = [m.span() for m in _LINK.finditer(text)]
+        for ph in {self.entity, self.person, self.figure, self.private_title}:
+            keep += [m.span() for m in re.finditer(re.escape(ph), text)]
+        for rx in self.allow or []:
+            keep += [m.span() for m in rx.finditer(text)]
+
+        def kept(a: int, b: int) -> bool:
+            return any(s <= a and b <= e for s, e in keep)
+
+        out, pos, last_end = [], 0, None
+        for m in _WORD.finditer(text):
+            if kept(*m.span()) or not any(ch.isupper() for ch in m.group(0)):
+                continue
+            end = m.end()
+            poss = re.match(r"['\u2019]s\b", text[end:])      # a possessive goes with its name
+            if poss:
+                end += poss.end()
+            if last_end is not None and text[last_end:m.start()].isspace() and out and out[-1] == self.entity:
+                pos = end                                       # two names in a row are one name
+            else:
+                out.append(text[pos:m.start()])
+                out.append(self.entity)
+                pos = end
+            last_end = end
+        out.append(text[pos:])
+        return "".join(out)
+
+    def is_private(self, *texts: str | None) -> bool:
+        return any(rx.search(t) for t in texts if t for rx in self.private)
+
+    def title(self, text: str, *, source: str | None = None) -> str:
+        """Text for a shared destination: the private title when it, or what it was made
+        from, is a private matter; otherwise the text redacted."""
+        return self.private_title if self.is_private(text, source) else self.redact(text)
 
     def sensitivity(self, ctx: dict[str, Any]) -> str | None:
         cls_name = (ctx.get("fields") or {}).get(self.class_field) or ctx.get(self.class_field)

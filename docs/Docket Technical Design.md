@@ -748,6 +748,10 @@ Sandbox twins are the real adapter with its I/O layer swapped: Markdown adapters
 
 Each destination declares `visibility`. For a `shared` destination, every rendered title and note passes through `text/redact.py`: protected entity aliases, people's names (when `redact.people: true`), figures matching configured patterns, and any item with a sensitivity class render through that class's redacted template (for example `"{area} follow-up"`). Validation then scans the rendered text for any alias of any protected entity and any person name; a hit refuses the operation (`dest.redaction_leak`). The private record (the task store and the journal) keeps full detail (FR-ACT-06, NFR-02).
 
+A profile cannot list every person, prospect and project, so two further rules work from the other side. `redact.names` replaces every word written like a name (one with a capital letter) unless the workspace allows it: `names.allow` lists the words and phrases that may be shown, matched whole and without regard to case, so the list says what is safe and everything else is taken out. Links and the placeholders are left alone, and two names in a row become one placeholder. `redact.private` names patterns for matters that should not be described at all: text that matches one, in itself or in what it was made from, is replaced whole by `private.title`.
+
+Blocks the planner places from the task store go through the same redaction. Their templates (`planning.titles`) see the task's `id` and the `fields` of its line, so a line can carry the words meant for the calendar and the notes can link back to the line by its id; the detail stays where only the operator can open it. A private task shows the private title in place of every word of its own, alone and as a member of a batch.
+
 ### 11.5 Task quality rules
 
 ```yaml

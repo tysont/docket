@@ -64,3 +64,32 @@ def test_check_refuses_with_the_leak_code():
 def test_no_false_positive_inside_words():
     r = make(people=True)
     assert r.leaks("Roadmap ADRs") == []  # alias AD is a whole token only
+
+
+def test_anything_that_looks_like_a_name_is_replaced_unless_the_workspace_allows_it():
+    """The profile cannot list every person, prospect and project. Where a destination is
+    read by others, a word that is written like a name and is not on the workspace's list
+    of allowed words is taken out: the list says what may be shown, not what may not."""
+    r = make(names={"allow": ["Review", "Draft", "Storage", "Q4", "Platform Sync"]})
+    assert r.redact("Review the Storage plan with Morgan Ito") == "Review the Storage plan with [redacted]"
+    assert r.redact("Draft the Q4 note for Northwind and INC-2041") == "Draft the Q4 note for [redacted] and [redacted]"
+    assert r.redact("Kestrel status check") == "[redacted] status check"        # a first word gets no pass
+    assert r.redact("review the plan before the platform sync") == "review the plan before the platform sync"
+    assert r.redact("Review notes for the Platform Sync") == "Review notes for the Platform Sync"   # a phrase is allowed whole
+    assert r.redact("Review O'Neil's doc and the McKay-Li memo") == "Review [redacted] doc and the [redacted] memo"
+    assert r.redact("Review with Alex Doe") == "Review with [redacted]"          # no people rule here: still a name
+    # a link is an address, not prose, and the placeholders are not names
+    assert r.redact("Review https://Notes.example.org/Plan?q=Kestrel") == "Review https://Notes.example.org/Plan?q=Kestrel"
+    assert make(people=True, names={"allow": ["Review"]}).redact("Review with Alex Doe") == "Review with [person]"
+    assert make().redact("Review the plan with Morgan Ito") == "Review the plan with Morgan Ito"   # off unless asked for
+
+
+def test_a_private_matter_gets_the_private_title_whatever_its_words():
+    """Some work should not be described at all where others can read it. A workspace names
+    the patterns; text that matches one, in itself or in what it was made from, is replaced
+    whole. Redacting a name out of such a title would still say what the work is."""
+    r = make(private={"patterns": [r"(?i)\bhead ?count\b", r"(?i)\bperformance review\b"], "title": "Private"})
+    assert r.title("Send the headcount plan") == "Private"
+    assert r.title("Send the plan", source="Send the plan. It covers Headcount for next year") == "Private"
+    assert r.title("Review the Contoso Ltd plan") == "Review the [redacted] plan"
+    assert make().title("Send the headcount plan") == "Send the headcount plan"
