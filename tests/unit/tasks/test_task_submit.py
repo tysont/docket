@@ -200,3 +200,39 @@ def test_the_assess_task_recommends_a_decision_from_the_workspace_vocabulary():
 def test_without_a_decision_vocabulary_the_assess_output_is_unchanged():
     kind, _ = setup()
     assert "decision" not in {f.name for f in kind.fields}
+
+
+def test_a_reviewer_can_change_the_recommended_decision():
+    """The reviewer sees the whole set with fresh eyes. Besides asking, merging or dropping,
+    it may say an item deserves a different decision than the one first recommended."""
+    cfg = persona_config("reference-like")
+    kind = registry(TasksConfig.model_validate(DECISIONS))["review"]
+    assert set({f.name: f for f in kind.fields}["decision"].value_names()) == {"act", "park", "note"}
+    it = item(1, keep=True, assessment={"kind": "request", "owner": "me", "ask": "Reply", "decision": "act"})
+    pack = packs_for(kind, [it], cfg)[0]
+    assert pack["items"][0]["proposal"]["decision"] == "act"            # the reviewer sees what was recommended
+    got = submit.validate(kind, pack, {"items": [{"id": "item001", "verdict": "ask", "against": "It may be settled.",
+                                                  "decision": "note"}]}, raw_text=raw_from_lines(pack), rerun=RERUN)
+    assert got.body["items"][0]["decision"] == "note"
+    plain = persona_kinds("reference-like")["review"]
+    assert "decision" not in {f.name for f in plain.fields}                # no vocabulary: no such field
+
+
+def test_the_reviewers_decision_replaces_the_first_recommendation():
+    from types import SimpleNamespace
+    from docket.tasks.runner import combine_review
+    items = [{"id": "a", "keep": True, "assessment": {"decision": "act", "ask": "Reply"}, "trace": []},
+             {"id": "b", "keep": True, "assessment": {"decision": "act", "ask": "Reply"}, "trace": []}]
+    rows = {"a": ("t1", {"id": "a", "verdict": "ask", "against": "Settled already.", "decision": "note"}),
+            "b": ("t1", {"id": "b", "verdict": "ask", "against": "Could wait."})}
+    plan = SimpleNamespace(stage="review", carried={}, results={}, packs=[], kinds={})
+    import docket.tasks.runner as runner
+    real = runner._rows
+    runner._rows = lambda _plan: {"review": rows}
+    try:
+        out = {it["id"]: it for it in combine_review(items, plan)["items"]}
+    finally:
+        runner._rows = real
+    assert out["a"]["assessment"]["decision"] == "note" and out["a"]["review"]["decision"] == "note"
+    assert out["a"]["trace"][-1]["decision"] == "note" and out["a"]["trace"][-1]["was"] == "act"
+    assert out["b"]["assessment"]["decision"] == "act" and "decision" not in out["b"]["review"]

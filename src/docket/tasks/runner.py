@@ -251,8 +251,13 @@ def combine_review(items: list[dict[str, Any]], plan: StagePlan) -> dict[str, An
             continue
         task, row = hit
         v = row.get("verdict")
-        review = {k: row[k] for k in ("against", "reason", "merge_with") if row.get(k)}
+        review = {k: row[k] for k in ("against", "reason", "merge_with", "decision") if row.get(k)}
         entry: dict[str, Any] = {"stage": "review", "verdict": v, **review}
+        if row.get("decision"):
+            # The reviewer's decision replaces the first recommendation; the trace keeps both.
+            was = (it.get("assessment") or {}).get("decision")
+            new["assessment"] = {**(it.get("assessment") or {}), "decision": row["decision"]}
+            entry["was"] = was
         if task is None:
             entry["carried"] = True
         else:

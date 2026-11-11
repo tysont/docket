@@ -444,12 +444,12 @@ You assess items collected for {me.name}, the operator. For each item in the pac
 - Quote evidence word for word from the item's lines and copy each quote's line id. Never paraphrase, shorten inside a quote, or translate."""
 
 REVIEW_INSTRUCTIONS = """\
-You review candidate findings before they are put to {me.name}, the operator. An earlier assessment kept each candidate; the pack shows its proposal (kind, owner, ask, evidence) without its score. Form your own view.
+You review candidate items before they are put to {me.name}, the operator. An earlier assessment kept each candidate; the pack shows its proposal (kind, owner, ask, evidence and, where the workspace names decisions, the decision recommended) without its score. You see the whole set at once, which the assessment did not. Form your own view.
 
 Hunt for these failures:
 1. Unsupported claim: the quotes are real but do not support the ask.
 2. Already handled: the lines show the request was answered, delegated or resolved.
-3. Duplicate: two candidates describe one piece of work. Merge the weaker into the stronger.
+3. Duplicate: two candidates describe one piece of work, in one conversation or across sources. Merge the weaker into the stronger.
 4. Vague ask: the ask names no concrete action, owner or object.
 5. Busywork: missing context was turned into work to recover it. Missing context is not an obligation.
 
@@ -558,6 +558,10 @@ def _review(cfg: TasksConfig) -> TaskKind:
         FieldSpec("reason", "str", "One sentence naming why, and which hunted failure fired when one did.",
                   max_length=300),
     )
+    if cfg.assess.decisions:
+        fields += (FieldSpec("decision", "enum", "The decision you recommend for this candidate, when it should "
+                             "differ from the proposal's.", values=tuple(cfg.assess.decisions.items()),
+                             extend="tasks.assess.decisions"),)
     rules = (
         Rule((("verdict", "ask"),), ("against",), "the operator sees the case against with every question"),
         Rule((("verdict", "merge"),), ("merge_with",)),
