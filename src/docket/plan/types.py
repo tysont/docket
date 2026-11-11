@@ -255,6 +255,8 @@ class Task:
     question_id: str | None = None
     defaulted_est: bool = False
     elapsed_window: str | None = None   # the stored window, when every day of it was behind the run
+    want_parts: int | None = None       # the line's own say: this many parts (1 keeps it whole)
+    solo: bool = False                  # the line's own say: never in the daily batch
     part_of: str | None = None          # a part of a split task: the task's id
     part: int = 0                       # which part, from 1
     parts: int = 0                      # of how many

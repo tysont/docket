@@ -186,9 +186,10 @@ def observe(db: sqlite3.Connection, seen: dict[str, dict[str, str] | None], *, r
     """
     moves = []
     for row in rows(db):
-        if row["state"] not in ("backlog", "raised") or not row["placements"]:
+        if row["state"] not in ("backlog", "raised", "scheduled") or not row["placements"]:
             continue
-        want = "backlog" if row["state"] == "backlog" else "raised"
+        # a scheduled item still lives on its task line: the block is where the work is, the line is the item
+        want = "raised" if row["state"] == "raised" else "backlog"
         placed = [p for p in row["placements"] if state_of("routed", p.get("adapter")) == want]
         if not placed:
             continue
@@ -235,3 +236,56 @@ def read_back(ws: Any, *, run: Any = None, env: Any = None) -> dict[str, dict[st
                 except Exception:
                     pass
     return out
+
+
+def place_blocks(db: sqlite3.Connection, blocks: list[dict[str, Any]], *, destination: str, adapter: str,
+                 run_id: str, at: str) -> list[dict[str, Any]]:
+    """Track a plan's standing blocks back to their items (the caller holds the transaction).
+
+    ``blocks`` are the blocks that stand after a run: ``key``, ``task_ids``, ``start``,
+    ``end``. A block is a placement of every ledger item among its ``task_ids``: one item
+    may have several blocks (a split task: ``of`` says how many), and one block several
+    items (a batch: ``with`` names the others). An item's placements in ``destination`` are
+    replaced by the present ones, so tracking follows when blocks are consolidated, split up
+    or released. An open item with a block is ``scheduled``; one whose blocks are gone
+    returns to ``backlog``. Returns the items whose state or blocks changed.
+    """
+    by_item: dict[str, list[dict[str, Any]]] = {}
+    for b in sorted(blocks, key=lambda b: (str(b.get("start")), str(b.get("key")))):
+        ids = [str(t) for t in b.get("task_ids") or []]
+        for tid in ids:
+            by_item.setdefault(tid, []).append({"b": b, "with": [x for x in ids if x != tid]})
+    moves = []
+    for row in rows(db):
+        if row["state"] not in ("new", "backlog", "scheduled"):
+            continue
+        mine = by_item.get(row["key"], [])
+        now = []
+        for m in mine:
+            p = {"destination": destination, "adapter": adapter, "key": m["b"]["key"], "start": m["b"].get("start"),
+                 "end": m["b"].get("end"), "run": run_id}
+            if len(mine) > 1:
+                p["of"] = len(mine)
+            if m["with"]:
+                p["with"] = m["with"]
+            now.append(p)
+        old = [p for p in row["placements"] if p.get("destination") == destination and p.get("adapter") == adapter]
+        strip = lambda ps: [{k: v for k, v in p.items() if k != "run"} for p in ps]   # noqa: E731
+        state = "scheduled" if now else ("backlog" if row["state"] == "scheduled" else row["state"])
+        if strip(old) == strip(now) and state == row["state"]:
+            continue
+        keep = [p for p in row["placements"] if p not in old]
+        history = row["history"]
+        if state != row["state"]:
+            note = f"{len(now)} block(s)" if now else "no block"
+            history = history + [{"run": run_id, "at": at, "decision": "planned", "state": state, "note": note}]
+        db.execute("UPDATE item_ledger SET state=?, state_at=?, placements=?, history=? WHERE key=?",
+                   (state, at if state != row["state"] else row["state_at"],
+                    json.dumps(keep + now, sort_keys=True), json.dumps(history, sort_keys=True), row["key"]))
+        moves.append({"key": row["key"], "title": row["title"], "was": row["state"], "state": state, "blocks": len(now)})
+    return moves
+
+
+def items_of_block(db: sqlite3.Connection, block_key: str) -> list[dict[str, Any]]:
+    """The items a block is for: one for a whole task or a part, several for a batch."""
+    return [r for r in rows(db) if any(p.get("key") == block_key for p in r["placements"])]

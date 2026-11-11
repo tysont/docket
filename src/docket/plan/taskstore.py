@@ -26,7 +26,7 @@ from docket.shapes.unexpected import unexpected
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
 
-FIELD_NAMES = ("due", "est", "start", "tier", "when", "carry", "id", "deadline")
+FIELD_NAMES = ("due", "est", "start", "tier", "when", "carry", "id", "deadline", "parts", "batch")
 
 
 @dataclass(frozen=True)

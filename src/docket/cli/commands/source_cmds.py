@@ -290,18 +290,27 @@ def cmd_ledger_list(ctx: Any, ns: Any) -> Result:
     return Result({"items": rows, "states": {s: counts[s] for s in ledger.STATES if counts[s]}}, "\n".join(text))
 
 
-@command("ledger show", "Show one ledger item by key or topic: its state, decisions and placements.",
-         args=[Arg("key", "Item key or topic.")], examples=["docket ledger show i3k9q2ab --json"])
+@command("ledger show", "Show one ledger item by key or topic: its state, decisions and placements. Given a "
+         "calendar block's key, show the items the block is for.",
+         args=[Arg("key", "Item key, topic, or block key.")], examples=["docket ledger show i3k9q2ab --json"])
 def cmd_ledger_show(ctx: Any, ns: Any) -> Result:
     from docket.items import ledger
     ctx.workspace_root()
     row = ledger.get(ctx.store().db, ns.key)
     if row is None:
-        raise InputError("input.unknown_item", f"The ledger has no item {ns.key!r}.", hint="docket ledger list")
+        of_block = ledger.items_of_block(ctx.store().db, ns.key)   # a block's key: the items it is for
+        if of_block:
+            text = [f"block {ns.key} is for {len(of_block)} item(s):"] + \
+                   [f"  {r['key']} {r['state']:<12} {(r['title'] or '')[:80]}" for r in of_block]
+            return Result({"block": ns.key, "items": of_block}, "\n".join(text))
+        raise InputError("input.unknown_item", f"The ledger has no item or block {ns.key!r}.", hint="docket ledger list")
     text = [f"{row['key']} {row['state']} {row['title'] or ''}", f"  {row['url'] or ''}"]
     text += [f"  {h.get('at', '')[:10]} {h.get('decision')} -> {h.get('state')}" + (f" ({h['note']})" if h.get("note") else "")
              for h in row["history"]]
-    text += [f"  in {p.get('destination')}" + (f" under {p['anchor']}" if p.get("anchor") else "") for p in row["placements"]]
+    text += [f"  in {p.get('destination')}" + (f" under {p['anchor']}" if p.get("anchor") else "")
+             + (f" {p['start']} to {p['end']}" if p.get("start") else "")
+             + (f", one of {p['of']}" if p.get("of") else "")
+             + (f", with {len(p['with'])} other(s)" if p.get("with") else "") for p in row["placements"]]
     return Result({"item": row}, "\n".join(text))
 
 

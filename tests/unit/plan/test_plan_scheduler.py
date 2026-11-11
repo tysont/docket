@@ -264,3 +264,19 @@ def test_a_task_that_is_already_late_takes_the_earliest_slot_whatever_the_prefer
     busy = [ev(f"m{i}", d(i), "09:00", "12:00") for i in (0, 1, 4)]              # mornings taken through Monday
     res = run([task("late", 60, due=d(-1))], busy, pol=p)
     assert placed(res, "late") == (TODAY, hm("12:00"), hm("13:00")) and res.unit_for("late").late
+
+
+def test_a_task_line_can_say_how_it_is_to_be_blocked():
+    """The split length and the batch size are defaults. A task can ask for a number of parts
+    (one keeps it whole, more splits a task that would not otherwise split) and can ask to
+    stay out of the daily batch."""
+    p = policy(split_over=90, batch_max=15, batch_block_max=60)
+    res = run([task("whole", 120, due=d(5), want_parts=1), task("three", 90, due=d(8), want_parts=3),
+               task("s1", 15, due=d(3)), task("s2", 15, due=d(3)), task("alone", 15, due=d(3), solo=True)], pol=p)
+    rows = {tuple(r["task_ids"]): [] for r in res.schedule}
+    for r in res.schedule:
+        rows[tuple(r["task_ids"])].append(r)
+    assert [r["minutes"] for r in rows[("whole",)]] == [120]
+    assert [r["minutes"] for r in rows[("three",)]] == [30, 30, 30] and len({r["date"] for r in rows[("three",)]}) == 3
+    assert [r["kind"] for r in rows[("s1", "s2")]] == ["batch"]
+    assert [r["kind"] for r in rows[("alone",)]] == ["shallow"] and rows[("alone",)][0]["minutes"] == 30

@@ -122,14 +122,15 @@ def split_long(tasks: list[Task], policy: Policy) -> list[Task]:
     its own key; the scheduler puts them on different days. A task with a window is left
     whole: the window says when the work happens."""
     cut = policy.split_over
-    if not cut:
+    if not cut and not any(t.want_parts for t in tasks):
         return tasks
+    cut = cut or max(t.est for t in tasks) + 1
     out: list[Task] = []
     for t in tasks:
-        if t.kind == "batch" or t.window is not None or t.est <= cut:
+        if t.kind == "batch" or t.window is not None or (t.want_parts is None and t.est <= cut) or t.want_parts == 1:
             out.append(t)
             continue
-        n = -(-t.est // cut)
+        n = t.want_parts or -(-t.est // cut)
         size = policy.round_up(-(-t.est // n))
         out += [replace(t, id=f"{t.id}#{i}", est=size, title=f"{t.title} ({i}/{n})", part_of=t.id, part=i, parts=n)
                 for i in range(1, n + 1)]
@@ -141,7 +142,7 @@ def make_batches(ordered: list[Task], ctx: Ctx, titler: Titler | None) -> tuple[
     p = ctx.policy
     if p.batch_max <= 0:
         return [], ordered
-    small = [t for t in ordered if t.est <= p.batch_max and t.window is None
+    small = [t for t in ordered if t.est <= p.batch_max and t.window is None and not t.solo
              and (t.earliest is None or t.earliest <= ctx.today)]
     rest = [t for t in ordered if t not in small]
     days = [d for d in ctx.days() if d.weekday() in p.workdays]

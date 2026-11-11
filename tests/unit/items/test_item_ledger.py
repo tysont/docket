@@ -161,3 +161,69 @@ def test_an_imported_item_can_say_where_it_lives_and_is_followed_there(db):
         assert ledger.observe(db, {"backlog": {"iaaaaaaaa": "open"}}, run_id="r2", at=T2) == []
         moves = ledger.observe(db, {"backlog": {"iaaaaaaaa": "done"}}, run_id="r3", at=T2)
     assert [(m["key"], m["state"]) for m in moves] == [("iaaaaaaaa", "done")]
+
+
+def _backlog_item(db, key, title="A task"):
+    ledger.import_rows(db, [{"title": title, "key": key, "destination": "backlog", "adapter": "markdown_tasks"}],
+                       run_id="import-1", at=T1)
+
+
+def test_blocks_are_tracked_back_to_their_items_whether_whole_batched_or_split(db):
+    """A block on the calendar is a placement of the items it is for. One item may have
+    several blocks (a split task), and one block several items (a batch); the ledger holds
+    both directions, and an item with a block is scheduled."""
+    with db:
+        for k in ("iaaaaaaaa", "ibbbbbbbb", "icccccccc", "idddddddd"):
+            _backlog_item(db, k)
+        blocks = [
+            {"key": "dk_t_whole", "task_ids": ["iaaaaaaaa"], "start": "2026-10-16T09:00", "end": "2026-10-16T10:00"},
+            {"key": "dk_t_part1", "task_ids": ["ibbbbbbbb"], "start": "2026-10-16T10:00", "end": "2026-10-16T11:00"},
+            {"key": "dk_t_part2", "task_ids": ["ibbbbbbbb"], "start": "2026-10-19T09:00", "end": "2026-10-19T10:00"},
+            {"key": "dk_b_batch", "task_ids": ["icccccccc", "idddddddd", "t_not_in_the_ledger"],
+             "start": "2026-10-16T13:00", "end": "2026-10-16T13:30"}]
+        moves = ledger.place_blocks(db, blocks, destination="cal", adapter="calendar_exec", run_id="r2", at=T2)
+    assert sorted(m["key"] for m in moves) == ["iaaaaaaaa", "ibbbbbbbb", "icccccccc", "idddddddd"]
+    got = {k: ledger.get(db, k) for k in ("iaaaaaaaa", "ibbbbbbbb", "icccccccc")}
+    assert all(r["state"] == "scheduled" for r in got.values())
+    cal = lambda r: [p for p in r["placements"] if p["adapter"] == "calendar_exec"]      # noqa: E731
+    assert [p["key"] for p in cal(got["ibbbbbbbb"])] == ["dk_t_part1", "dk_t_part2"]
+    assert cal(got["ibbbbbbbb"])[0] == {"destination": "cal", "adapter": "calendar_exec", "key": "dk_t_part1",
+                                        "start": "2026-10-16T10:00", "end": "2026-10-16T11:00", "of": 2, "run": "r2"}
+    assert cal(got["icccccccc"])[0]["with"] == ["idddddddd", "t_not_in_the_ledger"]      # the batch it shares
+    assert got["iaaaaaaaa"]["placements"][0]["adapter"] == "markdown_tasks"              # its line is still its home
+    assert [r["key"] for r in ledger.items_of_block(db, "dk_b_batch")] == ["icccccccc", "idddddddd"]
+    assert [r["key"] for r in ledger.items_of_block(db, "dk_t_part2")] == ["ibbbbbbbb"]
+
+
+def test_tracking_follows_when_blocks_are_consolidated_split_up_or_released(db):
+    with db:
+        for k in ("iaaaaaaaa", "ibbbbbbbb"):
+            _backlog_item(db, k)
+        two = [{"key": "dk_t_p1", "task_ids": ["iaaaaaaaa"], "start": "2026-10-16T09:00", "end": "2026-10-16T10:00"},
+               {"key": "dk_t_p2", "task_ids": ["iaaaaaaaa"], "start": "2026-10-19T09:00", "end": "2026-10-19T10:00"},
+               {"key": "dk_b_x", "task_ids": ["ibbbbbbbb"], "start": "2026-10-16T13:00", "end": "2026-10-16T13:30"}]
+        ledger.place_blocks(db, two, destination="cal", adapter="calendar_exec", run_id="r2", at=T2)
+        # the next plan: the split task is one block again, and the batched one has no block
+        one = [{"key": "dk_t_whole", "task_ids": ["iaaaaaaaa"], "start": "2026-10-20T09:00", "end": "2026-10-20T11:00"}]
+        moves = ledger.place_blocks(db, one, destination="cal", adapter="calendar_exec", run_id="r3", at=T2)
+        assert ledger.place_blocks(db, one, destination="cal", adapter="calendar_exec", run_id="r4", at=T2) == []
+    a, b = ledger.get(db, "iaaaaaaaa"), ledger.get(db, "ibbbbbbbb")
+    assert [p["key"] for p in a["placements"] if p["adapter"] == "calendar_exec"] == ["dk_t_whole"] and a["state"] == "scheduled"
+    assert [p for p in b["placements"] if p["adapter"] == "calendar_exec"] == [] and b["state"] == "backlog"
+    assert b["history"][-1]["decision"] == "planned" and b["history"][-1]["note"] == "no block"
+    assert {m["key"]: m["state"] for m in moves} == {"iaaaaaaaa": "scheduled", "ibbbbbbbb": "backlog"}
+    assert ledger.items_of_block(db, "dk_t_p1") == []
+
+
+def test_a_scheduled_item_is_still_followed_in_its_task_list(db):
+    with db:
+        _backlog_item(db, "iaaaaaaaa")
+        ledger.observe(db, {"backlog": {"iaaaaaaaa": "open"}}, run_id="r1", at=T1)
+        ledger.place_blocks(db, [{"key": "dk_t_w", "task_ids": ["iaaaaaaaa"], "start": "s", "end": "e"}],
+                            destination="cal", adapter="calendar_exec", run_id="r2", at=T2)
+        moves = ledger.observe(db, {"backlog": {"iaaaaaaaa": "done"}}, run_id="r3", at=T2)
+    assert [(m["key"], m["state"]) for m in moves] == [("iaaaaaaaa", "done")]
+    with db:   # a finished item is not pulled back by a block that still stands
+        assert ledger.place_blocks(db, [{"key": "dk_t_w", "task_ids": ["iaaaaaaaa"], "start": "s", "end": "e"}],
+                                   destination="cal", adapter="calendar_exec", run_id="r4", at=T2) == []
+    assert ledger.get(db, "iaaaaaaaa")["state"] == "done"

@@ -162,3 +162,15 @@ def test_a_planning_attribute_can_live_in_a_field_with_no_name(tmp_path):
     dest = _store(tmp_path, "## Now\n- [ ] Write the spec [:: 2026-10-20] [size:: 45m]\n", grammar={"fields": "bracket"})
     (t,) = dest.open_tasks(dest.snapshot())
     assert _attributes(t.fields, names) == {"due": "2026-10-20", "est": "45m"}
+
+
+def test_a_line_says_how_it_is_blocked_through_its_own_fields(tmp_path):
+    from types import SimpleNamespace
+    from docket.plan.build import _task_from_fields
+    from docket.plan.types import Policy
+    from tests.plan_helpers import NOW, TODAY
+    inp = SimpleNamespace(policy=Policy(), today=TODAY, now=NOW, lo=TODAY, hi=TODAY, tz=TZ)
+    t = _task_from_fields("a", "A task", {"est": "2h", "parts": "1", "batch": "no"}, inp, tier=0, source="store", instances=[])
+    assert t.want_parts == 1 and t.solo is True
+    u = _task_from_fields("b", "A task", {"est": "2h"}, inp, tier=0, source="store", instances=[])
+    assert u.want_parts is None and u.solo is False

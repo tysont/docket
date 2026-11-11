@@ -557,3 +557,28 @@ def test_a_task_ticked_in_its_file_moves_the_item_to_done(persona, cli, pinned_n
     code, env = cli("ledger", "reconcile", "--workspace", str(ws))
     got = cli("ledger", "show", it["key"], "--workspace", str(ws))[1]["data"]["item"]
     assert got["state"] == "done" and got["history"][-1]["decision"] == "observed"
+
+
+def test_blocks_a_run_applies_are_tracked_in_the_ledger(persona, cli, pinned_now):
+    """After a run that plans and applies, each item with a block is scheduled and names the
+    block; a block's key leads back to its items. Items in a batch share a block."""
+    from tests.scenario.test_calendar_ownership import setup
+    ws = persona("reference-like")
+    setup(ws)
+    dst = ws / "destinations.yaml"
+    dst.write_text(dst.read_text().replace('{/links}"', '{/links} [id:: {key}]"', 1))
+    cli("run", "start", "triage", "--now", pinned_now, "--workspace", str(ws))
+    res = run_agent(ws)
+    assert res.failures == [] and res.final["kind"] == "done"
+    rows = cli("ledger", "list", "--workspace", str(ws))[1]["data"]["items"]
+    scheduled = [r for r in rows if r["state"] == "scheduled"]
+    assert scheduled, [(r["state"], r["placements"]) for r in rows][:5]
+    for r in scheduled:
+        blocks = [p for p in r["placements"] if str(p.get("key", "")).startswith("dk_")]
+        assert blocks and all(p["start"] and p["end"] and p["destination"] == "work-calendar" for p in blocks)
+        assert any(p["adapter"] == "markdown_tasks" for p in r["placements"])          # and its line
+        assert r["history"][-1]["decision"] == "planned"
+    key = next(p["key"] for p in scheduled[0]["placements"] if str(p.get("key", "")).startswith("dk_"))
+    code, env = cli("ledger", "show", key, "--workspace", str(ws))
+    assert code == 0 and scheduled[0]["key"] in [r["key"] for r in env["data"]["items"]]
+    assert "dk_" in (ws / "cal.ics").read_text()                                          # the block is really there

@@ -187,13 +187,17 @@ def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs,
     earliest = parse_field_date(fields["start"], inp.today) if "start" in fields else None
     t_tier = parse_field_int(fields["tier"], "tier") if "tier" in fields else None
     carry = parse_field_int(fields["carry"], "carry") if "carry" in fields else None
+    # the line's own say on how it is blocked (TD §12.3): a number of parts, and no batching
+    parts = parse_field_int(fields["parts"], "parts") if "parts" in fields else None
+    solo = str(fields.get("batch", "")).strip().lower() in ("no", "false", "0", "off")
     window = None
     if fields.get("when"):
         window = resolve_window(fields["when"], inp.today, instances=instances, lo=inp.lo, hi=inp.hi, tz=inp.tz)
     return Task(id=tid, title=title, est=est if est is not None else p.default_est, due=due, earliest=earliest,
                 tier=t_tier if t_tier is not None else tier, window=window, window_text=fields.get("when"),
                 carry=carry or 0, deadline=str(fields.get("deadline", "")).lower() in ("true", "yes", "1"),
-                source=source, question_id=qid, defaulted_est=est is None)
+                source=source, question_id=qid, defaulted_est=est is None,
+                want_parts=parts if parts and 1 <= parts <= 12 else None, solo=solo)
 
 
 def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instances: list[tuple[Any, str]]) -> list[Task]:

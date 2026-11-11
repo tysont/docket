@@ -43,6 +43,26 @@ def _decided(rc: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | Non
     return decide, outcomes, ops, recs
 
 
+def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[str, Any]]) -> list[dict[str, Any]] | None:
+    """The calendar blocks that stand after this run, for the item ledger: those the plan
+    kept, and those apply wrote. None when the run planned or applied nothing, which says
+    nothing about what stands."""
+    from docket.plan.build import planning_active
+    if not planning_active(rc) or rc.eval_or_none("approve") is None or rc.eval_or_none("apply") is None:
+        return None
+    cal = rc.ws.config.planning.calendar
+    out = []
+    for o in ops:
+        if o.get("destination") != cal.destination or o.get("verb") not in ("create", "move", "update", "keep"):
+            continue
+        rec = recs.get(o.get("op_id", ""))
+        if o["verb"] != "keep" and (rec is None or rec.get("outcome") not in ("applied", "already_present")):
+            continue
+        if o.get("task_ids"):
+            out.append({"key": o.get("key"), "task_ids": list(o["task_ids"]), "start": o.get("start"), "end": o.get("end")})
+    return out
+
+
 def durable_texts(rc: Any, lab: Any) -> dict[str, str]:
     """The words each labelled task had when its label was written: the label stage's packs."""
     out: dict[str, str] = {}
@@ -104,6 +124,7 @@ def state_step(rc: Any) -> dict[str, Any]:
     durable = not r.header.sandbox  # a sandbox run leaves cursors, dispositions and ledgers as they were
     items = _ledger_rows(rc, decide, ops, rows)
     observed: list[dict[str, Any]] = []
+    planned: list[dict[str, Any]] = []
     lab = rc.eval_or_none("label")
     labels_now = dict((lab.output or {}).get("labels") or {}) if lab is not None else {}
     label_texts: dict[str, str] = {}
@@ -114,6 +135,13 @@ def state_step(rc: Any) -> dict[str, Any]:
         if durable:
             disp_mod.write(db, rows)
             item_ledger.write(db, items)
+            standing = _standing_blocks(rc, ops, recs)
+            if standing is not None:
+                cal = rc.ws.config.planning.calendar
+                dcfg = rc.ws.config.destinations.get(cal.destination)
+                planned = item_ledger.place_blocks(db, standing, destination=cal.destination,
+                                                   adapter=dcfg.adapter if dcfg is not None else "calendar",
+                                                   run_id=r.id, at=r.header.clock.instant)
             if labels_now:
                 from docket.plan import labels as plan_labels
                 plan_labels.remember(db, labels_now, label_texts, run_id=r.id)
@@ -123,7 +151,7 @@ def state_step(rc: Any) -> dict[str, Any]:
             for name, key, row in entries:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
-                "items": len(items) if durable else 0, "items_observed": len(observed),
+                "items": len(items) if durable else 0, "items_observed": len(observed), "items_planned": len(planned),
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "close:state", "ok", body)
     return {**body, "outcome": "ok"}
