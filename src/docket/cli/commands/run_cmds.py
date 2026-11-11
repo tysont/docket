@@ -1,4 +1,4 @@
-"""Run commands and the loop entry point: ``next``, ``run start|status|list|resume|steal|abandon``."""
+"""Run commands and the loop entry point: ``next``, ``run start|status|list|steal|abandon``."""
 from __future__ import annotations
 
 from typing import Any
@@ -6,156 +6,162 @@ from typing import Any
 from docket.cli.envelope import Result
 from docket.cli.errors import InputError, StateError
 from docket.cli.registry import Arg, command
-from docket.engine.steps import Command, DoneStep
 
 
-def _step_next(step: Any) -> tuple[list[str], str] | None:
-    if getattr(step, "kind", None) == "run":
-        return step.command.argv, step.why
+def steps_next(steps: list[Any]) -> tuple[list[str], str] | None:
+    """The envelope's next command: the first step that is a command to run."""
+    for s in steps:
+        if getattr(s, "kind", None) == "run":
+            return s.command.argv, s.why
     return None
-
-
-def step_brief(rc: Any, step: Any) -> dict[str, Any]:
-    """The next step of a mutation response (AE-08): its kind, counts and the next command,
-    never the whole burst. ``docket next`` returns the step itself."""
-    k = step.kind
-    out: dict[str, Any] = {"kind": k, "stage": getattr(step, "stage", None)}
-    nxt = Command.of(rc.argv("next"))
-    if k == "run":
-        out.update(command=step.command.model_dump(), why=step.why)
-        nxt = step.command
-    elif k == "ask":
-        out.update(counts={"questions": len(step.questions)}, question_ids=[q.id for q in step.questions])
-    elif k == "dispatch":
-        out.update(counts={"tasks": len(step.tasks)})
-    elif k == "wait":
-        out.update(reason=step.reason, command=step.command.model_dump() if step.command else None)
-    else:
-        out.update(status=step.summary.get("status"))
-    out["next"] = nxt.model_dump()
-    return out
-
-
-def brief_text(brief: dict[str, Any]) -> str:
-    k = brief["kind"]
-    what = {"ask": lambda: f"ask {brief['counts']['questions']} question(s)",
-            "dispatch": lambda: f"dispatch {brief['counts']['tasks']} task(s)",
-            "wait": lambda: f"wait ({brief['reason']})", "run": lambda: f"run {brief['stage']}",
-            "done": lambda: f"done ({brief.get('status')})"}[k]()
-    return f"next: {what}: {brief['next']['shell']}"
 
 
 def step_summary(step: Any) -> str:
     k = step.kind
     if k == "run":
-        return f"run: {step.command.shell}\nwhy: {step.why}"
+        return f"{step.node}: run {step.command.shell}\n  why: {step.why}"
     if k == "dispatch":
-        return f"dispatch {len(step.tasks)} task(s) ({step.stage}); concurrency {step.concurrency}"
+        return f"{step.node}: dispatch {len(step.tasks)} task(s); concurrency {step.concurrency}"
     if k == "ask":
-        lines = [f"ask {len(step.questions)} question(s) ({step.stage}):"]
+        lines = [f"{step.node}: ask {len(step.questions)} question(s):"]
         for q in step.questions[:20]:
             opts = ", ".join(f"{i}={o.id}" for i, o in enumerate(q.options, 1))
             lines.append(f"  {q.id}: {q.prompt} [{opts}]")
         if len(step.questions) > 20:
             lines.append(f"  ... {len(step.questions) - 20} more")
-        lines += [f"answer: {step.answer.shell}", f"details: {step.show.shell}"]
+        lines += [f"  answer: {step.answer.shell}", f"  details: {step.show.shell}"]
         return "\n".join(lines)
-    if k == "wait":
-        return f"wait ({step.reason}): {step.instructions}"
-    return "done: " + ", ".join(f"{a}={b}" for a, b in step.summary.items() if b is not None)
+    return f"{step.node or 'run'}: wait ({step.reason}): {step.instructions}"
 
 
-@command("next", "Return the single next step for the run: run, dispatch, ask, wait or done. An ask step is "
+def steps_summary(steps: list[Any]) -> str:
+    if not steps:
+        return "nothing is ready"
+    return f"{len(steps)} step(s) ready:\n" + "\n".join(step_summary(s) for s in steps)
+
+
+def steps_brief(rc: Any, steps: list[Any]) -> list[dict[str, Any]]:
+    """The ready steps of a mutation response (AE-08): each one's node, kind and counts, never
+    a whole burst. ``docket next`` returns the steps themselves."""
+    out = []
+    for step in steps:
+        row: dict[str, Any] = {"kind": step.kind, "node": getattr(step, "node", None)}
+        if step.kind == "run":
+            row.update(command=step.command.model_dump(), why=step.why)
+        elif step.kind == "ask":
+            row.update(counts={"questions": len(step.questions)}, question_ids=[q.id for q in step.questions])
+        elif step.kind == "dispatch":
+            row.update(counts={"tasks": len(step.tasks)})
+        else:
+            row.update(reason=step.reason, command=step.command.model_dump() if step.command else None)
+        out.append(row)
+    return out
+
+
+def brief_text(briefs: list[dict[str, Any]]) -> str:
+    def one(b: dict[str, Any]) -> str:
+        return {"ask": lambda: f"ask {b['counts']['questions']} question(s)",
+                "dispatch": lambda: f"dispatch {b['counts']['tasks']} task(s)",
+                "wait": lambda: f"wait ({b['reason']})", "run": lambda: "run"}[b["kind"]]() + f" ({b['node']})"
+    return "next: " + ("; ".join(one(b) for b in briefs) if briefs else "nothing is ready (docket next)")
+
+
+@command("next", "Return every step that is ready now: run, dispatch, ask or wait, each naming its node. Steps "
+                 "of nodes that do not depend on each other are ready together; do them together. An ask step is "
                  "compact: option ids and labels, one answer template and a show template per step.", run=True,
          args=[Arg("--full", "Ask steps: give every option its own answer command and every question its "
                              "evidence, defaults and refused options.", action="store_true")],
          effects=["renews the lease heartbeat when this session holds it; nothing else"],
          examples=["docket next --json", "docket next --full --json"])
 def cmd_next(ctx: Any, ns: Any) -> Result:
-    from docket.engine.next import compute_step
+    from docket.engine.next import compute_steps, envelope, summary
+    from docket.engine.steps import Command
     from docket.store import lease
     store = ctx.store()
     if not getattr(ns, "run", None) and store.latest_open() is None:
         ws = ctx.workspace()
-        wfs = sorted(ws.config.workflows)
-        cmd = ["docket", "run", "start", wfs[0], "--workspace", str(ws.root), "--json"] if wfs else None
+        graphs = sorted(ws.config.graphs)
+        cmd = ["docket", "run", "start", graphs[0], "--workspace", str(ws.root), "--json"] if graphs else None
         runs = store.list_runs()
         summ: dict[str, Any] = {"run": None, "status": "no open run"}
         if runs:
-            # Report the most recent run, so an agent that just closed one sees its summary.
+            # Report the most recent run, so an agent that just sealed one sees its summary.
             rc = ctx.run_context(runs[0]["run_id"])
-            summ = compute_step(rc).summary if rc.run.header.status != "open" else summ
-        step = DoneStep(summary=summ, command=Command.of(cmd) if cmd else None)
-        return Result({"run": summ.get("run"), "step": step.model_dump(), "stages": []},
-                      step_summary(step) + (f"\nstart a new run: {step.command.shell}" if cmd else ""),
+            summ = summary(rc) if rc.run.header.status != "open" else summ
+        text = "done: " + ", ".join(f"{a}={b}" for a, b in summ.items() if b is not None)
+        return Result({"run": summ.get("run"), "steps": [], "done": True, "summary": summ, "nodes": [],
+                       "start": Command.of(cmd).model_dump() if cmd else None},
+                      text + (f"\nstart a new run: {Command.of(cmd).shell}" if cmd else ""),
                       next=(cmd, "start a run") if cmd else None)
     rc = ctx.run_context()
     tok = ctx.token(rc, create=False)
-    step = compute_step(rc, token=tok, full=bool(ns.full))
+    steps = compute_steps(rc, token=tok, full=bool(ns.full))
     if rc.run.header.status == "open":
         lease.heartbeat(store.db, rc.run.id, tok)
-    return Result({"run": rc.run.id, "step": step.model_dump(), "stages": rc.stage_report()},
-                  step_summary(step), next=_step_next(step))
+    data = envelope(rc, steps)
+    text = steps_summary(steps) if not data["done"] else \
+        "done: " + ", ".join(f"{a}={b}" for a, b in (data["summary"] or {}).items() if b is not None)
+    return Result(data, text, next=steps_next(steps))
 
 
-@command("run start", "Create a run of a workflow, pinning its clock. Repeating it returns the same run.",
+@command("run start", "Create a run of a graph, pinning its clock. Repeating it returns the same run.",
          mutating=True,
-         args=[Arg("workflow", "Workflow name from docket.yaml."),
+         args=[Arg("graph", "Graph name from docket.yaml."),
                Arg("--date", "Run date: today, tomorrow, a weekday name or YYYY-MM-DD."),
-               Arg("--now", "Pin the clock to this ISO instant (rehearsal and tests)."),
+               Arg("--now", "Pin the clock to this ISO instant (tests)."),
                Arg("--sandbox", "Bind every destination to its sandbox twin for the whole run.", action="store_true"),
-               Arg("--new", "Create a new run even if one exists for this workflow and date.", action="store_true")],
+               Arg("--new", "Create a new run even if one exists for this graph and date.", action="store_true")],
          effects=["creates runs/<run-id>/ with run.json and a session token", "adds a runs row", "takes the run lease"],
-         examples=["docket run start daily --json", "docket run start daily --date tomorrow --sandbox --json"])
+         examples=["docket run start morning --json", "docket run start morning --date tomorrow --sandbox --json"])
 def cmd_run_start(ctx: Any, ns: Any) -> Result:
     from docket.config.loader import closest
     from docket.engine.clock import pin
-    from docket.engine.next import compute_step
+    from docket.engine.next import compute_steps, envelope
     from docket.store.runs import create_run, find_existing, load_run, new_run_id
     ws = ctx.workspace()
-    if ns.workflow not in ws.config.workflows:
-        raise InputError("input.unknown_workflow", f"No workflow {ns.workflow!r}.", hint="docket config explain workflows",
-                         details={"suggestion": closest(ns.workflow, list(ws.config.workflows)),
-                                  "workflows": sorted(ws.config.workflows)})
+    if ns.graph not in ws.config.graphs:
+        raise InputError("input.unknown_graph", f"No graph {ns.graph!r}.", hint="docket config explain graphs",
+                         details={"suggestion": closest(ns.graph, list(ws.config.graphs)),
+                                  "graphs": sorted(ws.config.graphs)})
     clock = pin(ws.config.profile.timezone, now=ns.now, on_date=ns.date)
     store = ctx.store()
-    existing = None if ns.new else find_existing(store, ns.workflow, clock.date)
+    existing = None if ns.new else find_existing(store, ns.graph, clock.date)
     if existing is not None and bool(existing["sandbox"]) == bool(ns.sandbox):
         run = load_run(store, existing["run_id"])
         ctx.run_id = run.id
         rc = ctx.run_context(run.id)
-        step = compute_step(rc, token=ctx.token(rc, create=False))
-        return Result({"run": run.id, "created": False, "status": run.header.status, "clock": run.header.clock.model_dump(),
-                       "step": step.model_dump()},
-                      f"run {run.id} already exists ({run.header.status})", next=_step_next(step))
-    run_id = new_run_id(store, clock.date, ns.workflow)
+        steps = compute_steps(rc, token=ctx.token(rc, create=False))
+        return Result({**envelope(rc, steps), "created": False, "status": run.header.status,
+                       "clock": run.header.clock.model_dump()},
+                      f"run {run.id} already exists ({run.header.status})", next=steps_next(steps))
+    run_id = new_run_id(store, clock.date, ns.graph)
     if ctx.dry_run:
         return Result({"dry_run": True, "would_create": run_id, "clock": clock.model_dump()}, f"would create run {run_id}")
     with store.db:
-        create_run(store, run_id=run_id, workflow=ns.workflow, clock=clock, sandbox=bool(ns.sandbox))
+        create_run(store, run_id=run_id, graph=ns.graph, clock=clock, sandbox=bool(ns.sandbox))
     rc = ctx.run_context(run_id)
     ctx.acquire(rc)
-    step = compute_step(rc, token=ctx.token(rc, create=False))
-    return Result({"run": run_id, "created": True, "status": "open", "clock": clock.model_dump(),
-                   "sandbox": bool(ns.sandbox), "step": step.model_dump()},
-                  f"started run {run_id}", next=_step_next(step))
+    steps = compute_steps(rc, token=ctx.token(rc, create=False))
+    return Result({**envelope(rc, steps), "created": True, "status": "open", "clock": clock.model_dump(),
+                   "sandbox": bool(ns.sandbox)},
+                  f"started run {run_id}\n{steps_summary(steps)}", next=steps_next(steps))
 
 
-@command("run status", "Show a run's header, stage statuses, lease and next step.", run=True,
+@command("run status", "Show a run's header, its nodes' statuses, its lease and the steps that are ready.", run=True,
          args=[Arg("id", "Run id (default: --run, then the most recent unsealed run).", nargs="?")],
          examples=["docket run status --json"])
 def cmd_run_status(ctx: Any, ns: Any) -> Result:
-    from docket.engine.next import compute_step
+    from docket.engine.next import compute_steps
     from docket.store import lease
     rc = ctx.run_context(ns.id)
     row = lease.get(rc.run.store.db, rc.run.id)
-    step = compute_step(rc, token=ctx.token(rc, create=False))
-    stages = rc.stage_report()
-    data = {"header": rc.run.header.model_dump(), "dir": str(rc.run.dir), "stages": stages,
-            "lease": dict(row) if row else None, "step": step.model_dump()}
+    steps = compute_steps(rc, token=ctx.token(rc, create=False))
+    nodes = rc.node_report()
+    data = {"header": rc.run.header.model_dump(), "dir": str(rc.run.dir), "nodes": nodes,
+            "lease": dict(row) if row else None, "steps": [s.model_dump() for s in steps]}
     text = "\n".join([f"run {rc.run.id} ({rc.run.header.status})"] +
-                     [f"  {s['stage']:<8} {s['state']}" + (f" ({s['reason']})" if s["reason"] else "") for s in stages])
-    return Result(data, text, next=_step_next(step))
+                     [f"  {n['node']:<20} {n['state']}" + (f" ({n['reason']})" if n["reason"] else "") for n in nodes])
+    return Result(data, text, next=steps_next(steps))
 
 
 @command("run list", "List runs in this workspace, newest first.", examples=["docket run list --json"])
@@ -167,30 +173,9 @@ def cmd_run_list(ctx: Any, ns: Any) -> Result:
 
 def _guard_mutable(rc: Any) -> None:
     if rc.run.header.status == "sealed":
-        raise StateError("run.sealed", f"Run {rc.run.id} is sealed.", hint="docket run start <workflow> --new")
+        raise StateError("run.sealed", f"Run {rc.run.id} is sealed.", hint="docket run start <graph> --new")
     if rc.run.header.status == "abandoned":
-        raise StateError("run.abandoned", f"Run {rc.run.id} was abandoned.", hint="docket run start <workflow> --new")
-
-
-@command("run resume", "Resume a run paused before a stage (the workflow's pause_before).", run=True, mutating=True,
-         effects=["records the resume in run.json"], examples=["docket run resume --json"])
-def cmd_run_resume(ctx: Any, ns: Any) -> Result:
-    from docket.engine.next import compute_step
-    rc = ctx.run_context()
-    pb = rc.workflow.pause_before
-    if rc.run.header.status != "open" or not pb or pb in rc.run.header.resumed:
-        step = compute_step(rc, token=ctx.token(rc, create=False))
-        return Result({"run": rc.run.id, "resumed": None, "changed": False, "step": step.model_dump()},
-                      "nothing to resume", next=_step_next(step))
-    if ctx.dry_run:
-        return Result({"dry_run": True, "would_resume": pb}, f"would resume before {pb}")
-    ctx.acquire(rc)
-    rc.run.header.resumed.append(pb)
-    rc.run.save_header()
-    rc.invalidate()
-    step = compute_step(rc, token=ctx.token(rc, create=False))
-    return Result({"run": rc.run.id, "resumed": pb, "changed": True, "step": step.model_dump()},
-                  f"resumed before {pb}", next=_step_next(step))
+        raise StateError("run.abandoned", f"Run {rc.run.id} was abandoned.", hint="docket run start <graph> --new")
 
 
 @command("run steal", "Take the run lease from another session.", mutating=True,
@@ -225,30 +210,24 @@ def cmd_run_abandon(ctx: Any, ns: Any) -> Result:
     return Result({"run": rc.run.id, "status": "abandoned", "changed": True}, f"abandoned {rc.run.id}")
 
 
-@command("run rehearse", "Drive a copy of a run to its end against sandbox twins and recorded records; report "
-                         "every stage outcome, operation, refusal and unexpected shape.",
-         args=[Arg("--run", "Run id (default: the most recent open run, else the most recent run).", metavar="RUN"),
-               Arg("--answers", "Where answers come from: recorded (then recommended, then first option), "
-                                "recommended, or file:<path> (an ask answer --file document).", default="recorded")],
-         effects=["writes runs/<run-id>/rehearse-<n>/ only: a copied state root, synthetic results and report.json",
-                  "nothing in the live run, database, workspace or destinations changes"],
-         examples=["docket run rehearse --json", "docket run rehearse --run 2026-10-16-daily --answers recommended --json"])
-def cmd_run_rehearse(ctx: Any, ns: Any) -> Result:
-    from docket.engine.rehearse import Rehearsal, latest_run
-    from docket.store.paths import state_root
+@command("graph show", "A graph as its nodes: what each does, who does it, and what it waits for.",
+         args=[Arg("graph", "Graph name from docket.yaml.")], examples=["docket graph show morning --json"])
+def cmd_graph_show(ctx: Any, ns: Any) -> Result:
+    from docket.config.models import ordered
+    from docket.engine.nodes import KINDS
     ws = ctx.workspace()
-    live_root = state_root(ws.root, ctx.env)
-    run_id = ns.run or latest_run(live_root)
-    if not run_id or not (live_root / "runs" / run_id / "run.json").is_file():
-        raise StateError("rehearse.no_run", f"No run {run_id!r} to rehearse." if run_id else "No run to rehearse.",
-                         hint=ctx.start_hint())
-    ctx.run_id = run_id
-    rep = Rehearsal(ws=ws, live_root=live_root, run_id=run_id, env=ctx.env, answers=ns.answers, cwd=ctx.cwd).run()
-    lines = [f"rehearsal {rep['rehearsal']} of {run_id}: {'ok' if rep['ok'] else 'NOT ok'} in {rep['elapsed_s']}s "
-             f"(reached {rep['reached'].get('kind') if rep['reached'] else '?'})"]
-    lines += [f"  {s['stage']:<8} {s['state']}" + (f" ({s['reason']})" if s["reason"] else "") for s in rep["stages"]]
-    lines.append(f"operations: {len(rep['operations'])}; refusals: {len(rep['refusals'])}; "
-                 f"unexpected shapes: {len(rep['unexpected'])}")
-    lines += [f"  refused: {r['code']}: {r['message']}" for r in rep["refusals"][:20]]
-    lines.append(f"report: {rep['report']}")
-    return Result(rep, "\n".join(lines))
+    if ns.graph not in ws.config.graphs:
+        raise InputError("input.unknown_graph", f"No graph {ns.graph!r}.", hint="docket config explain graphs",
+                         details={"graphs": sorted(ws.config.graphs)})
+    graph = ws.config.graphs[ns.graph]
+    rows = []
+    for name in ordered(graph):
+        n = graph[name]
+        how = KINDS[n.verb].how
+        rows.append({"node": name, "verb": n.verb, "what": getattr(n, n.verb) if n.verb not in ("merge", "plan") else None,
+                     "by": {"computed": "docket", "judged": "agent", "asked": "operator"}[how],
+                     "from": n.inputs, "after": [a for a in n.after if a not in n.inputs],
+                     "description": n.description})
+    text = [f"{r['node']} ({r['verb']}, {r['by']})" + (f" <- {', '.join(r['from'] + r['after'])}" if r["from"] or r["after"] else "")
+            for r in rows]
+    return Result({"graph": ns.graph, "nodes": rows}, "\n".join(text))
