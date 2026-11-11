@@ -298,6 +298,7 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
     groups: list[list[dict[str, Any]]] = []
     cur: list[dict[str, Any]] = []
     cur_bytes = 0
+    others: dict[tuple[str, str, str], list[dict[str, Any]]] = {}   # (source, unit, shown thread) -> context
     for _, members in ordered:
         members = sorted(members, key=lambda it: (str(it.get("at") or ""), str(it.get("id"))))
         if cur and len(cur) + len(members) > kind.max_items:
@@ -314,6 +315,8 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
                 cur, cur_bytes = [], 0
             cur.append(view)
             cur_bytes += n
+            if it.get("others"):
+                others.setdefault((view["source"], view["unit"], view["thread"]), []).extend(it["others"])
     if cur:
         groups.append(cur)
     packs = []
@@ -322,8 +325,10 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
         used = sorted({(v["source"], v["unit"]) for v in views})
         units = [ctx.units[k] for k in used if k in ctx.units]
         total = sum(_size(v) for v in views)
+        context = _context(kind, views, others)
         body = {
             "kind": kind.name, "stage": kind.stage, "spec": kind.spec_digest, "items": views, "units": units,
+            **({"context": context} if context else {}),
             "profile": _excerpts(ctx, views), "vocabulary": voc,
             "budget": {"max_items": kind.max_items, "max_bytes": kind.max_bytes, "bytes": total,
                        "over_budget": total > kind.max_bytes},
@@ -336,6 +341,42 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
                        extend=f"tasks.{'' if kind.core else 'kinds.'}{kind.name}.max_bytes")
         packs.append({"task_id": "t_" + dg[:12], "input_digest": dg, **body})
     return packs
+
+
+def _context(kind: "TaskKind", views: list[dict[str, Any]],
+             others: dict[tuple[str, str, str], list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """The other messages of each conversation in a pack, shown and not judged (TD §9.2).
+
+    At most ``context_items`` per conversation, the operator's own first and then the most
+    recent, listed oldest first and each cut to ``context_chars``. ``omitted`` counts the rest.
+    """
+    if kind.context_items <= 0:
+        return []
+    out = []
+    seen: set[tuple[str, str, str]] = set()
+    for v in views:
+        key = (v["source"], v["unit"], v["thread"])
+        if key in seen or not others.get(key):
+            continue
+        seen.add(key)
+        uniq = {(str(m.get("at") or ""), str(m.get("from") or ""), str(m.get("text") or "")): m for m in others[key]}
+        msgs = sorted(uniq.values(), key=lambda m: str(m.get("at") or ""))
+        ranked = sorted(msgs, key=lambda m: (not m.get("by_operator"), str(m.get("at") or "")), reverse=False)
+        mine = [m for m in ranked if m.get("by_operator")][-kind.context_items:]
+        rest = [m for m in msgs if not m.get("by_operator")]
+        room = kind.context_items - len(mine)
+        keep = mine + (rest[-room:] if room > 0 else [])
+        keep.sort(key=lambda m: str(m.get("at") or ""))
+        rows = []
+        for m in keep:
+            text = " ".join(str(m.get("text") or "").split())
+            if len(text) > kind.context_chars:
+                text = text[:kind.context_chars] + "\u2026"
+            rows.append({"at": _scalar(m.get("at")), "from": _scalar(m.get("from")), "text": text,
+                         "by_operator": bool(m.get("by_operator"))})
+        out.append({"source": key[0], "unit": key[1], "thread": key[2], "messages": rows,
+                    "omitted": len(msgs) - len(keep)})
+    return out
 
 
 def pack_ids(pack: dict[str, Any]) -> list[str]:

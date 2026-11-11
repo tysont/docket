@@ -48,10 +48,12 @@ def _questions(rc: Any) -> list[tuple[Any, dict[str, Any], dict[str, Any] | None
 def _row(ev: Any, q: dict[str, Any], a: dict[str, Any] | None) -> dict[str, Any]:
     out = {"id": q["id"], "kind": q["kind"], "stage": ev.name, "prompt": q["prompt"],
            "options": [{"position": i, "id": o["id"], "label": o["label"], "action": o.get("action"),
-                        "destination": o.get("destination"), "defaults": o.get("defaults") or {}}
+                        "destination": o.get("destination"), "defaults": o.get("defaults") or {},
+                        **({"batch": True} if o.get("batch") else {})}
                        for i, o in enumerate(q["options"], 1)],
            "answer": a}
-    for k in ("evidence", "refused", "notes", "previous", "requires", "item_id", "block_key", "task_id"):
+    for k in ("evidence", "refused", "notes", "previous", "requires", "item_id", "block_key", "task_id",
+              "recommended"):
         if q.get(k):
             out[k] = q[k]
     return out

@@ -30,6 +30,20 @@ class TaskBudget(Strict):
     """Pack budget (TD §9.2): at most ``max_items`` items and ``max_bytes`` bytes of item content per pack."""
     max_items: int = Field(10, ge=1, le=500)
     max_bytes: int = Field(60000, ge=512)
+    # Context: the other messages of an item's conversation, shown and not judged. At most
+    # this many per conversation, each cut to this many characters.
+    context_items: int = Field(12, ge=0, le=200)
+    context_chars: int = Field(300, ge=20, le=4000)
+    examples: list[TaskExample] = []    # worked examples shown in the prompt
+
+
+class TaskExample(Strict):
+    """One worked example for a task's prompt: what the item was, the row to write for it, and
+    why. The row is checked the way a submitted row is, so an example cannot teach a row the
+    task would refuse."""
+    shows: str                       # the item and its conversation, in a sentence or two
+    row: dict[str, Any]              # the output row, without id and source
+    why: str | None = None
 
 
 class AskVocabulary(Strict):
@@ -45,6 +59,9 @@ class AssessTasks(TaskBudget):
     max_evidence: int = Field(3, ge=1, le=20)
     max_quote: int = Field(300, ge=20, le=4000)
     guidance: str | None = None         # operator guidance appended to the core instructions
+    # The decisions an item can get (id -> meaning), in the workspace's words. With them the
+    # task recommends one for every item it keeps; a question offers it first (TD §10.2).
+    decisions: dict[str, str] = {}
 
 
 class ReviewTasks(TaskBudget):

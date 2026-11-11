@@ -127,8 +127,9 @@ def _disposition(group_ids: set[str], latest: Any, rows: list[dict[str, Any]], r
             if until is None or run_date is None or run_date < str(until)[:10]:
                 return {**base, "reason": "disposition: dismiss" + (f" until {until}" if until else "")}
             continue
-        if dec in ("watch", "routed", "now"):
-            # routed (written to a destination) and now (handled in the session) re-surface on new activity
+        if dec in ("watch", "ack", "routed", "now"):
+            # watch and ack (acknowledged), routed (written to a destination) and now (handled in the
+            # session) all re-surface on new activity
             since = instant(row.get("recorded_at"))
             if since is None or latest is None or latest <= since:
                 routed = dec == "routed"

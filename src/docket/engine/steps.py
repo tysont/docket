@@ -76,7 +76,9 @@ QUESTION, OPTION = "{question}", "{option}"
 # Details a compact question keeps: what answering needs (the approve digest and diff, the
 # overrides an option requires, the previous answer of a re-asked question). The rest
 # (evidence, defaults, refused options, notes) is in ``docket ask show <id>``.
-COMPACT_DETAILS = ("digest", "diff_path", "counts", "requires", "previous")
+# ``recommended`` is the option proposed for the question's item and ``batch`` the options whose
+# items are shown together: with them an agent lays out the triage view without further calls.
+COMPACT_DETAILS = ("digest", "diff_path", "counts", "requires", "previous", "recommended", "batch")
 
 
 class AskStep(BaseModel):

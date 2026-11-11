@@ -24,8 +24,9 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from typing import Any
 
-DECISIONS = ("done", "routed", "watch", "dismiss", "now")
-OUTCOME_ACTIONS = ("done", "watch", "dismiss", "now")
+# ack: acknowledged, nothing owed; like watch it holds only until something new happens.
+DECISIONS = ("done", "routed", "watch", "ack", "dismiss", "now")
+OUTCOME_ACTIONS = ("done", "watch", "ack", "dismiss", "now")
 
 
 @dataclass

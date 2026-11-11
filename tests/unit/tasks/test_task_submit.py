@@ -171,3 +171,32 @@ def test_workspace_kind_validates_like_a_core_kind():
     assert rows[0] == {"id": a["id"], "breach_risk": "high", "time_left": 90, "impact": 80, "note": "Page the lead."}
     assert rows[1]["breach_risk"] == "medium"
     assert [s.extend for s in got.shapes] == ["tasks.kinds.sla_check.fields.breach_risk: values"]
+
+
+DECISIONS = {"assess": {"decisions": {"act": "Do it now.", "park": "Put it on the task list.",
+                                      "note": "Worth knowing; nothing is owed."}}}
+
+
+def test_the_assess_task_recommends_a_decision_from_the_workspace_vocabulary():
+    """A workspace names the decisions an item can get. With that vocabulary the assess task
+    recommends one for every item it keeps; without it the output has no such field."""
+    kind, pack = setup(tasks=DECISIONS)
+    spec = {f.name: f for f in kind.fields}["decision"]
+    assert spec.type == "enum" and set(spec.value_names()) == {"act", "park", "note"}
+    it = pack["items"]
+    out = run(kind, pack, [kept(it[0], decision="park"), kept(it[1], decision="Note"),
+                           {"id": it[2]["id"], "source": it[2]["source"], "keep": False, "score": 5}])
+    rows = {r["id"]: r for r in out.body["items"]}
+    assert rows[it[0]["id"]]["decision"] == "park" and rows[it[1]["id"]]["decision"] == "note"
+    assert "decision" not in rows[it[2]["id"]] or rows[it[2]["id"]]["decision"] is None
+    e = refusal(kind, pack, [kept(it[0]), kept(it[1], decision="park"),
+                             {"id": it[2]["id"], "source": it[2]["source"], "keep": False, "score": 5}])
+    assert "decision" in str(e.details) and e.code.startswith("task.")       # a kept item needs one
+    e = refusal(kind, pack, [kept(it[0], decision="escalate"), kept(it[1], decision="park"),
+                             {"id": it[2]["id"], "source": it[2]["source"], "keep": False, "score": 5}])
+    assert "escalate" in str(e.details) or "escalate" in e.message               # an unknown decision is refused, not guessed
+
+
+def test_without_a_decision_vocabulary_the_assess_output_is_unchanged():
+    kind, _ = setup()
+    assert "decision" not in {f.name for f in kind.fields}

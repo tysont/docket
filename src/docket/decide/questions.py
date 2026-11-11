@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from docket.config.defaults import DEFAULT_OPTION_SET
 from docket.config.digest import digest
 from docket.decide import reconcile, verify
-from docket.decide.options import Acceptor, finding_options, item_view
+from docket.decide.options import Acceptor, finding_options, item_view, recommended_option
 from docket.shapes.unexpected import unexpected
 from docket.text import templates
 
@@ -140,6 +140,7 @@ def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
             "prompt": templates.render(prompt_tpl, view), "evidence": ev, "options": offered, "refused": refused,
             "notes": notes, "defaults": {k: v for k, v in defaults.items() if k in ("due", "est", "area", "forum")},
             "subject": item_subject(it),
+            **({"recommended": rec} if (rec := recommended_option(it, offered, rc.ws.config.decisions.recommend)) else {}),
         })
     not_asked = [{"item_id": it["id"], "title": it.get("title", ""), "score": int(it.get("score") or 0),
                   "reason": "past the question budget", "trace": it.get("trace") or []} for it in over]

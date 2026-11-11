@@ -608,6 +608,8 @@ A workspace may define a further kind by declaring its input selection, output f
 
 Items that share a source, unit and thread are one conversation. A pack keeps a conversation together with its items oldest first, each row carries its `thread`, and a pack boundary falls between conversations whenever one fits; a conversation longer than a pack spans packs in order. Conversations rank by their strongest item, must-surface first and then score. The assess instructions tell the task to read a conversation before judging its items, because a reply may answer or close what an earlier item asked.
 
+A pack also carries context: the other items of each conversation that no task will judge (the operator's own, the dismissed, those left to rules), as `context`, oldest first. At most `context_items` per conversation are kept, the operator's own first and then the most recent, each cut to `context_chars`, and `omitted` counts the rest. The instructions tell the task to read the context and judge only the items, because an ask the operator already answered needs nothing.
+
 ### 9.3 Prompts
 
 `tasks/prompts.py` renders `prompt.md` from four parts:
@@ -618,6 +620,8 @@ Items that share a source, unit and thread are one conversation. A pack keeps a 
 4. The submit instruction: the exact command, with the task id and the result path.
 
 Source text inside the pack is wrapped in delimiters with a per-task random nonce, so content cannot close the fence.
+
+A workspace teaches a task by example. `tasks.assess.examples` lists worked examples, each with `shows` (what the item was), `row` (the row to write, without id and source) and `why`; they are rendered between the output specification and the data. Every example row is validated the way a submitted row is, so configuration refuses an example the task itself would refuse (`config.bad_example`). `tasks.assess.decisions` is the workspace's decision vocabulary (id and meaning): with it the assess output has a `decision` field, required for every kept item, which is the recommendation a question shows.
 
 ### 9.4 Submission and validation
 
@@ -671,6 +675,8 @@ decisions:
 Each option is a typed action proposal with derived defaults (FR-DEC-02): due from the item's deadline or the planning policy's default lead time; estimate from the assess task or the size default; area and forum from topic and sender. `when` guards are a closed set (`has_forum`, `has_reply_channel`, `has_deadline`, `has_calendar`, `source_is`, `relation_is`). Before offering an option, Docket asks the destination adapter `can_accept(action)`; a refusal removes the option and adds its reason to the question (FR-DEC-03), for example "The Platform agenda's Next section is full (5 of 5)".
 
 An option may fix fields of its action with `set`, so two options can share one action and differ in where it lands: a task option with `set: { tier: priority }` files under the priority heading. A finding's defaults are derived, never asked for. The area is a rule's word, else the area of the topic the item's unit is named after, else the area the item's own text points to when it points one way. The estimate is the one the assess task gave (`est`, optional in the assess output), else the configured default. A source's `label` is what templates call one of its records (`source_label`).
+
+Every question recommends a decision for its item: the option whose id the assess task chose, when it is on offer; for an item the task did not keep and a must-surface rule kept anyway, `decisions.recommend.surfaced`; else `decisions.recommend.default`. An option marked `batch: true` is one whose items are shown together, so the operator accepts a group at once and opens only the items they want in detail; the ask step lists a question's `recommended` option and its `batch` options. `ack` is the acknowledge action: seen, nothing owed, and like `watch` it holds only until something new happens on the topic.
 
 ### 10.3 Answers
 

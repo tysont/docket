@@ -48,6 +48,20 @@ def assess_selection(rc: "RunContext", items: list[dict[str, Any]]) -> Selection
     ev = evaluate(items, _env(rc, {it["source"] for it in items}))
     by_id = {it["id"]: it for it in items}
     cands, must, skipped = [], set(), {}
+
+    def conv(it: dict[str, Any]) -> tuple[str, str, str] | None:
+        thread = it.get("conversation") or it.get("thread")
+        return (str(it.get("source") or ""), str(it.get("unit") or ""), str(thread)) if thread else None
+
+    # The rest of each conversation: items no task will judge (the operator's own, the
+    # dismissed, those left to rules). A task reads them as context beside its candidates.
+    left_out: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for it in ev:
+        key = conv(it)
+        if key is not None and not needs_agent(it):
+            left_out.setdefault(key, []).append({
+                "at": it.get("at"), "from": it.get("from"), "text": it.get("text") or it.get("title") or "",
+                "by_operator": bool(it["sender"]["is_me"])})
     for it in ev:
         if it["signals"]["surface"]:
             must.add(it["id"])
@@ -55,7 +69,8 @@ def assess_selection(rc: "RunContext", items: list[dict[str, Any]]) -> Selection
             # What the rules found travels with the candidate: a pack keeps a conversation
             # together and tells the task which items must surface.
             cands.append({**by_id[it["id"]], "conversation": it.get("conversation"),
-                          "must_surface": bool(it["signals"]["surface"])})
+                          "must_surface": bool(it["signals"]["surface"]),
+                          **({"others": left_out[conv(it)]} if conv(it) in left_out else {})})
         else:
             skipped[it["id"]] = "rules_only" if it["signals"]["assess"] == "rules_only" else "dismissed"
     return Selection(cands, must, skipped)

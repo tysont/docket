@@ -47,7 +47,7 @@ DESTINATION_ADAPTERS: dict[str, frozenset[str]] = {
 }
 IMPLEMENTED_ADAPTERS = frozenset(DESTINATION_ADAPTERS)
 
-ACTIONS = ("task.add", "agenda.add", "calendar.place", "message.draft", "now", "done", "watch", "dismiss")
+ACTIONS = ("task.add", "agenda.add", "calendar.place", "message.draft", "now", "done", "watch", "ack", "dismiss")
 ACTION_NEEDS_DESTINATION = {"task.add", "agenda.add", "calendar.place", "message.draft"}
 WHEN_GUARDS = ("has_forum", "has_reply_channel", "has_deadline", "has_calendar", "source_is", "relation_is")
 
@@ -184,6 +184,7 @@ class OptionConfig(Strict):
     when: str | None = None
     destination: str | None = None
     set: dict[str, str] = {}   # fields the option fixes on its action, for example a task's tier
+    batch: bool = False        # items recommended for this option are shown together, not one by one
 
 
 # --- M5 decisions (TD §10) ---
@@ -255,8 +256,15 @@ class DecisionDefaults(Strict):
         return _decision_duration(v)
 
 
+class Recommend(Strict):
+    """Which option a question recommends when the assess task named none on offer (TD §10.2)."""
+    default: str | None = None    # for any item
+    surfaced: str | None = None   # for an item kept only because a rule said it must surface
+
+
 class Decisions(Strict):
     option_sets: dict[str, dict[str, list[OptionConfig]]] = {}
+    recommend: Recommend = Recommend()
     templates: dict[str, str] = {}
     reconcile: ReconcileConfig = ReconcileConfig()
     verify: VerifyConfig = VerifyConfig()

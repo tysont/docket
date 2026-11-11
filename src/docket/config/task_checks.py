@@ -48,6 +48,22 @@ def check(loaded: Loaded) -> list[Issue]:
         if isinstance(sect, dict):
             sel(("tasks", core, "select"), sect.get("select"))
             tpl(("tasks", core, "guidance"), sect.get("guidance"))
+    assess = tasks.get("assess") if isinstance(tasks.get("assess"), dict) else {}
+    if isinstance(assess.get("examples"), list) and assess["examples"]:
+        try:
+            from docket.config.task_models import TasksConfig
+            from docket.tasks.kinds import example_problems, registry
+            kind = registry(TasksConfig.model_validate(tasks))["assess"]
+        except Exception:  # the structure pass reports a malformed tasks section
+            kind = None
+        for i, ex in enumerate(assess["examples"]):
+            if kind is None or not isinstance(ex, dict) or not isinstance(ex.get("row"), dict):
+                continue
+            problems = example_problems(kind, ex["row"])
+            if problems:
+                out.append(_issue(loaded, "config.bad_example",
+                                  f"tasks.assess.examples[{i}].row is a row the task would refuse: "
+                                  + "; ".join(problems[:3]), ("tasks", "assess", "examples", i, "row"), 3))
     kinds = tasks.get("kinds")
     if isinstance(kinds, dict):
         for name, kc in kinds.items():

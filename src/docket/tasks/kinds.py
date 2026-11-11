@@ -174,6 +174,9 @@ class TaskKind:
     result_model: type[BaseModel] = field(compare=False, repr=False, default=BaseModel)
     pack_model: type[BaseModel] = field(compare=False, repr=False, default=BaseModel)
     spec_digest: str = ""
+    context_items: int = 12       # context messages per conversation in a pack
+    context_chars: int = 300      # characters kept of each context message
+    examples: tuple[tuple[str, str, str], ...] = ()   # (what the item was, the row as JSON, why)
 
     @property
     def input_schema(self) -> str:
@@ -417,7 +420,7 @@ def build_models(kind: TaskKind) -> TaskKind:
     pm = pack_model(kind.name)
     spec = digest({"instructions": kind.instructions, "guidance": kind.guidance,
                    "output": result.model_json_schema(), "rules": [r.as_dict() for r in kind.rules],
-                   "view": kind.view})
+                   "view": kind.view, **({"examples": [list(e) for e in kind.examples]} if kind.examples else {})})
     object.__setattr__(kind, "row_model", row)
     object.__setattr__(kind, "result_model", result)
     object.__setattr__(kind, "pack_model", pm)
@@ -434,7 +437,8 @@ You assess items collected for {me.name}, the operator. For each item in the pac
 - Keep an item when it asks the operator for something, records a commitment the operator or someone they are responsible for made, needs a decision from them, or signals a risk they should act on.
 - Do not keep an item that only informs, that someone else has already handled, or whose only work would be recovering missing context.
 - Items that share a `thread` are one conversation, listed oldest first. Read the conversation, then judge each item in that light: a reply may answer, hand off or close what an earlier item asked.
-- Judge from the pack alone: the items' lines, their units and the profile excerpts. Do not assume facts the pack does not contain.
+- `context`, when the pack has it, holds other messages of the same conversations that are not for judging: the operator's own replies, automated posts and messages the rules left out, oldest first. Read them before you judge. An item the operator already answered, or that someone else has since handled, needs nothing from the operator.
+- Judge from the pack alone: the items' lines, the context, the units and the profile excerpts. Do not assume facts the pack does not contain.
 - Score from 0 to 100 by how much the item deserves the operator's attention today. A kept item usually scores above 50.
 - Write the ask as one imperative line that names the action and its object.
 - Quote evidence word for word from the item's lines and copy each quote's line id. Never paraphrase, shorten inside a quote, or translate."""
@@ -466,6 +470,41 @@ You classify entries collected for {me.name}, the operator. For each pack item c
 - Give a one-sentence reason that names what in the entry decided the class."""
 
 
+def _examples(rows: Any) -> tuple[tuple[str, str, str], ...]:
+    import json
+    return tuple((e.shows.strip(), json.dumps(e.row, sort_keys=True, ensure_ascii=False), (e.why or "").strip())
+                 for e in rows)
+
+
+def example_problems(kind: TaskKind, row: dict[str, Any]) -> list[str]:
+    """What ``docket task submit`` would say of this example row. The row is validated as
+    the result of a one-item pack whose lines are the quotes the row cites."""
+    from docket.cli.errors import DocketError
+    from docket.shapes.unexpected import collecting
+    from docket.tasks import submit
+    quotes = []
+    for e in row.get("evidence") or []:
+        q = e.get("quote") if isinstance(e, dict) else e
+        if isinstance(q, str) and q.strip():
+            quotes.append(q)
+    lines = [{"line": f"L{i}", "text": q} for i, q in enumerate(quotes, 1)] or [{"line": "L1", "text": "example"}]
+    pack = {"items": [{"id": "example", "source": "example", "lines": lines}]}
+    text = "\n".join(ln["text"] for ln in lines)
+    out: list[str] = []
+    with collecting() as col:
+        try:
+            submit.validate(kind, pack, {"items": [{"id": "example", "source": "example", **row}]},
+                            raw_text=lambda _iid: submit.normalize(text), rerun="")
+        except DocketError as err:
+            rows = (err.details or {}).get("errors") or []
+            out += [f"{r.get('path') or r.get('field') or ''}: {r.get('message') or r.get('rule') or ''}".strip(": ")
+                    for r in rows] or [err.message]
+        for shape in col.drain():
+            if shape.area == "task.extra_field":
+                out.append(f"{shape.detail.split('.', 1)[-1]} is not a field of the {kind.name} output")
+    return out
+
+
 def _assess(cfg: TasksConfig) -> TaskKind:
     a = cfg.assess
     kinds = {**ITEM_KINDS, **a.kinds}
@@ -493,10 +532,18 @@ def _assess(cfg: TasksConfig) -> TaskKind:
         FieldSpec("est", "duration", "For a kept item, the focused working time the ask needs (15m, 30m, 1h): "
                                      "the doing, not the waiting.", extend="tasks.assess"),
     )
-    rules = (Rule((("keep", True),), ("owner", "ask", "evidence"),
-                  "a kept item becomes a question: it needs who acts, what to do and the words that show it"),)
+    rules: tuple[Rule, ...] = (Rule((("keep", True),), ("owner", "ask", "evidence"),
+                                    "a kept item becomes a question: it needs who acts, what to do and the words "
+                                    "that show it"),)
+    if a.decisions:
+        fields += (FieldSpec("decision", "enum", "For a kept item, the decision you recommend for it.",
+                             values=tuple(a.decisions.items()), example=next(iter(a.decisions)),
+                             extend="tasks.assess.decisions"),)
+        rules += (Rule((("keep", True),), ("decision",),
+                       "every kept item is shown with a recommended decision"),)
     return TaskKind("assess", "assess", True, "Decide which items need the operator and what they should do.",
-                    ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes, Select(), "item")
+                    ASSESS_INSTRUCTIONS, a.guidance, fields, rules, a.max_items, a.max_bytes, Select(), "item",
+                    context_items=a.context_items, context_chars=a.context_chars, examples=_examples(a.examples))
 
 
 def _review(cfg: TasksConfig) -> TaskKind:

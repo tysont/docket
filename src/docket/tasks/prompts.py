@@ -45,7 +45,7 @@ def nonce_for(pack: dict[str, Any], data: str) -> str:
 
 def fence(pack: dict[str, Any]) -> tuple[str, str, str]:
     """(open delimiter, close delimiter, fenced data) for a pack."""
-    data = pretty_json({k: pack[k] for k in ("items", "units", "profile", "vocabulary")})
+    data = pretty_json({k: pack[k] for k in ("items", "context", "units", "profile", "vocabulary") if k in pack})
     n = nonce_for(pack, data)
     return f"<<<DATA-{n}", f"DATA-{n}>>>", data
 
@@ -184,6 +184,19 @@ def instructions_context(config: Any, kind: "TaskKind") -> dict[str, Any]:
     return {"me": {"name": config.profile.me.name}, "kind": kind.name, "stage": kind.stage}
 
 
+def worked_examples(kind: "TaskKind") -> str:
+    """The workspace's examples: what the item was, the row to write (without id and source,
+    which come from the pack), and why."""
+    if not kind.examples:
+        return ""
+    out = ["## Worked examples\n",
+           "Each example describes an item, then gives the row to write for it. Add `id` and `source` from the "
+           "pack to your own rows. The examples show how to judge, not what the pack holds.\n"]
+    for i, (shows, row, why) in enumerate(kind.examples, 1):
+        out.append(f"{i}. {shows}\n\n   ```json\n   {row}\n   ```\n" + (f"   {why}\n" if why else ""))
+    return "\n".join(out) + "\n"
+
+
 def render_prompt(kind: "TaskKind", pack: dict[str, Any], *, config: Any, result_path: str,
                   submit_shell: str) -> str:
     ctx = instructions_context(config, kind)
@@ -196,6 +209,7 @@ def render_prompt(kind: "TaskKind", pack: dict[str, Any], *, config: Any, result
         f"# Task {pack['task_id']}: {kind.name}\n\n"
         f"{text}\n\n"
         f"## Output specification\n\n{output_spec(kind, pack)}\n\n"
+        f"{worked_examples(kind)}"
         f"## Data\n\n"
         f"The pack holds {n} item(s). " + FENCE_TEXT.format(open=open_, close=close) + "\n\n"
         f"{open_}\n{data.rstrip()}\n{close}\n\n"

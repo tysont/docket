@@ -177,3 +177,19 @@ def test_the_assess_output_hands_merge_the_kind_of_each_kept_item():
                        {"id": "b", "keep": False, "score": 5, "assess": {}}, {"id": "c"}])
     assert rows == {"a": {"keep": True, "score": 80, "kind": "commitment", "topic": "renewal"},
                     "b": {"keep": False, "score": 5}}
+
+
+def test_an_acknowledged_topic_is_quiet_until_something_new_is_said():
+    """Acknowledge is a decision of its own: seen, nothing owed. Like watch it suppresses the
+    topic only while nothing new has happened, and it says so by name."""
+    ask = item("a", thread="t1", text="for your awareness: the migration finished", handle="u/200",
+               at="2026-10-15T09:00:00+00:00")
+    seen = [{"topic_id": "thread:chat:t1", "decision": "ack", "run_id": "earlier", "item": "a",
+             "recorded_at": "2026-10-15T10:00:00+00:00"}]
+    agent = {"a": {"keep": True, "score": 80}}
+    by, _ = merge([ask], agent=agent, dispositions=seen)
+    assert by["a"]["status"] == "suppressed" and by["a"]["reason"] == "disposition: ack, no new activity"
+    later = item("b", thread="t1", text="correction: two tables are missing", handle="u/200",
+                 at="2026-10-15T11:00:00+00:00")
+    by, _ = merge([ask, later], agent={**agent, "b": {"keep": True, "score": 80}}, dispositions=seen)
+    assert next(iter(by.values()))["status"] != "suppressed"

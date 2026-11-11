@@ -212,3 +212,98 @@ def test_an_exchange_in_a_unit_without_threads_is_packed_as_one_conversation_and
     rows = [(it["id"], it["thread"], it["must_surface"]) for it in pack["items"]]
     assert rows == [("item001", "dms:d1:item001", False), ("item004", "dms:d1:item001", False),
                     ("item002", "dms:d1:item001", True), ("item003", "own-3", False)]
+
+
+def _other(at, text, who="Kim Osei", me=False, app=False):
+    return {"at": at, "from": who, "text": text, "by_operator": me, "automated": app}
+
+
+def test_a_pack_carries_the_rest_of_each_conversation_as_context_not_for_judging():
+    """A task judges the items it is given. The other messages of the same conversation
+    (the operator's own replies, automated posts, anything the rules left out) are what
+    show an ask was already answered. They ride along as context, in time order."""
+    cfg = persona_config("reference-like")
+    ctx = [_other("2026-10-15T09:01:00Z", "No need for me to be there, thanks", "Dana Reyes", me=True),
+           _other("2026-10-15T08:59:00Z", "Ticket OPS-1 opened", "ticket-bot", app=True)]
+    ask = _msg(1, "t-a", "2026-10-15T09:00:00Z", text="Do you want to join next week's call?", others=ctx)
+    more = _msg(2, "t-a", "2026-10-15T09:05:00Z", text="I will send the invite.", others=ctx)
+    solo = _msg(3, "t-b", "2026-10-15T07:00:00Z", text="Unrelated question?")
+    (pack,) = packs_for(_kind(max_items=10), [more, solo, ask], cfg)
+    assert [it["id"] for it in pack["items"]] == ["item001", "item002", "item003"]
+    assert all("others" not in it for it in pack["items"])                    # rows stay rows
+    (conv,) = pack["context"]
+    assert conv["thread"] == "t-a"
+    assert [(m["from"], m["by_operator"]) for m in conv["messages"]] == [("ticket-bot", False), ("Dana Reyes", True)]
+    assert conv["messages"][1]["text"] == "No need for me to be there, thanks"
+    text = render_prompt(_kind(max_items=10), pack, config=cfg, result_path="/tmp/r.json",
+                         submit_shell="docket task submit t /tmp/r.json")
+    assert "No need for me to be there, thanks" in text and '"context"' in text
+    assert "not for judging" in text.lower() or "do not judge" in text.lower()
+
+
+def test_context_is_bounded_and_keeps_the_operators_words_first():
+    cfg = persona_config("reference-like")
+    kind = _kind(max_items=10, context_items=3, context_chars=40)
+    noise = [_other(f"2026-10-15T08:{i:02d}:00Z", f"chatter {i} " + "x" * 100) for i in range(10)]
+    mine = _other("2026-10-15T08:30:30Z", "I already replied to this yesterday and it is settled now", "Dana Reyes", me=True)
+    ask = _msg(1, "t-a", "2026-10-15T09:00:00Z", others=[*noise, mine])
+    (pack,) = packs_for(kind, [ask], cfg)
+    msgs = pack["context"][0]["messages"]
+    assert len(msgs) == 3 and pack["context"][0]["omitted"] == 8
+    assert any(m["by_operator"] for m in msgs)                               # the operator's reply survives the cut
+    assert [m["at"] for m in msgs] == sorted(m["at"] for m in msgs)           # still in time order
+    assert all(len(m["text"]) <= 41 for m in msgs)                            # trimmed, with an ellipsis
+    assert msgs[-1]["at"] == "2026-10-15T08:30:30Z" or msgs[-1]["at"].startswith("2026-10-15T08:09")
+
+
+def test_a_pack_without_context_has_no_context_key_and_its_digest_is_unchanged():
+    cfg = persona_config("reference-like")
+    items = [item(i) for i in range(3)]
+    (pack,) = packs_for(_kind(), items, cfg)
+    assert "context" not in pack
+
+
+EXAMPLES = [
+    {"shows": "A colleague asks the operator, in a room of the operator's own team, to review a design by Friday. Nobody has answered.",
+     "row": {"keep": True, "score": 90, "kind": "request", "owner": "me", "ask": "Review the design and reply",
+             "evidence": ["can you review this by Friday?"], "est": "1h"},
+     "why": "A direct ask with a date; reviewing a design takes an hour, not fifteen minutes."},
+    {"shows": "The same ask, but the operator replied an hour later that it is done.",
+     "row": {"keep": False, "score": 5}, "why": "Already answered by the operator."},
+]
+
+
+def test_a_workspace_can_teach_a_task_by_example():
+    """Worked examples sit in the prompt between the specification and the data: what the
+    item was, the row to write for it, and why. They are the workspace's, in its own words."""
+    cfg = persona_config("reference-like")
+    kind = _kind(examples=EXAMPLES)
+    (pack,) = packs_for(kind, [item(1)], cfg)
+    text = render_prompt(kind, pack, config=cfg, result_path="/tmp/r.json", submit_shell="docket task submit t /tmp/r.json")
+    assert text.index("## Output specification") < text.index("## Worked examples") < text.index("## Data")
+    assert "Already answered by the operator." in text and '"est": "1h"' in text
+    assert "A colleague asks the operator" in text
+    plain = render_prompt(_kind(), pack, config=cfg, result_path="/tmp/r.json", submit_shell="x")
+    assert "## Worked examples" not in plain
+
+
+def test_an_example_that_the_task_itself_would_refuse_is_a_configuration_error(tmp_path):
+    from docket.config import check
+    import json as _json
+    root = tmp_path / "ws"
+    root.mkdir()
+    bad = [{"shows": "x", "row": {"keep": True, "score": 400, "kind": "request"}},          # out of range, and a kept row needs more
+           {"shows": "y", "row": {"keep": False, "score": 5, "verdict": "ask"}}]            # not a field of this task
+    (root / "docket.yaml").write_text(
+        "version: 1\nworkflows:\n  daily: { stages: [collect, close] }\n"
+        "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
+        "tasks:\n  assess:\n    examples: " + _json.dumps(bad) + "\n", encoding="utf-8")
+    _, issues, _ = check(root)
+    got = sorted((i.code, i.path) for i in issues)
+    assert got == [("config.bad_example", "tasks.assess.examples[0].row"), ("config.bad_example", "tasks.assess.examples[1].row")]
+    assert "score" in issues[0].message or "owner" in issues[0].message
+    (root / "docket.yaml").write_text(
+        "version: 1\nworkflows:\n  daily: { stages: [collect, close] }\n"
+        "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
+        "tasks:\n  assess:\n    examples: " + _json.dumps(EXAMPLES) + "\n", encoding="utf-8")
+    assert check(root)[1] == []

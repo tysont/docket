@@ -105,3 +105,19 @@ def test_a_must_surface_finding_can_be_asked_whatever_the_budget():
     assert ids(select_asked(items, 55, 2, "bypass")) == (["must1", "must2", "a", "b"], ["c"])
     assert ids(select_asked(items, 55, 0, "bypass")) == (["must1", "must2"], ["a", "b", "c"])
     assert ids(select_asked(items, 55, None, "bypass")) == (["must1", "must2", "a", "b", "c"], [])
+
+
+def test_a_question_carries_the_decision_recommended_for_its_item(tmp_path):
+    """Every item gets a recommended decision. It is the one the assess task chose when that
+    is on offer; an item kept only because a rule insisted takes the configured fallback."""
+    from docket.decide.options import recommended_option
+    offered = [{"id": "task"}, {"id": "watch"}, {"id": "ack"}]
+    rec = lambda it, **cfg: recommended_option(it, offered, cfg)  # noqa: E731
+    assert rec({"assessment": {"decision": "watch"}}) == "watch"
+    assert rec({"assessment": {"decision": "schedule"}}) is None                       # not on offer
+    assert rec({"assessment": {"decision": "schedule"}}, default="task") == "task"
+    assert rec({"assessment": {}}, default="task") == "task"
+    surfaced = {"assessment": {"keep": False}, "signals": {"surface": True}}
+    assert rec(surfaced, surfaced="ack", default="task") == "ack"                      # the rule insisted, the task did not keep it
+    assert rec({"assessment": {"keep": True, "decision": "task"}, "signals": {"surface": True}}, surfaced="ack") == "task"
+    assert rec(surfaced, surfaced="nope") is None

@@ -33,7 +33,7 @@ from docket.text import templates
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
 
-NON_DESTINATION = ("now", "done", "watch", "dismiss")
+NON_DESTINATION = ("now", "done", "watch", "ack", "dismiss")
 MERGE_TITLE = "{titles|join:; }"
 
 

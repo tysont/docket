@@ -382,7 +382,11 @@ def ask_step(run: "RunContext", stage: str, questions: list[dict[str, Any]], why
                                   answer=Command.of(argv)))
         details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "counts",
                                                         "block_key", "task_id", "evidence", "refused", "notes",
-                                                        "previous", "requires", "defaults") and v not in (None, [], {})}
+                                                        "previous", "requires", "defaults", "recommended")
+                   and v not in (None, [], {})}
+        batch = [o["id"] for o in q["options"] if o.get("batch")]
+        if batch:
+            details["batch"] = batch
         out.append(AskQuestion(id=q["id"], kind=q["kind"], prompt=q["prompt"], options=opts, details=details))
     template = Command.of(run.argv("ask", "answer", QUESTION, OPTION, *extra))
     show = Command.of(run.argv("ask", "show", QUESTION))

@@ -202,6 +202,20 @@ def _first_quote(assessment: dict[str, Any]) -> str:
     return ""
 
 
+def recommended_option(it: dict[str, Any], offered: list[dict[str, Any]], recommend: Any) -> str | None:
+    """The option a question recommends for its item: the decision the assess task chose when
+    it is on offer; for an item the task did not keep and a rule surfaced, the configured
+    ``surfaced`` option; else the configured ``default``. None when none of those is on offer."""
+    ids = {o["id"] for o in offered}
+    cfg = recommend if isinstance(recommend, dict) else (recommend.model_dump() if recommend is not None else {})
+    a = it.get("assessment") or {}
+    surfaced = bool((it.get("signals") or {}).get("surface")) and a.get("keep") is False
+    for pick in ([cfg.get("surfaced")] if surfaced else [a.get("decision")]) + [cfg.get("default")]:
+        if pick and pick in ids:
+            return str(pick)
+    return None
+
+
 # --- guards ------------------------------------------------------------------------------------
 
 
@@ -341,7 +355,8 @@ def finding_options(rc: "RunContext", it: dict[str, Any], opts: list[dict[str, A
                 continue
         od = {k: v for k, v in defaults.items() if k in ("due", "est", "area", "forum")}
         offered.append({"id": o["id"], "label": templates.render(o["label"], ctx), "action": action,
-                        "destination": dest, "defaults": od, **({"set": dict(o["set"])} if o.get("set") else {})})
+                        "destination": dest, "defaults": od, **({"set": dict(o["set"])} if o.get("set") else {}),
+                        **({"batch": True} if o.get("batch") else {})})
     return offered, refused, defaults
 
 
