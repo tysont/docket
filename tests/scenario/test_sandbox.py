@@ -30,20 +30,18 @@ def digest_tree(p: Path) -> dict[str, str]:
             for f in sorted(p.rglob("*")) if f.is_file()}
 
 
-def durable_rows(ws: Path, *, own: str | None = None) -> dict[str, list[tuple]]:
-    """Every row of the durable tables, less the rows that belong to run ``own`` (its approval
-    record), which no other run reads."""
+def durable_rows(ws: Path) -> dict[str, list[tuple]]:
+    """Every row of the durable tables."""
     db = sqlite3.connect(state_root(ws, os.environ) / "docket.db")
     try:
-        return {t: sorted((r for r in db.execute(f"SELECT * FROM {t}").fetchall() if own is None or own not in r),
-                          key=repr) for t in DURABLE}
+        return {t: sorted(db.execute(f"SELECT * FROM {t}").fetchall(), key=repr) for t in DURABLE}
     finally:
         db.close()
 
 
-def snapshot(ws: Path, live_run: str, own: str | None = None) -> dict[str, object]:
+def snapshot(ws: Path, live_run: str) -> dict[str, object]:
     return {"workspace": digest_tree(ws), "live": digest_tree(state_root(ws, os.environ) / "runs" / live_run),
-            "db": durable_rows(ws, own=own)}
+            "db": durable_rows(ws)}
 
 
 def start(cli, ws: Path, graph: str, now: str, *extra: str) -> dict:
@@ -75,7 +73,7 @@ def test_both_personas_run_a_sandbox_to_the_seal_writing_nothing_live(persona, c
     assert summary["sandbox"] is True and summary["status"] == "sealed"
     assert summary["operations"] and summary["applied"] == summary["operations"]
     assert isinstance(summary["unexpected"], int)
-    assert snapshot(ws, live, own=sandbox) == before  # nothing outside the sandbox run's own state changed
+    assert snapshot(ws, live) == before  # nothing outside the sandbox run's own state changed
     sdir = state_root(ws, os.environ) / "runs" / sandbox
     twin = sdir / "sandbox" / ("backlog" if name == "reference-like" else "worklog") / store
     live_text = (ws / store).read_text() if (ws / store).is_file() else ""  # the worklog starts absent
@@ -99,8 +97,7 @@ def test_a_sandbox_run_moves_no_cursor_and_writes_no_disposition(persona, cli, p
     run_id = start(cli, ws, "shift", "2026-10-16T18:00:00+01:00", "--date", "2026-10-17", "--sandbox")["run"]
     res = run_agent(ws)
     assert res.failures == [] and res.final["kind"] == "done"
-    assert durable_rows(ws, own=run_id) == before
-    assert durable_rows(ws)["cursors"] == before["cursors"] and durable_rows(ws)["dispositions"] == before["dispositions"]
+    assert durable_rows(ws) == before
     d = state_root(ws, os.environ) / "runs" / run_id / "artifacts" / "seal"
     art = json.loads((d / ((d / "latest").read_text().strip() + ".json")).read_text())["data"]
     assert art["cursors_advanced"] == [] and "sandbox" in art["cursors_skipped"]

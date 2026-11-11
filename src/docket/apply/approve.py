@@ -86,6 +86,8 @@ def check_unreachable(rc: Any, node: str, *, dry_run: bool = False) -> None:
 def record(rc: Any, plan_digest: str, record_: dict[str, Any]) -> None:
     """Append the approval's wall-clock facts to the ``approvals`` ledger (outside the run directory)."""
     from docket.seal import ledgers
+    if rc.run.header.sandbox:
+        return  # a sandbox run leaves every ledger as it was
     _, pdir = plan_paths(rc, plan_digest)
     built = None
     try:
