@@ -139,3 +139,17 @@ def test_the_graph_can_be_shown_as_tasks_and_what_each_waits_for(ws, cli):
     assert sorted(nodes["triage.decide"]["needs"]) == ["agendas.close", "prepare", "triage.merge"]
     assert nodes["triage.decide"]["by"] == "operator" and nodes["triage.assess"]["by"] == "agent"
     assert nodes["agendas.approve"]["by"] == "in advance" and nodes["triage.approve"]["by"] == "operator"
+
+
+def test_a_delegated_stage_can_be_gated(ws, cli, pinned_now):
+    """A stage whose tasks are done by agents can wait on another node: the stage before it
+    finishes cleanly, and no packs are written until the gate opens."""
+    cfg = ws / "docket.yaml"
+    cfg.write_text(cfg.read_text().replace("gates: { decide: [prepare, agendas] }", "gates: { assess: [prepare] }"))
+    code, env = cli("graph", "start", "morning", "--now", pinned_now, "--workspace", str(ws))
+    grun = env["data"]["graph_run"]
+    rounds, data = drive(cli, ws, grun, only={"triage"})
+    (blocked,) = [b for b in data["blocked"] if b["node"] == "triage"]
+    assert blocked["stage"] == "assess" and blocked["needs"] == ["prepare"]
+    rounds, data = drive(cli, ws, grun)
+    assert data["done"]

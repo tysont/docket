@@ -27,8 +27,8 @@ def _auto_issue(rc: Any) -> list[str]:
     """When the next stage is delegated and its packs are not written yet, write them now."""
     from docket.engine.stages import STAGE_IMPLS, DelegatedStage
     ev = rc.first_pending()
-    if ev is None or ev.reason == "paused" or ev.state == "blocked":
-        return []
+    if ev is None or ev.reason in ("paused", "needs") or ev.state == "blocked":
+        return []  # a stage that waits for other nodes of a graph (TD §5.7) has no packs yet
     impl = STAGE_IMPLS[ev.name]
     if isinstance(impl, DelegatedStage):
         written = impl.issue(rc)
@@ -200,7 +200,7 @@ def cmd_task_issue(ctx: Any, ns: Any) -> Result:
     ev = rc.first_pending()
     pending = []
     if ev is not None and isinstance(STAGE_IMPLS[ev.name], DelegatedStage) and ev.state == "waiting" \
-            and ev.reason != "paused":
+            and ev.reason not in ("paused", "needs"):
         pending = [p["task_id"] for p in ev.extra["plan"].pending_issue()]
     if not pending:
         step = _compute(ctx, rc)
