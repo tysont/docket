@@ -91,19 +91,20 @@ class RunContext:
                                      extra={"needs": waits}, how=impl.how)
                     continue
                 if name in pins:
-                    # TD §5.4: a node upstream of an applied write is read as it was when the write began.
-                    ev = None if waits else impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
-                    if ev is None or ev.state != "current" or ev.digest != pins[name]:
-                        pinned = boundary.pinned_eval(self, impl, pins[name])
-                        if pinned is not None:
-                            pinned.extra["fresh_state"] = ev.state if ev is not None else "blocked"
-                            evs[name] = pinned
-                            continue
-                        if ev is None:
-                            ev = Eval(name, impl.verb, "blocked", reason=f"waiting on {', '.join(waits)}", how=impl.how)
-                        if ev.state != "current":
-                            ev.extra["underlying"] = ev.state
-                            ev.state, ev.reason = "blocked", "post_apply_change"
+                    # TD §5.4: a node upstream of a write that has begun is read as it was then, whatever
+                    # it would compute now (the write itself may have changed what the node reads).
+                    pinned = boundary.pinned_eval(self, impl, pins[name])
+                    if pinned is not None:
+                        evs[name] = pinned
+                        continue
+                    if waits:
+                        evs[name] = Eval(name, impl.verb, "blocked", reason="post_apply_change", how=impl.how,
+                                         extra={"underlying": "blocked"})
+                        continue
+                    ev = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
+                    if ev.state != "current":
+                        ev.extra["underlying"] = ev.state
+                        ev.state, ev.reason = "blocked", "post_apply_change"
                     evs[name] = ev
                     continue
                 evs[name] = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
