@@ -177,9 +177,26 @@ def meetings_of(rc: "RunContext") -> list[dict[str, Any]]:
     return out
 
 
+def commitments(meetings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """What the operator agreed to do in ``meetings``: the recap actions owned by ``me``, one
+    record each."""
+    rows = []
+    for m in meetings:
+        for n, a in enumerate((m.get("recap") or {}).get("actions") or [], 1):
+            if isinstance(a, dict) and str(a.get("owner") or "").strip().lower() == "me" and str(a.get("text") or "").strip():
+                rows.append({"id": f"{m.get('id')}:{n}", "text": str(a["text"]).strip(), "meeting": m.get("title"),
+                             "date": m.get("date"), "url": m.get("url")})
+    return rows
+
+
 def capture_commitments(path: Any, meetings: list[dict[str, Any]]) -> int:
-    """Append what the operator agreed to do (recap actions owned by ``me``) to a JSON-lines
-    file, one record each, skipping records already there. Returns how many were added."""
+    """Append the commitments of ``meetings`` to a JSON-lines file. See ``append_commitments``."""
+    return append_commitments(path, commitments(meetings))
+
+
+def append_commitments(path: Any, records: list[dict[str, Any]]) -> int:
+    """Append records to a JSON-lines file, skipping those already there by id. Returns how
+    many were added."""
     import json
     from pathlib import Path
     path = Path(path)
@@ -190,15 +207,7 @@ def capture_commitments(path: Any, meetings: list[dict[str, Any]]) -> int:
                 have.add(json.loads(ln).get("id"))
             except ValueError:
                 continue
-    rows = []
-    for m in meetings:
-        for n, a in enumerate((m.get("recap") or {}).get("actions") or [], 1):
-            if not isinstance(a, dict) or str(a.get("owner") or "").strip().lower() != "me":
-                continue
-            rid = f"{m.get('id')}:{n}"
-            if rid not in have and str(a.get("text") or "").strip():
-                rows.append({"id": rid, "text": str(a["text"]).strip(), "meeting": m.get("title"), "date": m.get("date"),
-                             "url": m.get("url")})
+    rows = [r for r in records if r.get("id") not in have]
     if rows:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:

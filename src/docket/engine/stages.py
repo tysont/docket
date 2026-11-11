@@ -451,11 +451,16 @@ class PlanStage(BaseStage):
         ops = sorted(mapped["operations"], key=lambda o: (o["destination"], o["op_id"]))
         from docket.plan import agenda_roll
         ops += agenda_roll.operations(run)  # agendas rolled after the meetings held (TD §12.8), oldest first
+        promised = agenda_roll.commitments(agenda_roll.meetings_of(run)) \
+            if getattr(getattr(run.workflow, "roll", None), "commitments", None) else []
         plan = {
             "inputs": {"decide": up.output_digest, "config_digest": ev.config_digest},
             "operations": ops, "schedule": [], "unschedulable": [], "notes": list(mapped["notes"]),
             "outcomes": mapped["outcomes"],
         }
+        if promised:
+            # what the operator agreed to do in the meetings recapped; close records it (TD §12.8)
+            plan["commitments"] = promised
         if planning_active(run):  # M7: schedule open tasks and add calendar operations (TD §12)
             return self.execute_planning(run, plan, up)
         from docket.apply import freshness

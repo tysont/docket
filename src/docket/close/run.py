@@ -49,9 +49,16 @@ def _capture(rc: Any) -> int:
     if roll is None or not roll.commitments:
         return 0
     from pathlib import Path
-    from docket.plan.agenda_roll import capture_commitments, meetings_of
+    from docket.plan.agenda_roll import append_commitments
+    # From the plan this run built: by now the agendas are rolled, and the meetings would no
+    # longer read as waiting for it.
+    plan = rc.eval_or_none("plan")
+    digest = (plan.output or {}).get("plan_digest") if plan is not None else None
+    records = journal_mod.plan_document(rc, digest).get("commitments") if digest else None
+    if not records:
+        return 0
     path = Path(roll.commitments).expanduser()
-    return capture_commitments(path if path.is_absolute() else rc.ws.root / path, meetings_of(rc))
+    return append_commitments(path if path.is_absolute() else rc.ws.root / path, list(records))
 
 
 def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[str, Any]]) -> list[dict[str, Any]] | None:
