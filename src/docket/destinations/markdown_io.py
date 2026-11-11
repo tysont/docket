@@ -62,8 +62,16 @@ class TwinIO(FileIO):
         super().__init__(root)
         self.live = live
 
+    def _mine(self, rel: str) -> Path:
+        """The copy's place, always inside ``root``. An absolute path or one that climbs with
+        ``..`` would otherwise resolve to the live file itself: joining an absolute path onto
+        a directory yields the absolute path."""
+        p = Path(rel)
+        parts = [x for x in p.parts if x not in (p.anchor, "..", ".", "")]
+        return self.root.joinpath(*parts) if parts else self.root
+
     def _seed(self, rel: str) -> None:
-        mine = super().path(rel)
+        mine = self._mine(rel)
         if mine.exists():
             return
         src = self.live.path(rel)
@@ -73,7 +81,7 @@ class TwinIO(FileIO):
 
     def path(self, rel: str) -> Path:
         self._seed(rel)
-        return super().path(rel)
+        return self._mine(rel)
 
     def glob(self, base: str, pattern: str) -> list[str]:
         return sorted(set(self.live.glob(base, pattern)) | set(super().glob(base, pattern)))

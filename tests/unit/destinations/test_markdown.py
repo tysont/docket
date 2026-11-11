@@ -274,3 +274,39 @@ def test_a_task_line_is_one_line_whatever_the_text_holds(tmp_path):
                        "[thread](https://t.example/1)")
     assert d.apply(op).outcome == "applied"
     assert (tmp_path / "tasks.md").read_text().count(op.line) == 1
+
+
+def test_a_twin_never_writes_the_live_file_even_when_the_destination_path_is_absolute(tmp_path):
+    """A destination may name its file by an absolute path, outside the workspace. A sandbox
+    run must still write only its copy: joining an absolute path onto the twin's directory
+    yields the live file itself, which is how a sandbox run once wrote the real one."""
+    live = tmp_path / "elsewhere" / "tasks.md"
+    live.parent.mkdir()
+    live.write_text(BACKLOG)
+    cfg = {"adapter": "markdown_tasks", "path": str(live), "section": "## Inbox",
+           "line_template": "- [ ] {title} [source:: {source}]"}
+    d = build("backlog", DestConfig.model_validate(cfg), DestEnv(root=tmp_path / "ws", profile=PROFILE,
+                                                                 sandbox_dir=tmp_path / "sbx"))
+    twin = d.sandbox()
+    [op] = preview(twin, add("Twin only"))
+    assert twin.apply(op).outcome == "applied"
+    assert live.read_text() == BACKLOG                                   # the live file is untouched
+    copies = [p for p in (tmp_path / "sbx").rglob("tasks.md")]
+    assert len(copies) == 1 and "Twin only" in copies[0].read_text()
+    assert (tmp_path / "sbx") in copies[0].parents
+    assert twin.verify(op, twin.apply(op)).ok                             # and the twin reads its own copy back
+    # the live adapter still writes the live file
+    [op2] = preview(d, add("Live write"))
+    d.apply(op2)
+    assert "Live write" in live.read_text() and "Twin only" not in live.read_text()
+
+
+def test_a_twin_refuses_a_path_that_climbs_out_of_its_directory(tmp_path):
+    from docket.destinations.markdown_io import FileIO, TwinIO
+    (tmp_path / "live").mkdir()
+    (tmp_path / "secret.md").write_text("keep")
+    twin = TwinIO(tmp_path / "sbx" / "d", FileIO(tmp_path / "live"))
+    p = twin.path("../../secret.md")
+    assert (tmp_path / "sbx" / "d").resolve() in p.resolve().parents
+    twin.write("../../secret.md", "changed")
+    assert (tmp_path / "secret.md").read_text() == "keep"
