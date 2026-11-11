@@ -306,7 +306,7 @@ def cmd_ledger_show(ctx: Any, ns: Any) -> Result:
 
 
 @command("ledger import", "Enter items into the ledger by hand, from a JSON array or JSON lines file. Each item "
-         "needs a title; url, state (default backlog), due, est, area, source and note are kept when given. "
+         "needs a title; url, state (default backlog), due, est, area, source and note are kept when given; key, destination and adapter say where the item already lives. "
          "An item the ledger already has is skipped.",
          args=[Arg("file", "Path to the file, or - for stdin.")], mutating=True,
          effects=["writes ledger rows; never overwrites one"],

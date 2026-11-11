@@ -143,3 +143,21 @@ def test_a_destination_that_could_not_be_read_moves_nothing(db):
         assert ledger.observe(db, {}, run_id="r2", at=T2) == []
         assert ledger.observe(db, {"backlog": None}, run_id="r2", at=T2) == []
     assert ledger.rows(db)[0]["state"] == "backlog"
+
+
+def test_an_imported_item_can_say_where_it_lives_and_is_followed_there(db):
+    """An item imported from a list that already exists is in that list. Naming the
+    destination and the key written on its line lets the ledger follow it like any other."""
+    with db:
+        report = ledger.import_rows(db, [
+            {"title": "Draft the storage plan", "key": "iaaaaaaaa", "destination": "backlog", "adapter": "markdown_tasks"},
+            {"title": "Bad key", "key": "nope"},
+            {"title": "Half a place", "destination": "backlog"}], run_id="import-1", at=T1)
+    assert report["imported"] == 1 and [p["row"] for p in report["problems"]] == [1, 2]
+    row = ledger.get(db, "iaaaaaaaa")
+    assert row["title"] == "Draft the storage plan" and row["state"] == "backlog"
+    assert row["placements"] == [{"destination": "backlog", "adapter": "markdown_tasks", "run": "import-1"}]
+    with db:
+        assert ledger.observe(db, {"backlog": {"iaaaaaaaa": "open"}}, run_id="r2", at=T2) == []
+        moves = ledger.observe(db, {"backlog": {"iaaaaaaaa": "done"}}, run_id="r3", at=T2)
+    assert [(m["key"], m["state"]) for m in moves] == [("iaaaaaaaa", "done")]

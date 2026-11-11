@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -122,7 +123,9 @@ def write(db: sqlite3.Connection, derived: list[dict[str, Any]]) -> None:
 def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: str) -> dict[str, Any]:
     """Enter items by hand (the caller holds the transaction): each needs a ``title``; ``url``,
     ``state`` (default ``backlog``), ``due``, ``est``, ``area``, ``source`` and ``note`` are
-    kept when given. A row the ledger already has is skipped, never overwritten."""
+    kept when given. ``key`` is the key already written where the item lives, and
+    ``destination`` with ``adapter`` names that place, so the ledger follows the item there.
+    A row the ledger already has is skipped, never overwritten."""
     from docket.text.durations import parse_duration
     imported, skipped, problems = 0, 0, []
     for i, raw in enumerate(items):
@@ -136,6 +139,18 @@ def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: st
         title = str(raw["title"]).strip()
         topic = "import:" + str(raw.get("url") or title)
         key = item_key(topic)
+        if raw.get("key") not in (None, ""):      # the key already written where the item lives
+            key = str(raw["key"])
+            if not re.fullmatch(r"i[a-z2-7]{8}", key):
+                problems.append({"row": i, "problem": f"key {key!r} is not an item key (i and eight characters)"})
+                continue
+            topic = "import:" + key
+        placements: list[dict[str, Any]] = []
+        if raw.get("destination") or raw.get("adapter"):
+            if not (raw.get("destination") and raw.get("adapter")):
+                problems.append({"row": i, "problem": "a place needs both destination and adapter"})
+                continue
+            placements = [{"destination": str(raw["destination"]), "adapter": str(raw["adapter"]), "run": run_id}]
         if db.execute("SELECT 1 FROM item_ledger WHERE key=?", (key,)).fetchone() is not None:
             skipped += 1
             continue
@@ -152,7 +167,8 @@ def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: st
             "INSERT INTO item_ledger (key, topic, source, title, url, state, state_at, first_run, first_at, last_run, "
             "due, est, area, placements, history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (key, topic, raw.get("source") or "import", title, raw.get("url"), state, at, run_id, at, run_id,
-             raw.get("due"), est, raw.get("area"), "[]", json.dumps(history, sort_keys=True)))
+             raw.get("due"), est, raw.get("area"), json.dumps(placements, sort_keys=True),
+             json.dumps(history, sort_keys=True)))
         imported += 1
     return {"imported": imported, "skipped": skipped, "problems": problems}
 
