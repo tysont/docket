@@ -108,8 +108,8 @@ def test_daily_budget_counts_only_competing_items():
 
 
 def test_budget_in_scoring_is_accepted_and_signals_budgets_wins():
-    cfg = parse({"scoring": {"budget": {"questions": 5, "review_pool": 9}}, "budgets": {"questions": 7}})
-    assert cfg.effective_budgets.model_dump() == {"questions": 7, "review_pool": 9, "daily": None}
+    cfg = parse({"scoring": {"budget": {"questions": 5, "daily": 9}}, "budgets": {"questions": 7}})
+    assert cfg.effective_budgets.model_dump() == {"questions": 7, "daily": 9}
 
 
 def test_agent_component_and_keep_false():

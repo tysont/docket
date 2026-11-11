@@ -274,7 +274,6 @@ class Caps(Strict):
 
 class Budgets(Strict):
     questions: int | None = Field(None, ge=0)
-    review_pool: int | None = Field(None, ge=0)
     daily: int | None = Field(None, ge=0)   # total kept items across sources; always_keep and must-surface bypass
 
 

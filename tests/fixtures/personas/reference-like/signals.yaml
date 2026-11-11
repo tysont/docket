@@ -12,7 +12,7 @@ signals:
     floor: 55
     always_keep: 80
     caps: { per_source: { default: 40, mail: 25 } }
-  budgets: { questions: 15, review_pool: 40 }
+  budgets: { questions: 15 }
 
   units:
     rules:

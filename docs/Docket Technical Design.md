@@ -312,7 +312,7 @@ graphs:
     assess-chat:    { judge: assess, from: [gather-chat] }
     assess-mail:    { judge: assess, from: [gather-mail] }
     merge-items:    { merge: [assess-chat, assess-mail] }
-    review-items:   { judge: review, from: [merge-items], pool: 40 }
+    review-items:   { judge: review, from: [merge-items] }
     triage-items:   { ask: default, from: [review-items] }
     plan-writes:    { plan: [triage-items] }
     approve-writes: { approve: plan-writes }
@@ -337,7 +337,7 @@ Every graph ends with a seal, which is not written in it. The seal is ready when
 
 The shape of a graph is checked when the workspace loads (§3.4). A graph has at least one node. Node names are lower-case words (`[a-z][a-z0-9-]*`, at most 40 characters) other than `seal`. Every name a node uses is a node of the graph, and there is no cycle. Each node works on the kind of thing its inputs hand on: a `merge`, an `ask` or a `write` on items, a `judge` on items or decisions, a `plan` on decisions or items (the decisions of at most one `ask` node), an `approve` on a plan, an `apply` on an approval. `merge`, `plan`, `approve` and `apply` name their inputs in the verb and take no `from`. `read` and `run` work on nothing another node hands on and take only `after`. A shape problem is `config.bad_graph`, reported at the node with its file and line.
 
-A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), a review `judge` its `pool`, an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`. Any node may carry a `description`, which `docket graph show` prints.
+A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`. Any node may carry a `description`, which `docket graph show` prints.
 
 Where several nodes hand on to one, their outputs are joined: items by id (a later node adds to what an earlier one said of the same item), lists end to end, maps key by key.
 
@@ -588,7 +588,7 @@ signals:
     floor: 55
     always_keep: 80
     caps: { per_source: { default: 40, mail: 25 } }
-    budget: { questions: 15, review_pool: 40 }
+    budget: { questions: 15 }
 ```
 
 `score = sum(weight_k * component_k)` with components clamped to 0..100. `importance` and `urgency` are the rule contributions on a base of 50; `agent` is the assess task's score. Items below `floor` drop unless `surface: always`; items at or above `always_keep` bypass caps; per-source caps keep the top N by score. All numbers are configuration (FR-SIG-04, FR-SIG-05). `decision_floors` gives the items recommended for a decision a floor of their own: an item only to be monitored asks less of the operator than one to act on, and may be kept at a lower score. The reference workspace sets the predecessor's values.

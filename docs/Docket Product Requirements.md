@@ -273,7 +273,7 @@ These requirements carry the same weight as the functional ones.
 - **CFG-01 (Must).** A workspace is a directory of YAML files: workspace and graphs, profile, sources, signals, destinations and planning. Any split or a single file is allowed.
 - **CFG-02 (Must).** Configuration is strict. Unknown keys, bad references and type errors fail `docket config validate` with the file, line and fix. A run never starts on invalid configuration.
 - **CFG-03 (Must).** Presets ship with Docket and contain no user data. A workspace extends presets and overrides any value. `docket config explain` shows each value's origin.
-- **CFG-04 (Must).** A graph is composed from a closed set of verbs. A workspace chooses the nodes, what each works on (`from`) and what it follows (`after`): which sources are read and how often, which task kinds are judged, whether review runs and its pool size, which question kinds are asked, in how many bursts and within what budget, the option set and labels, whether the plan places tasks on the calendar, which commands `run` nodes run, and the journal sections. A graph's shape is checked when the workspace loads: an unknown name, a cycle or an input of the wrong kind fails at the node.
+- **CFG-04 (Must).** A graph is composed from a closed set of verbs. A workspace chooses the nodes, what each works on (`from`) and what it follows (`after`): which sources are read and how often, which task kinds are judged, whether review runs, which question kinds are asked, in how many bursts and within what budget, the option set and labels, whether the plan places tasks on the calendar, which commands `run` nodes run, and the journal sections. A graph's shape is checked when the workspace loads: an unknown name, a cycle or an input of the wrong kind fails at the node.
 - **CFG-05 (Must).** Templates (block titles and notes, task lines, agenda lines, journal sections, redacted titles) use one documented, safe formatting language with item and run fields.
 - **CFG-06 (Must).** A configuration digest is part of every node's identity. Changing configuration mid-run stales exactly the nodes that read the changed sections, and the nodes downstream of them.
 - **CFG-07 (Should).** `docket config test` runs the current configuration against the last run's raw records and shows what changed (items kept, scores, routes, questions) without writing.
@@ -406,7 +406,7 @@ Every element of the predecessor, and where it lives in Docket. "Profile", "Sour
 | Sensitive-subject triggers and redacted titles | Signals: sensitivity rules; Destinations: redaction templates per sensitivity class |
 | Personal calendar mirrored as opaque busy holds | Planning: `mirrors` |
 | Work hours, deep window, lunch, buffers, caps, batching, horizon, move lock, ordering | Planning: policy |
-| Score formula, floor, overflow, caps, question budget, review pool | Signals: `scoring` |
+| Score formula, floor, overflow, caps, question budget | Signals: `scoring` |
 | Gate A answers, Gate B option labels, "Already handled", "Handle now" | Decisions: option sets and label templates, chosen by each `ask` node |
 | Structured answer fields (due, estimate, window, merge, links) | Core |
 | Watermarks in an external state tool, unit watermarks, processed document ids | Core: state database |

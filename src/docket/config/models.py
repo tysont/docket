@@ -212,8 +212,6 @@ class Node(Strict):
     dry_run: list[str] | None = None
     env: list[str] = []
     timeout_s: float = Field(120.0, gt=0, le=3600)
-    # judge (review)
-    pool: int | None = None
     # ask
     questions: Questions = Questions()
     # plan
