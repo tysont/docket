@@ -1,6 +1,6 @@
 """The ``exec_jsonl`` transport: a long-lived child speaking the Docket protocol (TD §17.2).
 
-One process per transport instance per collect, never per item. Requests and
+One process per transport instance per read, never per item. Requests and
 responses are JSON lines; ``id`` pairs them, so several units can share one
 child. ``open`` performs the ``hello`` handshake and refuses a protocol it does
 not speak. Request payload: ``{"op": "...", "args": {...}}``. The response body

@@ -23,7 +23,7 @@ from docket.engine.steps import Command, DispatchTask
 from docket.store.paths import write_atomic
 from docket.tasks import index
 from docket.tasks.evidence import RecordTexts, record_ids
-from docket.tasks.kinds import TaskKind, kinds_for
+from docket.tasks.kinds import TaskKind
 from docket.tasks.packs import PackContext, build_packs, load_units
 
 if TYPE_CHECKING:
@@ -251,7 +251,3 @@ def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
         new["trace"] = _trace(it, entry)
         out.append(new)
     return {"items": out}
-
-
-def kind_names(rc: "RunContext") -> list[str]:
-    return sorted(kinds_for(rc.ws.config))

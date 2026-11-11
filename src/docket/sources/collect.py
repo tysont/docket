@@ -294,5 +294,5 @@ async def read_sources(ws: Any, sids: list[str], *, env: Mapping[str, str], inst
 async def _close(t: Any) -> None:
     try:
         await t.close()
-    except Exception:  # closing never fails a collect; the outcome is already recorded
+    except Exception:  # closing never fails a read; the outcome is already recorded
         pass

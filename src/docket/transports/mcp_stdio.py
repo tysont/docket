@@ -1,6 +1,6 @@
 """MCP transports over the official ``mcp`` SDK (TD §6.3).
 
-``McpStdioTransport`` spawns the server once per collect and reuses the session
+``McpStdioTransport`` spawns the server once per read and reuses the session
 for every request. Request payload: ``{"tool": "...", "args": {...}}``. The
 response body is the tool result's text content (or its structured content as
 JSON when there is no text). A result flagged ``isError`` is a failure whose

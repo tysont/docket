@@ -170,7 +170,7 @@ class DeclarativeSource:
         auth = self.cfg.auth
         if auth is None or not auth.check:
             return AuthStatus(True)
-        instructions = auth.instructions or f"Fix the credentials for source {self.id}, then rerun the collect command."
+        instructions = auth.instructions or f"Fix the credentials for source {self.id}, then read it again."
         try:
             proc = await asyncio.create_subprocess_exec(
                 *auth.check, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,

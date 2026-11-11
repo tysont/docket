@@ -35,12 +35,12 @@ SCHEMA = "merge/1"
 
 @dataclass
 class MergeInputs:
-    items: list[dict[str, Any]]                         # mapped items (collect), with assess output fields
+    items: list[dict[str, Any]]                         # mapped items (read), with assess output fields
     env: SignalEnv
     agent: dict[str, dict[str, Any]] = field(default_factory=dict)   # item id -> accepted assess row
     dispositions: list[dict[str, Any]] = field(default_factory=list)  # rows, each with ``recorded_at``
     task_stores: list[dict[str, Any]] = field(default_factory=list)   # {destination, path, open: [lines]}
-    sources: dict[str, Any] = field(default_factory=dict)            # collect outcomes per source
+    sources: dict[str, Any] = field(default_factory=dict)            # read outcomes per source
     run_date: str | None = None
     run_id: str | None = None
 

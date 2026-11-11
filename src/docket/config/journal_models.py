@@ -14,10 +14,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Context lists a ledger may draw its rows from.
-LEDGER_SOURCES: tuple[str, ...] = ("findings", "questions", "answers", "operations", "not_asked", "dropped",
-                                   "coverage_notes", "context", "sources", "dispositions", "unexpected")
-
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")

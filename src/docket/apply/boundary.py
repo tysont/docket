@@ -20,10 +20,6 @@ from docket.config.digest import digest
 from docket.store.paths import read_json
 
 
-def crossed(run: Any) -> bool:
-    return bool(run.header.applied)
-
-
 def pins(run: Any) -> dict[str, str]:
     """node -> pinned digest, over every node that has started writing."""
     out: dict[str, str] = {}
