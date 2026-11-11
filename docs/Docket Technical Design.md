@@ -13,9 +13,9 @@ Seven rules decide every trade-off below. Each comes from a predecessor failure 
 1. **Code holds mechanism; configuration holds the world.** No name, handle, domain, folder, calendar word, glyph, host, tool name, weight or label appears in `src/`. The litmus test (PRD §12) enforces it.
 2. **Strict configuration, tolerant data.** Configuration is validated completely before a run starts and refuses on any error. Data from sources and agents is read through declared contracts: a known shape is used, an unknown shape takes the contract's safe reading and is recorded as an unexpected shape.
 3. **Integrity refuses; shape tolerates.** Digests, bindings, identity partitions, receipts and verbatim evidence are exact. Everything else is a shape.
-4. **Derived state is a pure function.** Every derived artifact is a function of immutable raw records, configuration, answers and a pinned clock. Its identity is a digest of those inputs. Refresh, resume and a mid-run change are one operation: recompute what is stale.
+4. **Derived state is a pure function.** Every derived artifact is a function of immutable raw records, configuration, answers and a pinned clock. Its identity is a digest of those inputs. A changed answer, a configuration edit and a crash mid-run are one operation: recompute what is stale.
 5. **One implementation per rule.** A rule (a constraint, a grammar, a vocabulary, a schema) lives in one module that both builds and checks. Prompts are rendered from the same schema the validator uses.
-6. **The CLI owns the procedure.** `docket next` computes the next step from state. No document of command ladders exists for the agent to follow.
+6. **The CLI owns the procedure.** `docket next` computes every ready step from state. No document of command ladders exists for the agent to follow.
 7. **Every effect is previewed, approved, receipted and verified.** Adapters have no write path that bypasses this.
 
 ## 2. Architecture
@@ -29,15 +29,15 @@ Seven rules decide every trade-off below. Each comes from a predecessor failure 
 +---------------------------------------------------------------------+
 | CLI           argument parsing, envelope, errors, input normalization|
 +---------------------------------------------------------------------+
-| Engine        stage graph, staleness, next-step, lease, rehearse     |
+| Engine        graph evaluation, staleness, ready steps, lease        |
 +---------------------------------------------------------------------+
-| Stages        collect | assess | merge | review | decide | plan |    |
-|               approve | apply | close                                |
+| Nodes         read | run | judge | merge | ask | plan | approve |    |
+|               apply | write | seal                                   |
 +---------------------------------------------------------------------+
 | Domain        items, signals, tasks, questions, answers, schedule,   |
 |               constraint engine, templates, redaction, dispositions  |
 +---------------------------------------------------------------------+
-| Ports         Source | Transport | Destination | Hook  (+ sandboxes) |
+| Ports         Source | Transport | Destination  (+ sandbox twins)    |
 +---------------------------------------------------------------------+
 | Store         workspace state DB, run directories, artifacts, blobs  |
 +---------------------------------------------------------------------+
@@ -59,7 +59,7 @@ Dependencies point downward only. Domain code never imports a port implementatio
 | MCP | Official `mcp` Python SDK v2, stdio and streamable HTTP clients | Generic transport; quirks in presets. |
 | HTTP | `httpx` | Timeouts, retries, HTTP/2. |
 | Templates | A restricted template language (§3.6), not Jinja | Safe, total, small, and documentable in one page. |
-| Concurrency | `asyncio` inside one process | Collection is I/O-bound; no process per item (AE-10). |
+| Concurrency | `asyncio` inside one process | Reading is I/O-bound; no process per item (AE-10). |
 
 Runtime dependencies are Pydantic v2, `ruamel.yaml`, `httpx`, `tzdata` and the official `mcp` Python SDK v2. Development dependencies are `pytest`, Hypothesis and `pytest-xdist`. A dependency joins only when it removes more code than it adds.
 
@@ -69,18 +69,18 @@ Runtime dependencies are Pydantic v2, `ruamel.yaml`, `httpx`, `tzdata` and the o
 src/docket/
   apply/          approval, freshness, apply boundary and executor
   cli/            entry point, command registry, envelopes and errors
-  close/          cursors, journal, ledgers, hooks and dispositions
   config/         loader, models, presets, validation, origins and digests
   decide/         questions, options, answers, reconciliation and verification
   destinations/   built-in adapters, ownership, conformance and sandbox twins
-  engine/         stages, next-step calculation, rehearsal and pinned clock
-  items/          normalized item model, mapping, identity and records
+  engine/         nodes, graph evaluation, ready steps, doctor and pinned clock
+  items/          normalized item model, mapping, identity and the item ledger
   plan/           calendar providers, constraints, scheduler, mirrors and task-store reads
   presets/        shipped YAML presets with no user data
+  seal/           cursors, journal, ledgers, dispositions and seal receipts
   shapes/         unexpected-shape recording
   signals/        rules, scoring, merge, replay and explanations
-  sources/        collection, cursors, generations, contracts and unit registry
-  store/          database, migrations, runs, blobs, paths and leases
+  sources/        reading, records, cursors, contracts and unit registry
+  store/          database, runs, blobs, paths and leases
   tasks/          task kinds, packs, prompts, submission and result index
   text/           templates, redaction, grammar, dates and durations
   transports/     MCP, code-mode, exec, HTTP, files and replay transports
@@ -94,7 +94,7 @@ A workspace is a directory containing `docket.yaml` and any number of further YA
 
 ```
 <workspace>/
-  docket.yaml          version, includes, presets, workflows
+  docket.yaml          version, includes, presets, graphs
   profile.yaml         me, people, groups, topics, entities, forums, calendar vocabulary
   sources.yaml         source instances
   signals.yaml         rules, scoring, budgets
@@ -114,7 +114,7 @@ Top-level keys, each a Pydantic model with `extra="forbid"`:
 | `version` | Configuration schema version, `1` |
 | `includes` | Further YAML files, resolved relative to `docket.yaml` |
 | `presets` | Ordered list of preset ids to extend |
-| `workflows` | Named workflows (§5.6) |
+| `graphs` | Named graphs of nodes (§5) |
 | `profile` | `me`, `people`, `groups`, `topics`, `entities`, `forums`, `calendar`, `timezone`, `workdays` |
 | `sources` | Source instances keyed by id (§6) |
 | `transports` | Shared transport instances keyed by id (§6.3) |
@@ -124,7 +124,6 @@ Top-level keys, each a Pydantic model with `extra="forbid"`:
 | `destinations` | Destination instances keyed by id (§11) |
 | `planning` | Scheduling policy, mirrors (§12) |
 | `journal` | Journal sections, ledgers (§13.5) |
-| `hooks` | Named hooks bound to close and other events (§13.6) |
 | `shapes` | Reviewable accepted unexpected shapes (§14.2) |
 
 The profile is the only place people and words of the operator's world live. A short example of its shape, with invented data:
@@ -187,16 +186,16 @@ Merge order is: core defaults, then each preset in list order, then workspace fi
 
 `docket config validate` runs four passes and reports every error, not the first:
 
-1. **Syntax and structure.** YAML parse, unknown keys, types. Each error carries file, line, column, the offending key, the expected type and, for unknown keys, the closest valid key.
-2. **References.** Every id a value names (a person, group, topic, source, destination, forum, template, rule, task kind, hook) exists.
-3. **Semantics.** Regexes compile; templates parse and reference only fields of their context; durations and windows are well-formed; scoring weights are finite; a workflow's stages respect the pipeline order (§5.1); a shared destination has redaction templates for every sensitivity class the rules can assign.
-4. **Capabilities.** Each source's transport and each destination's adapter declare the operations the workflow needs (for example, a planning workflow needs a calendar destination that supports `create`, `move`, `update`, `delete` and `list`).
+1. **Syntax and structure.** YAML parse, unknown keys, types, and the shape of each graph (§5.1). Each error carries file, line, column, the offending key, the expected type and, for unknown keys, the closest valid key. A graph's shape problem is `config.bad_graph` at the node.
+2. **References.** Every id a value names (a person, group, topic, source, destination, forum, template, rule, task kind, option set) exists.
+3. **Semantics.** Regexes compile; templates parse and reference only fields of their context, including the argv of a `run` node (§5.8); durations and windows are well-formed; scoring weights are finite; a shared destination has redaction templates for every sensitivity class the rules can assign.
+4. **Capabilities.** Each source's transport serves the capabilities the source uses. Every action an `ask` node offers in a graph that applies has a destination that accepts it. A `write` node's destination is private. A calendar read through a destination is a calendar adapter.
 
 A run never starts on invalid configuration (CFG-02). Pass 4 is the only pass that needs a preset's capability declarations; it never contacts a system. `docket doctor` contacts systems (§15.4).
 
 ### 3.5 Configuration digest and partial digests
 
-The resolved configuration serializes to canonical JSON (sorted keys, no insignificant whitespace, normalized numbers). Its SHA-256 is the configuration digest. Each stage declares which configuration sections it reads; its stage digest (§4.4) includes only the digest of those sections. Editing a planning policy therefore stales `plan` and later stages, not `assess` (CFG-06).
+The resolved configuration serializes to canonical JSON (sorted keys, no insignificant whitespace, normalized numbers). Its SHA-256 is the configuration digest. Each verb declares which configuration sections it reads; a node's digest (§4.4) includes only the digest of those sections and the node's own settings. Editing a planning policy therefore stales the `plan` node and the nodes downstream of it, not the `judge` node that assesses (CFG-06).
 
 ### 3.6 Template language
 
@@ -211,17 +210,24 @@ Templates are strings with `{field}` and `{field|filter|filter:arg}` substitutio
   docket.db                            workspace database
   blobs/<sha256[0:2]>/<sha256>         content-addressed raw payloads
   runs/<run-id>/
-    run.json                           run header: workflow, date, clock pin, status
-    gen-<n>/records/<source>.jsonl     record index for generation n (payloads in blobs)
-    artifacts/<stage>/<digest>.json    derived artifacts
+    run.json                           run header: graph, clock pin, sandbox, status, write pins
+    session                            the run's session token (§5.5)
+    read/<source>/records.jsonl        record index of one read (payloads in blobs)
+    read/<source>/items.jsonl          mapped items (context.jsonl for a context source)
+    read/<source>/outcome.json         the source's outcome and each unit's
+    artifacts/<node>/<digest>.json     node outputs, named by node digest
+    artifacts/<node>/latest            digest of the node's latest artifact
     tasks/<task-id>/pack.json          task input pack
     tasks/<task-id>/prompt.md          rendered prompt
     tasks/<task-id>/result.json        submitted result (accepted only)
-    questions.json, answers.json       current decision state
+    answers.json                       the operator's answers
+    decide/resolutions.json            task references resolved for verification
     plan/<digest>/plan.json, diff.md   plans by digest
-    receipts.jsonl                     apply receipts, append-only
+    receipts.jsonl                     write receipts, append-only
     journal.md                         rendered journal for this run
     unexpected.jsonl                   unexpected shapes recorded in this run
+    sandbox/                           sandbox twins of destinations (sandbox runs)
+    logs/run/<node>.log                output of a run node's command
 ```
 
 The state root is outside the workspace so configuration repositories never commit state. `docket` never writes inside the workspace except through a destination that points there.
@@ -232,180 +238,159 @@ SQLite in WAL mode. Tables:
 
 | Table | Purpose |
 |---|---|
-| `runs` | Run id, workflow, date, status, current generation, lease owner, timestamps |
+| `runs` | Run id, graph, date, status, sandbox, lease owner, timestamps |
 | `cursors` | `(source, unit) -> position, coverage_end, updated_run` |
-| `cursor_proposals` | Positions proven by a run, applied at close (§13.4) |
+| `cursor_proposals` | Positions proven by a run, applied at the seal (§13.4) |
 | `units` | Unit registry: `(source, unit_id) -> name, kind, class, tier, first_seen, last_seen, classified_by` |
 | `processed_ids` | For *id-scan* sources: ids processed, by run |
 | `dispositions` | `(topic_id) -> decision, run, item, until, note` (FR-APP-05) |
 | `receipts` | Operation id, destination, outcome, external id, verify status, run |
+| `item_ledger` | Every item put in front of the operator, with its state and placements (§13.8) |
 | `unexpected` | Shape records across runs, aggregated for `docket unexpected` |
 | `unexpected_accepted` | Reviewed shape acceptances recorded by `docket unexpected accept` |
 | `ledgers` | Generic append-only rows for journal ledgers (coverage, surfaced, carries) |
 | `leases` | Run lease rows (§5.5) |
 | `task_results` | Accepted task results indexed by task input digest (§9.6) |
-| `step_receipts` | Completed close steps and hooks, so resume does not repeat them |
-| `schema_meta` | Database schema version, migrations applied |
+| `task_labels` | Labels written for task lines, with the digest of the words each was written for |
+| `step_receipts` | Completed seal steps, so a repeated seal does not repeat them |
+| `schema_meta` | Database schema version |
 
-Migrations are forward-only and numbered. Docket refuses to open a database newer than it understands and names the version it needs (NFR-09).
+The database has one schema with one version. Docket creates a new database at that version and refuses to open any other: a newer one with `store.db_too_new`, an older one with `state.too_old`. Each error names both versions.
 
 ### 4.3 Records
 
 A record is one raw read: the transport response body exactly as received, stored once in `blobs/`, plus an index row:
 
 ```json
-{"record_id":"r_7f3c...","source":"chat","unit":"spaces/AAA","generation":0,
+{"record_id":"r_7f3c...","source":"chat","unit":"spaces/AAA",
  "query":{"tool":"...","args":{"...":"..."}},"interval":{"from":"...","to":"..."},
- "page":3,"outcome":"read","blob":"sha256:...","received_at":"..."}
+ "page":3,"entry":0,"outcome":"read","blob":"sha256:...","received_at":"..."}
 ```
 
 Records are immutable (FR-SRC-05). Everything downstream references record ids, and verbatim evidence checks run against the decoded blob.
 
-### 4.4 Artifacts and stage digests
+### 4.4 Artifacts and node digests
 
-Every derived artifact is named by its stage digest:
+Every node output is an artifact named by the node's digest:
 
 ```
-stage_digest = sha256(canonical_json({
-  "stage": name,
-  "schema": stage_schema_version,
-  "config": partial_config_digest(stage),
-  "inputs": [digest of each upstream artifact or record set],
-  "answers": digest of answers the stage reads (decide onward),
-  "clock": run clock pin (date and timezone; time only for stages that read it)
+node_digest = sha256(canonical_json({
+  "verb": verb,
+  "schema": the verb's schema version,
+  "config": digest(partial_config_digest(sections the verb reads), the node's settings),
+  "inputs": [output digest of each node it works on],
+  "answers": digest of the answers it reads (ask and approve),
+  "clock": run clock pin (date and timezone; the instant only for nodes that read it),
+  "extra": anything else the verb reads (the calendar and task store a plan reads,
+           the questions an ask builds, whether the run is a sandbox)
 }))
 ```
 
-An artifact on disk whose name equals the freshly computed digest is current. Any other is stale. This one rule replaces generation bookkeeping: an artifact built from generation 0 inputs cannot be mistaken for one built from generation 1, because its digest differs (PRD §2.2, "state from one generation checked against another").
+An artifact on disk whose name equals the freshly computed digest is current. Any other is stale. Nothing else tracks staleness. `artifacts/<node>/latest` names the node's most recent artifact. A judged or asked node's output is a pure function of its accepted results or answers: `docket next` computes it in memory, and the next command that changes the run writes it.
 
-`schema` increments when a stage's code changes its output in a way that must invalidate old artifacts. A code upgrade mid-run therefore recomputes exactly the affected stages (FR-ROB-04).
+`schema` increments when a verb's code changes its output in a way that must invalidate old artifacts. A code upgrade mid-run therefore recomputes exactly the affected nodes (FR-ROB-04).
 
-### 4.5 Generations
+### 4.5 Reads
 
-A generation is one collection pass. Generation 0 is the first. A refresh opens generation n+1, reading incrementally from generation n's coverage end without moving the durable cursor. `docket collect --refresh --sources a,b` refreshes the named sources. With no `--sources`, it refreshes the workflow's `refresh_on_resume` list when present, otherwise its volatile sources. Downstream stages read the union of all generations' records, de-duplicated by the source's record identity. The durable cursor moves only at close (§13.4).
+A read node reads its source once per run. Its digest covers the source's configuration and the run clock, not what the source holds, so a source that changes during the run leaves the node current; the next run reads the change. Each read keeps its own folder, `read/<source>/`, so reads that run at the same time share nothing. A record the read met twice counts once, as its later entry. A record the contract marks deleted (`contract.<kind>.tombstone`) removes the item it names. The read writes a cursor proposal per unit; the durable cursor moves only at the seal (§13.4).
 
 ### 4.6 Clock
 
-A run pins its clock at creation: date, timezone and a reference instant. Stages that need "now" (planning, freshness notes) read the pinned instant, or an explicit `--now` in rehearsal and tests. Nothing derived reads the wall clock, which makes NFR-03 testable.
+A run pins its clock at creation: date, timezone and a reference instant. Nodes that need "now" (planning, freshness notes) read the pinned instant, or the instant `docket run start --now` pinned for tests. Nothing derived reads the wall clock, which makes NFR-03 testable.
 
-## 5. Engine
+## 5. Graphs and runs
 
-### 5.1 The pipeline
+### 5.1 Graphs and nodes
 
-The stage order is fixed:
-
-```
-collect -> assess -> merge -> review -> decide -> label -> plan -> approve -> apply -> close
-```
-
-A workflow may omit stages but may not reorder them. `collect` must be first and `close` last. `apply` requires `approve`, `approve` requires `plan`, and `plan` requires `decide`. `decide`, `review` and `merge` require `assess`, and `label` requires `plan`. These rules keep approval bound to a concrete plan. Each stage is a module implementing:
-
-```python
-class Stage(Protocol):
-    name: str
-    schema_version: int
-    config_sections: tuple[str, ...]
-    def inputs(self, run: Run) -> list[InputRef]: ...
-    def status(self, run: Run) -> StageStatus: ...   # current | stale | blocked(reason) | waiting(kind)
-    def step(self, run: Run) -> Step: ...            # the next concrete step for this stage
-```
-
-`collect`, `merge`, `plan`, `apply` and `close` are *computational*: Docket does the work when the agent runs the named command. `assess` and `review` are *delegated*: they produce dispatch steps and complete when every task has an accepted submission. `decide` and `approve` are *interactive*: they produce ask steps and complete when every question has an answer.
-
-### 5.2 `docket next`
-
-`docket next` loads the run, computes each stage's status in order, and returns the first non-current stage's step. It writes nothing except a heartbeat on the lease. Step kinds (PRD §6.4, AE-01):
-
-| Kind | Fields |
-|---|---|
-| `run` | `command` (argv array and a shell string), `why`, `expect` (what the command will produce), `timeout_s` |
-| `dispatch` | `tasks[]` each with `task_id`, `kind`, `prompt_path`, `pack_path`, `submit` (exact argv), `concurrency`, `why` |
-| `ask` | `questions[]`, one `docket ask answer {question} {option} ...` template, one `show` template, `burst`, `why` |
-| `wait` | `reason` (code), `instructions`, `resume_at` or `resume_when`, and a concrete command when one applies |
-| `done` | `summary` (counts, journal path, unexpected count) |
-
-Every command in a step is concrete except the compact ask step's documented `{question}` and `{option}` answer template (AE-07). `docket next --full --json` expands ask details and gives each option its exact answer command. Dispatch steps always carry real run ids, task ids and paths. `docket next --json` output for a dispatch of 40 tasks stays small because prompts and packs are paths, not contents (AE-08).
-
-`wait` reasons include `paused` (the workflow pauses before a configured stage), `sources_unavailable` (with per-source auth instructions), `lease_held`, `post_apply_change`, and `operator_approval` when the agent has shown the plan and is waiting for an answer. A paused step carries `docket run resume`. When the workflow sets `rehearse_at_pause: true`, it also carries `docket run rehearse`.
-
-### 5.3 Commands that advance stages
-
-The computational stages run through explicit commands so the agent's transcript shows each effect:
-
-- `docket collect [--refresh] [--sources a,b]`
-- `docket task issue`
-- `docket merge`
-- `docket plan build`
-- `docket apply`
-- `docket close`
-
-Delegated stages first return a `run` step for `docket task issue`. That command writes each pack and prompt. Only then can `docket next` return the `dispatch` step that points at those files. `docket next` remains read-only except for its lease heartbeat.
-
-Each advancing command checks that its stage is next or stale, does the work, and returns the following step in its envelope's `next` field. Running a command for a stage that is already current is a no-op that reports `current` (AE-06).
-
-### 5.4 Staleness and recomputation
-
-When an upstream digest changes (a refresh, an answer change, a configuration edit, a code upgrade), downstream artifacts become stale by §4.4 with no explicit invalidation. The engine recomputes computational stages on demand. For delegated stages, it reuses accepted results whose task input digest is unchanged (§9.6), and issues tasks only for the rest. For interactive stages, it keeps answers bound to unchanged item identities and re-asks the others (FR-DEC-06).
-
-Two boundaries are never crossed backward. When `apply` starts, it pins every prior stage digest and sets the apply boundary before the first operation. Later upstream configuration or code drift produces a `wait` with reason `post_apply_change`, inspection commands and `docket run continue`. Continue records that the operator saw the drift and lets the run finish on its approved plan. Once `close` advances cursors, the run is sealed.
-
-### 5.5 Leases
-
-A run lease is a row `(run_id, owner, pid, host, acquired_at, heartbeat_at)`. Mutating commands acquire or renew it in the same transaction as their first write. An owner is *dead* when its pid is gone on the same host, or its heartbeat is older than the configured timeout (default 15 minutes). A dead lease is adopted automatically and the adoption is reported. A live foreign lease fails with `lease.held`, naming the owner and the steal command `docket run steal <run-id>` (FR-ROB-05). The owner identity is `DOCKET_SESSION` when set, otherwise the run's session token. Docket writes that token to the run directory on first use, so separate shell calls share it without an environment variable (AE-05).
-
-### 5.6 Workflows
-
-```yaml
-workflows:
-  daily:
-    stages: [collect, assess, merge, review, decide, plan, approve, apply, close]
-    sources: [chat, dms, mail, transcripts, incidents, tickets, health, calendar, tasks]
-    pause_before: decide
-    rehearse_at_pause: true
-    refresh_on_resume: [chat, dms, mail, calendar, tasks]
-    review: { pool: 40 }
-    questions: { kinds: [reconcile, finding], bursts: 1, budget: 15 }
-    options: people-manager-default
-    journal: daily
-    hooks: { after_close: [notes-commit, search-reindex] }
-  triage:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
-    sources: [chat, dms, mail]
-    questions: { kinds: [finding], budget: 8 }
-    options: triage
-```
-
-A workflow says how often it reads each of its sources. A source it lists is read on every run unless `workflows.<id>.schedule` names it, with `weekdays` (read only on those days) or `every_days` (read at most that often, counted from the source's last read). A source off its schedule reports `skipped` with the reason; a skipped day is never a gap, because the source's cursor does not move. So one workflow can read chat and mail daily and a health report weekly, and another workflow can read the same sources on its own terms.
-
-`docket run start <workflow> [--date D] [--sandbox] [--new]` creates a run. Repeating it for the same workflow, date and sandbox mode returns the existing run unless `--new` is present. `--sandbox` binds every destination to its sandbox twin for the whole run. Sandbox runs may read live sources but write no durable cursors, dispositions or ledgers. Their hooks run only in declared `dry_run` form, or are skipped. `docket next` with no run open reports `done` with the command to start one. A paused run advances only through `docket run resume`.
-
-### 5.7 Graphs
-
-A workflow is a chain: each stage waits for the one before it. A day's work is not a chain. Holding personal time on the calendar and bringing agenda notes up to date depend on nothing, reading the sources depends on nothing, and triage depends on all of them. A graph says that, and lets work that does not depend on other work run at the same time.
+Everything Docket does is a run of a graph. A graph is a set of named nodes. A node does one thing, named by its verb, and says what it needs: `from` names the nodes whose output it works on, and `after` names nodes that must be done first and hand it nothing.
 
 ```yaml
 graphs:
   morning:
-    nodes:
-      personal-time: { command: [bin/hold-personal-time, "{run.date}"], dry_run: [bin/hold-personal-time, "{run.date}", --dry-run] }
-      agendas:       { workflow: agendas, approve: auto }
-      promised:      { refresh: { node: triage, sources: [commitments] }, needs: [agendas] }
-      triage:
-        workflow: daily
-        gates: { decide: [agendas, promised], plan: [personal-time] }
+    gather-chat:    { read: chat }
+    gather-mail:    { read: mail }
+    assess-chat:    { judge: assess, from: [gather-chat] }
+    assess-mail:    { judge: assess, from: [gather-mail] }
+    merge-items:    { merge: [assess-chat, assess-mail] }
+    review-items:   { judge: review, from: [merge-items], pool: 40 }
+    triage-items:   { ask: default, from: [review-items] }
+    plan-writes:    { plan: [triage-items] }
+    approve-writes: { approve: plan-writes }
+    apply-writes:   { apply: approve-writes }
 ```
 
-**Nodes.** A node is a workflow, a command, or a refresh of a workflow node's sources. `needs` are the nodes that must be done before it starts. A workflow node is an ordinary run, with its own artifacts, lease, plan and apply boundary, so everything a run guarantees holds for it; all the nodes of a graph run share one pinned clock. A command node runs a program once (its `dry_run` form in a sandbox graph). A refresh node opens a new collect generation of a workflow node for the named sources, which is how something one node produces becomes input to another that is already under way.
+| Verb | What the node does | How its work is done | Hands on |
+|---|---|---|---|
+| `read: <source>` | Reads one source from its cursor (§6) | computed | items |
+| `run: [argv]` | Runs a command once; its `dry_run` form in a sandbox run (§5.8) | computed | nothing |
+| `judge: <task>` | Has an agent judge what it works on, one task kind per node (§9) | judged | items, or labels for the `label` task |
+| `merge: [nodes]` | Combines rules, scores and judgments into what is worth showing (§7.3, §8) | computed | items |
+| `ask: <option set>` | The operator decides each item it works on (§10) | asked | decisions |
+| `plan: [nodes]` | Turns decisions into operations; with `schedule_tasks` also places open tasks on the calendar (§10.3, §12) | computed | a plan |
+| `approve: <plan>` | The operator approves the plan, bound to its digest (§13.1) | asked | an approval |
+| `apply: <approve>` | Writes the approved operations (§13.3) | computed | nothing |
+| `write: <action>` | Plans and writes operations that need no approval; only to a private destination (§12.8) | computed | nothing |
 
-**Gates.** A stage of a workflow node can wait for other nodes: `gates: { decide: [agendas] }` holds triage until the agendas node is done, while the stages before it run. A stage that waits reads `waiting (needs)`, for `docket next` on the run as for the graph.
+A node is ready when every node it names is current. Nodes that name nothing are ready together, and nodes that do not depend on each other never wait for each other: mail is assessed while chat is still being read. A node that waits (on an agent, on the operator, on a source that is unavailable) holds back only the nodes downstream of it.
 
-**Done.** A workflow node is done when its run is sealed; a command or refresh node when it has run. A graph run is sealed when every node is done. The graph must be acyclic, checked when the workspace loads.
+Every graph ends with a seal, which is not written in it. The seal is ready when every node is current. Sealing advances cursors, writes dispositions and the item ledger, and makes the journal entry (§13.4); then the run is sealed and cannot change. A sandbox run seals without moving a cursor or writing dispositions and ledgers.
 
-**Running.** `docket graph start <graph>` creates the graph run and a run per workflow node. `docket graph next` returns every step that is ready across the nodes, not one: run steps, dispatches and asks, each naming its node, and the nodes that wait with what they wait for. The driver runs the ready steps together and asks again. The steps are the same steps `docket next` gives for each run, so nothing about a stage changes; the graph only decides which runs may move.
+The shape of a graph is checked when the workspace loads (§3.4). A graph has at least one node. Node names are lower-case words (`[a-z][a-z0-9-]*`, at most 40 characters) other than `seal`. Every name a node uses is a node of the graph, and there is no cycle. Each node works on the kind of thing its inputs hand on: a `merge`, an `ask` or a `write` on items, a `judge` on items or decisions, a `plan` on decisions or items (the decisions of at most one `ask` node), an `approve` on a plan, an `apply` on an approval. `merge`, `plan`, `approve` and `apply` name their inputs in the verb and take no `from`. `read` and `run` work on nothing another node hands on and take only `after`. A shape problem is `config.bad_graph`, reported at the node with its file and line.
 
-**Approval in advance.** `approve: auto` on a workflow node answers its approval question for it, and only when every operation of the plan is for a destination with `visibility: private`. A plan that would write anywhere others can read is still put to the operator. This is how a node whose writes are bookkeeping finishes without waiting for the operator, and so can gate a node that needs them.
+A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), a review `judge` its `pool`, an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`. Any node may carry a `description`, which `docket graph show` prints.
 
-`docket graph show <graph>` gives the graph as tasks: each workflow node's stages in order, the node's needs before its first stage, each gate before its stage, and who does each task (docket, an agent, the operator, or nobody because it is approved in advance).
+Where several nodes hand on to one, their outputs are joined: items by id (a later node adds to what an earlier one said of the same item), lists end to end, maps key by key.
+
+### 5.2 `docket next`
+
+`docket next` returns every step that is ready now, computed from state. It writes nothing but the lease heartbeat. Each step names its node; a `lease_held` wait, which concerns the whole run, names none (PRD §6.4, AE-01):
+
+| Step | Meaning | Fields |
+|---|---|---|
+| `run` | Run this command: `docket do <node>`, `docket task issue`, `docket ask resolve` or `docket seal` | `command` (argv array and shell string), `why`, `expect` (what the command will produce), `timeout_s` |
+| `dispatch` | These agent tasks need results | `tasks[]`, each with `task_id`, `kind`, `pack_path`, `prompt_path`, `result_path`, `result_schema` and `submit` (exact argv); `concurrency`, `why` |
+| `ask` | Put these questions to the operator and record each answer | `questions[]`, one `docket ask answer {question} {option} ...` template, one `show` template, `burst`, `why` |
+| `wait` | Nothing can be done for this node until something outside changes | `reason` (code), `instructions`, `ready_when`, and the command to run then |
+
+`wait` reasons are `source_unavailable` (a required source could not be read; §6.8), `apply_partial` (operations failed; `docket do <node> --again` repeats the ones that did not complete), `plan_rejected` (the operator rejected the plan), `post_apply_change` (§5.4) and `lease_held` (§5.5).
+
+The driver does the ready steps together and asks again. The loop is the same whatever the graph: the agent needs no knowledge of the graph, only of the four kinds of step. Beside the steps, `nodes` gives each node's verb, how its work is done, its state (`current`, `stale`, `pending`, `waiting` or `blocked`), the reason and the nodes it needs. When the run is sealed, `done` is true and `summary` describes the run. With no run open, `done` is true, `steps` is empty and `start` carries the command that starts one.
+
+Every command in a step is concrete except the compact ask step's documented `{question}` and `{option}` answer template (AE-07). `docket next --full --json` expands ask details and gives each option its exact answer command. Dispatch steps always carry real run ids, task ids and paths. `docket next --json` output for a dispatch of 40 tasks stays small because prompts and packs are paths, not contents (AE-08).
+
+### 5.3 Commands that do a node's work
+
+Docket does a computed node's work only when the agent runs its command, so the agent's transcript shows each effect. `docket do <node>` does the work of a `read`, `run`, `merge`, `plan`, `apply` or `write` node and returns the steps that are ready next. It refuses a node that is not ready with `node.not_ready`, naming the nodes it waits for, and a judged or asked node with `node.not_computed`. `--again` repeats a node held on a failure that may pass: a required source that was unavailable, or operations that failed.
+
+`docket task issue` writes the pack and prompt of each task a ready `judge` node needs; `docket do` and `docket task submit` also write them for any judge node they make ready. Until they exist, `docket next` returns a `run` step for `docket task issue`; then it returns the `dispatch` step that points at those files. `docket task submit` gives a judged node a result, `docket ask answer` gives an asked node an answer, and `docket seal` seals the run. Every command that moves a run returns the steps ready next in `data.steps`. A command for a node that is already current is a no-op that reports `current` (AE-06).
+
+### 5.4 Staleness, recomputation and the apply boundary
+
+A node's digest is a function of its own settings, the configuration sections it reads, the output digests of the nodes it works on, the answers it reads and the run clock (§4.4). A node named only in `after` orders it and does not enter its digest. An artifact whose file name equals the fresh digest is current; any other is stale. Nothing else tracks staleness, so changing an answer, a rule or a source's records stales exactly the nodes downstream of the change. A computed node is recomputed when its command runs. A `judge` node reuses accepted results whose task input digest is unchanged (§9.6) and issues tasks only for the rest. An `ask` node keeps answers bound to unchanged item identities and re-asks the others, each with its previous answer (FR-DEC-06).
+
+A run never goes back across a write. Each writing node (`apply`, `write`) has its own boundary. Before its first operation it pins the digest of every node upstream of it, in `run.json` under `applied`. From then on those nodes are read from their pinned artifacts: a later change upstream does not stale the plan, and the node's own writes to a task store, an agenda or a calendar that an upstream node read cannot push the run backward. The answers of a pinned `ask` or `approve` node cannot change (`node.post_apply_change`). Nodes that are not upstream of a write are unaffected by it.
+
+A pinned node whose configuration or code schema has since changed has drifted. `docket next` then returns `wait` with reason `post_apply_change`, the commands to inspect the change, and `docket run continue`, which finishes the run on what was written; the change applies to the next run.
+
+### 5.5 Leases
+
+A run is driven by one session at a time. A run lease is a row `(run_id, owner, pid, host, acquired_at, heartbeat_at)`. `docket run start` takes it, every mutating command acquires or renews it before its first write, and `docket next` renews the heartbeat of a lease this session holds. An owner is *dead* when its pid is gone on the same host, or its heartbeat is older than the configured timeout (default 15 minutes). A dead lease is adopted automatically and the adoption is reported. A live foreign lease fails a mutating command with `lease.held`, naming the owner and the steal command `docket run steal <run-id>`, and makes `docket next` return `wait` with reason `lease_held` and the same command (FR-ROB-05). The owner identity is `DOCKET_SESSION` when set, otherwise the run's session token. Docket writes that token to the run directory on first use, so separate shell calls share it without an environment variable (AE-05).
+
+### 5.6 Runs
+
+`docket run start <graph> [--date D] [--now T] [--sandbox] [--new]` creates a run of a graph and pins its clock (§4.6). The run id is the date and the graph name, `2026-10-16-morning`, with a number added for a second run of the day. Repeating the command for the same graph, date and sandbox mode returns the existing run unless `--new` is given. An unknown graph is `input.unknown_graph`, with the closest name.
+
+`--sandbox` binds every destination to its sandbox twin under the run directory for the whole run, so its writes stay inside the run. A sandbox run may read live sources. Its seal moves no durable cursor and writes no dispositions or ledgers, and each `run` node uses its `dry_run` form or is skipped.
+
+`docket run status` shows a run's header, each node's state, the lease and the ready steps. `docket run list` lists runs, newest first. `docket run abandon` ends a run without advancing cursors, so the next run reads the same records again. `docket graph show <graph>` lists a graph's nodes in order: what each does, who does it (docket, an agent or the operator) and the nodes it waits for.
+
+### 5.7 Read schedules
+
+A `read` node reads its source on every run unless it has a `schedule`: `weekdays` (read only on those days) or `every_days` (read at most that often, counted from the source's last read). A source off its schedule reports `skipped` with the reason. A skipped day is never a gap, because the source's cursor does not move. So one graph can read chat and mail daily and a health report weekly, and another graph can read the same sources on its own terms.
+
+### 5.8 Run nodes
+
+A `run` node runs a program once. `run` is its argv; `dry_run` is the argv a sandbox run uses instead. Each argument is a template over `{run.id}`, `{run.date}`, `{run.graph}`, `{run.dir}`, `{run.sandbox}`, `{node}` and `{workspace}`, checked at validation (`config.bad_template`). The program runs in the workspace directory, in its own process group, with stdin closed and a scrubbed environment: `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR` and `TZ`, the names listed in `env`, and `DOCKET_NONINTERACTIVE=1`, `DOCKET_RUN_ID`, `DOCKET_RUN_DIR`, `DOCKET_NODE` and `DOCKET_WORKSPACE`. Its output goes to `logs/run/<node>.log` in the run directory. A non-zero exit, a timeout (`timeout_s`, default 120 seconds) or a program that cannot start fails the node with `node.command_failed`, which is retryable and carries the argv, the exit status and the log path. `after` places a run node among the others: `notes: { run: [bin/commit-notes], after: [apply-writes] }` runs once the writes are done.
 
 ## 6. Sources
 
@@ -421,7 +406,6 @@ sources:
     cursor: { model: units, unit_kind: space, lookback: 3d }
     auth: { check: ["tokencheck", "--server", "chat-gateway"], refresh: ["tokenrefresh"] }
     budget: { max_pages: 400, max_seconds: 180, concurrency: 6 }
-    volatile: true
 ```
 
 The preset supplies the request plan (tool names, argument templates, pagination fields), the response contract and the default mapping. The workspace supplies the instance, auth commands, budgets and overrides (FR-SRC-01, FR-SRC-04).
@@ -446,10 +430,10 @@ A transport sends one request and returns one response body plus metadata. Trans
 
 | Transport | Request | Notes |
 |---|---|---|
-| `mcp_stdio` | Tool name and arguments | Spawns the server once per collect, reuses the session. |
+| `mcp_stdio` | Tool name and arguments | Spawns the server once per read, reuses the session. |
 | `mcp_http` | Tool name and arguments | Streamable HTTP; bearer token read from a file or an env var name on every request, never from configuration text. |
 | `codemode` | Script template and parameters | For servers that expose one code-execution tool. The preset ships a script that pages, projects to declared fields and returns compact JSON under the server's response cap. |
-| `exec_jsonl` | One JSON object on stdin | A long-lived child process speaking the Docket protocol (§17.2). One process per source per collect, not per item. |
+| `exec_jsonl` | One JSON object on stdin | A long-lived child process speaking the Docket protocol (§17.2). One process per read, not per item. |
 | `http_json` | Method, URL template, headers, body | For plain JSON APIs. |
 | `files` | Glob and parser | Local files: Markdown, JSON, ICS, CSV. |
 
@@ -459,7 +443,7 @@ Transport instances are declared once under `transports:` and shared by sources 
 
 | Model | Read | Coverage proof |
 |---|---|---|
-| `snapshot` | The whole collection each generation | Complete when paging reached the end within budget. |
+| `snapshot` | Everything the source holds, on each read | Complete when paging reached the end within budget. |
 | `incremental` | Records with ordering key greater than the cursor, up to the run's interval end | Complete when paging reached the end and the last page's ordering key is at or past the interval end, or the source reports no more. |
 | `units` | Discover units, then `incremental` per unit | Per unit. A unit with a gap holds its own cursor; others advance. |
 | `id-scan` | List ids, read those not in `processed_ids` | Each id processed individually. |
@@ -471,11 +455,11 @@ Coverage is computed from what was read, never from counts the server claims. Th
 
 ### 6.5 Paging and step-down
 
-The pager requests `page_size` rows. On a truncation signal (a contract-declared marker, a response over the transport's size cap, a transport error the contract classifies as `too_large`, or a body that is not JSON and ends with text matching a `too_large` pattern, which is how a gateway with a response cap reports a cut body), it halves `page_size` and retries the same position, down to `min_page_size`. Below that, the unit is `partial` with its retry position. Budgets (`max_pages`, `max_seconds`) end collection as `partial`, never as `failed` (FR-SRC-08).
+The pager requests `page_size` rows. On a truncation signal (a contract-declared marker, a response over the transport's size cap, a transport error the contract classifies as `too_large`, or a body that is not JSON and ends with text matching a `too_large` pattern, which is how a gateway with a response cap reports a cut body), it halves `page_size` and retries the same position, down to `min_page_size`. Below that, the unit is `partial` with its retry position. Budgets (`max_pages`, `max_seconds`) end the read as `partial`, never as `failed` (FR-SRC-08).
 
 ### 6.6 Outcomes and isolation
 
-Each source, and each unit, ends with one outcome: `read`, `empty`, `partial(position)`, `failed(cause)`, `unavailable(reason, instructions)` or `skipped(policy)`. Sources run under a fixed global collection limit of 8. `transports.<id>.concurrency` limits a shared transport, and `sources.<id>.budget.concurrency` limits work within a source. An exception in one source is caught at its boundary, recorded with its raw message preserved, and never cancels another (FR-SRC-06). Errors keep the original message and status; Docket never replaces a transport error with a generic one. A request that fails for a passing reason is repeated: `sources.<id>.retry` sets `attempts` (default 2), `wait_s` (default 1, doubling) and `transient`, regexes over the failure message. A failure the transport marks retryable (a timeout, a 5xx, a 429, a dropped connection) is transient without a pattern. A truncation, a protocol error and an authentication rejection are never repeated. The outcome counts the repeats as `retries`, and when they run out the last failure stands with its own message. An MCP session whose call raises instead of answering is reopened once and the call repeated; concurrent calls that failed on the same session share the reopen. Discovery steps down from a cut page the way reading does, halving `discover.page_size`.
+Each source, and each unit, ends with one outcome: `read`, `empty`, `partial(position)`, `failed(cause)`, `unavailable(reason, instructions)` or `skipped(policy)`. A read makes at most 8 requests at a time. `transports.<id>.concurrency` limits its requests through a transport, and `sources.<id>.budget.concurrency` limits work within the source. An exception in one source is caught at its boundary, recorded with its raw message preserved, and never cancels another (FR-SRC-06). Errors keep the original message and status; Docket never replaces a transport error with a generic one. A request that fails for a passing reason is repeated: `sources.<id>.retry` sets `attempts` (default 2), `wait_s` (default 1, doubling) and `transient`, regexes over the failure message. A failure the transport marks retryable (a timeout, a 5xx, a 429, a dropped connection) is transient without a pattern. A truncation, a protocol error and an authentication rejection are never repeated. The outcome counts the repeats as `retries`, and when they run out the last failure stands with its own message. An MCP session whose call raises instead of answering is reopened once and the call repeated; concurrent calls that failed on the same session share the reopen. Discovery steps down from a cut page the way reading does, halving `discover.page_size`.
 
 ### 6.7 Response contracts
 
@@ -497,11 +481,11 @@ The contract checker runs on every page. A missing optional field is not drift. 
 
 ### 6.8 Authentication
 
-`check_auth` runs the configured check command or token probe with no TTY, a closed stdin and a timeout (default 10 s). Docket never runs a command that can open a browser or prompt; `doctor` flags a check or refresh command that is interactive by running it with `DOCKET_NONINTERACTIVE=1` and a closed stdin and treating a timeout as interactive. An auth failure makes the source `unavailable` with the instructions from configuration, and the run continues (FR-SRC-12). The next step becomes `wait` with reason `sources_unavailable` only when `sources.<id>.required` is true.
+`check_auth` runs the configured check command or token probe with no TTY, a closed stdin and a timeout (default 10 s). Docket never runs a command that can open a browser or prompt; `doctor` flags a check or refresh command that is interactive by running it with `DOCKET_NONINTERACTIVE=1` and a closed stdin and treating a timeout as interactive. An auth failure makes the source `unavailable` with the instructions from configuration, and the run continues (FR-SRC-12). Only when `sources.<id>.required` is true does the read node wait: `docket next` returns `wait` with reason `source_unavailable` on that node and `docket do <node> --again`, and only the nodes downstream of it wait with it.
 
 ### 6.9 Unit registry and classification
 
-For `units` sources, discovered units are upserted into the `units` table. Classification rules in `signals.units` assign `kind`, `class` and `tier` from name patterns, membership counts and unit type. A rule may also match on the profile's vocabulary: `mentions: { topics: owned }` holds when the unit's name mentions an alias of an owned topic, and `mentions: { entities: strategic }` when it names a strategic entity (`any`, `protected` and explicit ids work the same way), so adding a topic or an entity to the profile classifies its units with no new rule. `discover.types` keeps only units of the listed types, so two sources can share one system, for example rooms in one and direct conversations in another, each with its own link template, budget and rules. `docket units list` shows the durable registry and its classifications. The registry keeps each unit's type as its system reports it beside the kind a rule may assign, so a rule that matches on type still matches after another rule renamed the kind. `docket units preview` applies the current rules to the registry and writes nothing: counts per class and tier, every unit whose classification would change, and with `--class none` the units no rule matches, which is how a rule is tuned without reading the source again and how a new kind of unit gets noticed. The registry follows the system's membership. Each complete discovery marks every listed unit current; a unit of that source it no longer lists is marked gone (`gone_at`) and is left out of `units list` and `units preview` unless `--gone` is given, and one listed again has returned. The first discovery of a source is a baseline. After it, the collect outcome's `membership` reports the units that are new, gone and returned, by count and by name, and names every unit that produced records in the run and has no class (`unclassified_active`), so a new kind of unit is noticed in the run that meets it. `docket units set <source> <unit> --class ... --tier ...` records the operator's classification of one unit, which no rule overrides (`classified_by: operator`); `docket units unset` gives it back to the rules. A source in thousands of units reads only the ones that moved. When discovery maps a unit's last activity (`discover.active`), a unit with no activity after the place its cursor starts is not read, provided it was really read within `discover.verify_every` (default 7 days). Past that window it is read anyway, and a record found in a unit the rule would have skipped is recorded as an unexpected shape, because the activity time was wrong. A unit never read is read once so that a cursor exists. The outcome counts the units not read as `quiet_units`. A sample (`source test --limit`) reads the most recently active units one at a time and stops when it has enough. The `classify` task kind ships, but automatically issuing it for unclassified units is deferred with FR-SRC-11.
+For `units` sources, discovered units are upserted into the `units` table. Classification rules in `signals.units` assign `kind`, `class` and `tier` from name patterns, membership counts and unit type. A rule may also match on the profile's vocabulary: `mentions: { topics: owned }` holds when the unit's name mentions an alias of an owned topic, and `mentions: { entities: strategic }` when it names a strategic entity (`any`, `protected` and explicit ids work the same way), so adding a topic or an entity to the profile classifies its units with no new rule. `discover.types` keeps only units of the listed types, so two sources can share one system, for example rooms in one and direct conversations in another, each with its own link template, budget and rules. `docket units list` shows the durable registry and its classifications. The registry keeps each unit's type as its system reports it beside the kind a rule may assign, so a rule that matches on type still matches after another rule renamed the kind. `docket units preview` applies the current rules to the registry and writes nothing: counts per class and tier, every unit whose classification would change, and with `--class none` the units no rule matches, which is how a rule is tuned without reading the source again and how a new kind of unit gets noticed. The registry follows the system's membership. Each complete discovery marks every listed unit current; a unit of that source it no longer lists is marked gone (`gone_at`) and is left out of `units list` and `units preview` unless `--gone` is given, and one listed again has returned. The first discovery of a source is a baseline. After it, the read's outcome `membership` reports the units that are new, gone and returned, by count and by name, and names every unit that produced records in the run and has no class (`unclassified_active`), so a new kind of unit is noticed in the run that meets it. `docket units set <source> <unit> --class ... --tier ...` records the operator's classification of one unit, which no rule overrides (`classified_by: operator`); `docket units unset` gives it back to the rules. A source in thousands of units reads only the ones that moved. When discovery maps a unit's last activity (`discover.active`), a unit with no activity after the place its cursor starts is not read, provided it was really read within `discover.verify_every` (default 7 days). Past that window it is read anyway, and a record found in a unit the rule would have skipped is recorded as an unexpected shape, because the activity time was wrong. A unit never read is read once so that a cursor exists. The outcome counts the units not read as `quiet_units`. A sample (`source test --limit`) reads the most recently active units one at a time and stops when it has enough. The `classify` task kind ships, but automatically issuing it for unclassified units is deferred with FR-SRC-11.
 
 ### 6.10 Resolve
 
@@ -509,7 +493,7 @@ For `units` sources, discovered units are upserted into the `units` table. Class
 
 ### 6.11 Context records
 
-A source with the `context` capability emits records whose mapping targets `context` instead of `item`. Context records feed journal templates and never enter the item pipeline (FR-SRC-09).
+A source with the `context` capability emits records whose mapping targets `context` instead of `item`. Context records feed journal templates and never become items (FR-SRC-09).
 
 ## 7. Items
 
@@ -535,14 +519,14 @@ mapping:
 
 ### 7.2 Identity
 
-- **Item id**: `sha256(source, unit, record identity)[:16]`, stable across generations and runs.
+- **Item id**: `sha256(source, unit, record identity)[:16]`, stable across runs.
 - **Thread id**: the source's thread key, or the item id for unthreaded records.
 - **Conversation**: some systems give every message a thread of its own, so a direct or group conversation has no threads and yet holds exchanges. `signals.conversations` names such units with a unit predicate and a `gap` (default 4h); the items of a unit between two silences longer than the gap share a conversation key. Merge treats the key as the items' topic, ahead of the thread, and a task pack treats it as their thread, so one exchange is one finding and reaches a task whole.
 - **Topic id**: the merge key across sources. Computed from, in order of preference, an explicit reference the item carries (a ticket key, an incident id, a document URL), a thread id, or an agent-assigned topic from the `assess` task. References are extracted by `signals.references` patterns from configuration.
 
 ### 7.3 Merge
 
-`merge` groups items by topic id, keeps the strongest assessment, unions evidence and sources, and records each merge in the item's trace. Suppression runs here: a topic with a live disposition (`dismiss` until a date, `watch` with no new activity, `done`) is suppressed with the disposition as its reason; a topic whose latest record is from the operator is marked `answered`, unless the assess task kept one of the operator's own items as a commitment, because a reply that promises something leaves the topic open; a topic already present in the task store (matched by its references) is marked `tracked` and routed to task verification rather than a finding (FR-SIG-07).
+A `merge` node groups items by topic id, keeps the strongest assessment, unions evidence and sources, and records each merge in the item's trace. Suppression runs here: a topic with a live disposition (`dismiss` until a date, `watch` with no new activity, `done`) is suppressed with the disposition as its reason; a topic whose latest record is from the operator is marked `answered`, unless the assess task kept one of the operator's own items as a commitment, because a reply that promises something leaves the topic open; a topic already present in the task store (matched by its references) is marked `tracked` and routed to task verification rather than a finding (FR-SIG-07).
 
 ## 8. Signals
 
@@ -611,11 +595,11 @@ signals:
 
 ### 8.3 Coverage cross-references
 
-A rule effect `expect_in: <source>` with a reference pattern records that the item names an identifier the home source should contain. After collection, Docket checks each expected identifier against the home source's records and adds a coverage note to the journal for every miss, with the naming item (FR-SIG-08). It does not mark the home source incomplete.
+A rule effect `expect_in: <source>` with a reference pattern records that the item names an identifier the home source should contain. A `merge` node checks each expected identifier against the home source's items and adds a coverage note to the journal for every miss, with the naming item (FR-SIG-08). It does not mark the home source incomplete.
 
 ### 8.4 Traces and `item why`
 
-Every stage appends to an item's trace: mapping (record ids), rule matches (rule id and effects), score components, cap decisions, merges, suppressions, review verdict, question id, answer and operations. `docket item why <id|url|text>` finds the item by id, URL or a unique text match across the run and prints the trace with rule ids and file positions (FR-SIG-09).
+Every node that touches an item appends to its trace, each entry naming its verb: mapping (record ids), rule matches (rule id and effects), score components, cap decisions, merges, suppressions, review verdict, question id, answer and operations. `docket item why <id|url|text>` finds the item by id, URL or a unique text match across the run and prints the trace with rule ids and file positions (FR-SIG-09).
 
 ## 9. Agent tasks
 
@@ -627,18 +611,20 @@ A task kind is a named triple of input model, output model and instructions. Cor
 |---|---|---|
 | `assess` | A batch of items with evidence, unit context, the operator's profile summary and the vocabulary | Per item: `keep`, `score` 0..100, `kind` (request, commitment, decision, risk, fyi, or a configured value), `owner`, `ask` (one-line imperative), `evidence` (verbatim quotes), `deadline`, `topic` |
 | `extract` | A document (for example a transcript) split into sections | Commitments and requests with owner, verbatim evidence and deadline |
-| `review` | Candidates without scores, with evidence and the decision first recommended | Per item: `verdict` (ask, merge, drop, needs_verification), `against` (strongest argument against asking), `merge_with`, `reason`, and `decision` when the reviewer recommends a different one, which replaces the first recommendation |
+| `review` | Candidates without scores, with evidence and the decision first recommended | Per item: `verdict` (ask, merge, drop, needs_verification), `against` (strongest argument against asking), `merge_with`, `reason`, and `decision` when the reviewer recommends a different one, which then stands as the recommendation |
 | `recap` | Meetings held, each with its record and its forum's agenda | Per meeting: `covered` (notes, each naming the agenda entry it settles), `actions` (§12.8) |
 | `label` | Task lines planning may place, as written in the private list | Per task: `label`, the words that stand for it where others can read them (§12.7) |
 | `classify` | Units or items needing a class | Per entry: `class`, `tier`, `reason` |
 
-A workspace may define a further kind by declaring its input selection, output fields (from a closed field-type set) and instructions; Docket renders and validates it like a core kind (FR-TSK-01).
+A judge node names one kind, and its `from` names what the kind judges: `assess: { judge: assess, from: [read-chat, read-mail] }`. A kind's family says what it judges and what its node hands on. The `item` family (`assess`, `extract`, `recap`, `classify`) judges items one at a time and hands on the items with its judgments on them. `review` judges the kept set and hands on the items with its verdicts applied. `label` judges the task lines of a decision and hands on the labels alone (§12.7).
+
+A workspace may define a further kind under `tasks.kinds` by declaring its family (`item` or `review`), its output fields (from a closed field-type set), its cross-field rules and its instructions. Docket renders and validates it like a core kind (FR-TSK-01).
 
 ### 9.2 Packs
 
 `tasks/packs.py` builds packs deterministically: items sorted by score descending then id, batched to `budget.max_items` and `budget.max_bytes` per pack. Must-surface items are placed first and never dropped; if they alone exceed a pack budget, the pack exceeds it and records an unexpected shape `pack.over_budget` (FR-TSK-05). Each pack contains everything the task needs: item fields, evidence lines with line ids, unit context, relevant profile excerpts (people named, topics matched) and the vocabulary. Its digest is the task input digest.
 
-Items that share a source, unit and thread are one conversation. A pack keeps a conversation together with its items oldest first, each row carries its `thread`, and a pack boundary falls between conversations whenever one fits; a conversation longer than a pack spans packs in order. Conversations rank by their strongest item, must-surface first and then score. The assess instructions tell the task to read a conversation before judging its items, because a reply may answer or close what an earlier item asked.
+Items that share a source, unit and thread are one conversation. A pack keeps a conversation together with its items oldest first, each row carries its `thread`, and a pack boundary falls between conversations whenever one fits; a conversation longer than a pack spans packs in order. Conversations rank by their strongest item, must-surface first and then score. The assess instructions tell the task to read a conversation before judging its items, because a reply may answer or settle what an earlier item asked.
 
 A pack also carries context: the other items of each conversation that no task will judge (the operator's own, the dismissed, those left to rules), as `context`, oldest first. At most `context_items` per conversation are kept, the operator's own first and then the most recent, each cut to `context_chars`, and `omitted` counts the rest. The instructions tell the task to read the context and judge only the items, because an ask the operator already answered needs nothing.
 
@@ -671,23 +657,23 @@ A refusal returns per-row errors with the field path, the received value, the ru
 
 A dispatch step sets `concurrency` from `tasks.concurrency` (default 6) and states that each task is independent. The agent may run tasks inline in one session when it cannot spawn subagents; the step's `why` says so and the submit path is the same.
 
-### 9.6 Carry-forward
+### 9.6 Result reuse
 
-A task's acceptance is reusable whenever a new pack has the same input digest. For review, Docket goes further: review is batched per item, and an item whose evidence and assessment digests are unchanged across generations keeps its verdict without a new task (FR-TSK-07). Only new or changed items enter the next review pack.
+An accepted result is indexed by its pack's input digest in the workspace database (`task_results`). A pack whose digest has an accepted result, in this run or an earlier one, needs no new task (FR-TSK-07). The digest covers the kind's instructions and output model, the items as the task saw them, the profile excerpts and the vocabulary. So a changed item or instruction issues a new task, and an unchanged pack never does.
 
 ## 10. Decisions
 
-### 10.1 Question generation
+### 10.1 Building questions
 
-`decide` builds questions from three inputs: retained findings, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), and task-verification results. Each question has a stable id derived from its subject (`q_` + item id, or `r_` + block key), a kind (`reconcile`, `finding`, `verify`, later `approve`), a rendered prompt from templates, the evidence summary, and options.
+An `ask` node builds its questions from three inputs: the findings in the items it works on, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), and task-verification results. The node's `questions.kinds` says which of the three it asks (default: `finding`). Each question has a stable id derived from its subject (`q_` + item id, `r_` + block key, or `v_` + task key), a kind (`finding`, `reconcile` or `verify`), a rendered prompt from templates, the evidence summary, and options. The approve question is the one exception: its id is the approve node's name (§13.1).
 
-Questions are ordered by configured burst ordering (reconcile first in the reference workflow, then findings by score). The budget caps findings; overflow items become a journal section "Not asked" with their traces.
+Kinds are asked in the order of `decisions.order` (default: reconcile, then findings by score, then verify). The node's `questions.budget` caps findings; the items past it become the journal section "Not asked" with their traces.
 
-The question budget ranks findings by score. A must-surface finding is lifted only to the floor, so ranking alone cuts it first. `workflows.<id>.questions.must_surface` decides: `ranked` (the default) leaves it to its score, `first` asks must-surface findings before the rest within the budget, and `bypass` asks them first and spends none of the budget on them. Items recommended for a batch option are ranked and cut in a group of their own against `questions.batch_budget`, so a list to acknowledge and the questions asked one by one do not crowd each other out.
+The question budget ranks findings by score. A must-surface finding is lifted only to the floor, so ranking alone cuts it first. The ask node's `questions.must_surface` decides: `ranked` (the default) leaves it to its score, `first` asks must-surface findings before the rest within the budget, and `bypass` asks them first and spends none of the budget on them. Items recommended for a batch option are ranked and cut in a group of their own against the node's `questions.batch_budget`, so a list to acknowledge and the questions asked one by one do not crowd each other out.
 
 ### 10.2 Options
 
-An option set is configuration:
+An option set is configuration, and an ask node names the one it offers (`ask: people-manager-default`; `ask: default` is the core set):
 
 ```yaml
 decisions:
@@ -727,11 +713,11 @@ docket ask answer --file answers.json
 
 Overrides (FR-DEC-04): `--due` (date or weekday name, next occurrence after the run date), `--est` (duration), `--when` (window: a day, a day with times, a named calendar event to schedule over, or `this week`), `--title`, `--action` (task text), `--link` (repeatable), `--area`, `--forum`, `--merge-with`, `--note`. Option resolution accepts the id, the label, its leading words, the position, or a destination name, case-insensitively; an ambiguous match fails with the candidates (AE-09). The command echoes the normalized answer and the resulting action preview, so the operator's words and the stored decision can be compared before anything is built.
 
-Answers are stored keyed by question id, which derives from item identity (FR-DEC-06). On refresh, an answer whose item has no new activity is kept; a changed item's answer moves to `previous` and the question is re-asked with it shown.
+Answers are stored keyed by question id, which derives from item identity (FR-DEC-06). Each answer also records the digest of its question's subject. When an ask node's questions are computed again, as after a rule edit upstream, an answer whose subject is unchanged is kept; the answer of a changed item moves to `previous`, and the question is asked again with it shown.
 
 ### 10.4 Reconcile
 
-Reconcile options are fixed in kind and configurable in label: `done`, `partly` (requires `--est` for the remainder), `not_done`, `to_agenda`, `drop`. Each maps to task-store and calendar operations. Carry counts are a task field maintained by the task-store adapter. At `decisions.reconcile.carry_limit` (reference: 3), `not_done` is replaced by `rescope` and `drop` (FR-DEC-05).
+Reconcile options are fixed in kind and configurable in label: `done`, `partly` (requires `--est` for the remainder), `not_done`, `to_agenda`, `drop`. Each maps to task-store and calendar operations. Carry counts are a task field maintained by the task-store adapter. At `decisions.reconcile.carry_limit` (default: 3), `not_done` gives way to `rescope` and `drop` (FR-DEC-05).
 
 ### 10.5 Task verification
 
@@ -759,7 +745,7 @@ class Destination(Protocol):
 
 An `Operation` is a fully concrete change: for a Markdown line, the file, the anchor (section heading), the exact old line digest (or `append`) and the new line; for a calendar block, the calendar id, the ownership key, start, end, title, notes and the verb. `op.id` is `sha256(destination, verb, ownership key or anchor, payload)`.
 
-Sandbox twins are the real adapter with its I/O layer swapped: Markdown adapters write to a copy of the files under the run's rehearse directory; calendar adapters operate on an in-memory calendar seeded from `snapshot()`. Because the twin runs the same preview, apply and verify code, a rehearsal exercises the code path the live run will take (FR-ACT-03).
+Sandbox twins are the real adapter with its I/O layer swapped: Markdown adapters write under the run's `sandbox/<destination>/` directory, copying each live file the first time they touch it; calendar adapters operate on an in-memory calendar seeded from the live one, or on the program's own sandbox mode when it declares one (§17.2). Because the twin runs the same preview, apply and verify code, a sandbox run (§14.3) exercises the code path a live run takes (FR-ACT-03).
 
 ### 11.2 Ownership
 
@@ -824,7 +810,7 @@ Constraints (FR-PLN-01): workdays, day window, deep-work window (blocks of a con
 
 ### 12.3 Scheduler
 
-Deterministic greedy placement with bounded repair:
+A plan node with `schedule_tasks: true` also places open tasks on the calendar, when `planning.calendar` is configured. Placement is deterministic and greedy, with bounded repair:
 
 1. Gather open tasks through the configured `markdown_tasks` destination adapter and its line grammar, plus new tasks from answers.
 2. Order: tasks with a deadline inside `imminent_days`, then overdue, then by due date, tier and size (configurable key list).
@@ -844,7 +830,7 @@ Planning 200 tasks over 42 days runs in well under 5 seconds because `free_inter
 
 ### 12.4 Scheduling windows
 
-An answer's `--when` becomes a window: a day, a day and time range, or a named event (resolved by title match within the horizon). Inside a window, `search` takes the estimate's length in the first stretch free of meetings, and treats the operator's own soft holds and out-of-office as available, which is how "schedule it over my flight" works without a hand edit (FR-PLN-04). A window that cannot fit the estimate fails at plan build with `plan.window_too_small`, naming the window's free minutes and the answer command that changes it. A window read from a stored task line whose every day is behind the run is not a failure: it cannot be met and says nothing about when to do the work now, so the task is placed like any other and the plan notes it.
+An answer's `--when` becomes a window: a day, a day and time range, or a named event (resolved by title match within the horizon). Inside a window, `search` takes the estimate's length in the first stretch free of meetings, and treats the operator's own soft holds and out-of-office as available, which is how "schedule it over my flight" works without a hand edit (FR-PLN-04). A window that cannot fit the estimate fails the plan node with `plan.window_too_small`, naming the window's free minutes and the answer command that changes it. A window read from a stored task line whose every day is behind the run is not a failure: it cannot be met and says nothing about when to do the work now, so the task is placed like any other and the plan notes it.
 
 ### 12.5 Mirrors
 
@@ -867,11 +853,18 @@ A plan is `{inputs: {task_store_digest, calendar_digest, answers_digest, config_
 
 A task line is written for the operator: what to do, who asked, why. A block on a shared calendar is read by other people. Whether a title is safe to show them is a judgment about the matter and not about its words: the same name is ordinary in one task and private in another, and no list of words or patterns separates them. So the words for a shared place are written by a judged task.
 
-The `label` stage sits between `decide` and `plan`. Its candidates are the tasks planning may place: the open lines of the task store in the planned sections, and this run's answers that add a task or place a block. The `label` task reads each line and writes one short `label` for it, under the workspace's `tasks.label.guidance` and `tasks.label.examples`. The stage's output is the decide output with `labels` added, so the stages after it read what they always read.
+A judge node with the `label` task works on an ask node's decisions, and the plan node names both:
+
+```yaml
+    label: { judge: label, from: [decide] }
+    plan:  { plan: [decide, label], schedule_tasks: true }
+```
+
+The node's candidates are the tasks planning may place: the open lines of the task store in the planned sections, and the answers that add a task or place a block. The `label` task reads each line and writes one short `label` for it, under the workspace's `tasks.label.guidance` and `tasks.label.examples`. The node hands on the labels alone, and the plan node reads them beside the decisions.
 
 `planning.titles` templates see `label` and the task's `id` beside `title`. A workspace with a shared calendar titles its blocks with `{label}`, and can build a link back to the private line from `{id}` in the notes, so the detail stays where only the operator can open it. A task with no label renders the template's default.
 
-A label is written once per line. A durable close remembers each label against the digest of its line's words (`task_labels`); a later run reuses it and labels only lines that are new or changed, so titles do not drift from run to run. A sandbox run remembers nothing. The destination's exact-list redaction (§11.4) still runs over the rendered title as a backstop.
+A label is written once per line. A durable seal remembers each label against the digest of its line's words (`task_labels`); a later run reuses it and labels only lines that are new or changed, so titles do not drift from run to run. A sandbox run remembers nothing. The destination's exact-list redaction (§11.4) still runs over the rendered title as a backstop.
 
 ### 12.8 Rolling agendas
 
@@ -879,53 +872,71 @@ A forum that meets again and again keeps one agenda: what is next, then a dated 
 
 A source yields one item per meeting held: its title, start, the others who attended (`fields.attendees`), the record of the meeting as its text when there is one, and the record's link (`fields.record_url`). A meeting finds its forum through `forums[].calendar_match`: `attendee` when that person is the only other one present, else `title_regex` on the title. A meeting with no forum, or whose forum has no agenda, is left alone.
 
-`tasks.recap.select` names those sources. Their items go to the `recap` task and not to `assess`. A meeting is read only when it has a record and is later than its agenda's latest dated section; its pack item carries the agenda's entries (`fields.agenda`, each with an id). The task returns what the meeting covered, each note naming the agenda entry it settles when it settles one, and what people agreed to do.
+A graph that rolls agendas reads the meetings, recaps them and writes the rolls:
 
-`workflows.<id>.roll` turns the run's meetings into `agenda.roll` operations in the plan, through the agenda destination's preview:
+```yaml
+    read-meetings: { read: meetings }
+    recap: { judge: recap, from: [read-meetings] }
+    roll:  { write: roll, from: [recap], to: agendas, trailer: "→ [notes]({url})" }
+```
+
+The `recap` judge reads the agendas of the destination `tasks.recap.agendas` names. A meeting is read only when it has a record and is later than its agenda's latest dated section; its pack item carries the agenda's entries (`fields.agenda`, each with an id). The task returns what the meeting covered, each note naming the agenda entry it settles when it settles one, and what people agreed to do.
+
+The `write: roll` node turns the meetings it works on into `agenda.roll` operations, through the preview of the agenda destination `to` names, and writes them. A roll needs no approval, so `to` must name a private destination (`config.capability_missing` otherwise). The node keeps its plan and diff beside its receipts:
 
 - A meeting with a recap gets a section of what was covered (and an action list), with `trailer` as its last line. The entries it settled leave the agenda; the rest stay.
 - A meeting with no record is rolled only when it is the forum's latest: the agenda as it then stands moves down whole under a heading that carries `no_record`. With nothing on the agenda, nothing is written.
 - Meetings are rolled oldest first, each operation waiting on the one before. A meeting on or before the agenda's latest dated section is not rolled, so the agenda file is its own record of what has been done.
 
-The operations are approved and applied like any others. An entry the operator changed between plan and apply stays on the agenda.
+With `commitments` naming a JSON-lines file, the node also appends what the operator agreed to do in the meetings recapped (the recap's actions whose `owner` is `me`), one record each and each once. A source can read the file, so a promise made in a meeting reaches triage like any other item. A sandbox run appends nothing.
 
-Two things follow a roll at a durable close. An item that was raised on an agenda (§13.8) is done when the roll takes its entry off the agenda; the entry is recognised by its line as written, or by the item's link when the operator reworded the line. And with `roll.commitments` naming a JSON-lines file, what the operator agreed to do in the meetings recapped (the recap's actions whose `owner` is `me`) is appended to it, one record each and each once, so a source can read the file and a promise made in a meeting reaches triage like any other item.
+At a durable seal, an item that was raised on an agenda (§13.8) is done when a roll took its entry off the agenda. The entry is recognised by its line as written, or by the item's link when the operator reworded the line.
 
-## 13. Approve, apply and close
+## 13. Approve, apply and seal
 
 ### 13.1 Approval
 
-The approve question shows the plan diff path, the counts and the digest. `docket ask answer approve yes --digest <plan_digest>` binds the approval to that digest. Any change to an input digest makes the plan stale (§4.4) and the approval with it (FR-APP-01). Wall-clock build and approval times are appended to the `approvals` ledger outside the run artifacts. This keeps digest-bound artifacts deterministic.
+An approve node asks one question, whose id is the node's name. It shows the plan diff path, the counts and the digest. `docket ask answer approve yes --digest <plan_digest>` (for a node named `approve`) binds the approval to that digest. Any change to an input digest makes the plan stale (§4.4) and the approval with it (FR-APP-01). Wall-clock build and approval times are appended to the `approvals` ledger outside the run artifacts. This keeps digest-bound artifacts deterministic.
 
 ### 13.2 Freshness
 
-At approval, Docket snapshots each destination the plan touches and compares the snapshot digest with the plan's input digest for that destination. Equal: approved. Different: the approval is refused with `apply.stale_inputs`, the per-destination change (for example "2 calendar events added since build"), and `docket plan build` as the next command. No clock check exists; a delay of hours is fine if nothing changed. `journal.approval_delay_note` reads build and approval times from the `approvals` ledger (FR-APP-02).
+At approval, Docket snapshots each destination the plan touches and compares the snapshot digest with the plan's input digest for that destination. Equal: approved. Different: the approval is refused with `apply.stale_inputs`, the per-destination change (for example "2 calendar events added since build"), and `docket do <plan node>` as the next command. No clock check exists; a delay of hours is fine if nothing changed. `journal.approval_delay_note` reads build and approval times from the `approvals` ledger (FR-APP-02).
 
 ### 13.3 Executor
 
-`docket apply` executes operations in a fixed order (task store, agendas, calendar, messages, journal), each in its own step:
+An `apply` node writes the operations its approve node approved, and a `write` node writes the operations it planned itself. Both run them through one executor, in a fixed destination order (task store, agendas, calendar, messages, journal) and in plan order within a destination:
 
 1. Look up `op.id` in receipts. A receipt with `verified: true` skips the operation.
 2. `apply(op)` writes and returns a receipt with the external id. The receipt is committed before the next operation starts.
 3. `verify(op, receipt)` reads back and records the result.
 
-A crash at any point resumes from receipts without repeating a completed operation (FR-APP-03). An operation that fails is recorded with its raw error, later operations that do not depend on it continue, and the step returned is `wait` with reason `apply_partial` and the retry command. Dependencies are explicit in the operation (a calendar block for a new task depends on that task's line).
+After a crash, repeating the command continues from the receipts and repeats no completed operation (FR-APP-03). An integrity refusal (`dest.*`) is recorded as `refused` and is final. An external failure is recorded as `failed` with its raw error. Later operations that do not depend on it continue, and its dependants are `blocked`. The node then waits: `docket next` returns `wait` with reason `apply_partial` and `docket do <node> --again`. Dependencies are explicit in the operation (a calendar block for a new task depends on that task's line).
+
+Before its first operation, the node pins every node upstream of it (§5.4). Its own writes to a task store, an agenda or a calendar that an upstream node read cannot then make the run go back.
 
 ### 13.4 Cursor advancement
 
-During collection, each source and unit writes a `cursor_proposal` with the contiguous coverage it proved, from the durable cursor forward. A proposal with a gap ends at the gap. `docket close` applies proposals in one transaction. Positions only move forward; a proposal behind the durable cursor is ignored and recorded (FR-APP-04). A run abandoned before close advances nothing, so the next run re-reads.
+A read node writes a `cursor_proposal` for each source and unit with the contiguous coverage it proved, from the durable cursor forward. A proposal with a gap ends at the gap, and a unit that proved nothing has none, so its cursor holds. The seal applies the proposals in one transaction. Positions only move forward; a proposal behind the durable cursor is ignored and recorded in the `cursor_regressions` ledger (FR-APP-04). A run abandoned before its seal advances nothing, so the next run re-reads. A sandbox run never moves a cursor.
 
 ### 13.5 Journal and ledgers
 
 The journal is rendered from configured sections, each a template over a closed context: `run`, `sources` (outcomes and coverage), `findings`, `questions`, `answers`, `operations`, `not_asked`, `dropped` (with reasons), `coverage_notes`, `context` (context records), `unexpected`. Ledgers are generic rows (`ledger`, `run`, `key`, `json`) that templates can aggregate across runs, for example a carries ledger or a surfaced-items audit.
 
-### 13.6 Hooks
+### 13.6 Run nodes and the seal
 
-A hook is a command with arguments, a working directory, a timeout and a failure policy (`warn` or `fail`). Hooks run with a closed stdin, no TTY and a scrubbed environment that passes only declared variables. Events: `after_collect`, `after_apply`, `after_close`. A hook failure under `warn` is recorded and close completes. Each hook records a receipt, so a resumed close never repeats one (FR-APP-06).
+A `run` node runs a command once. A command that follows the writes, such as a commit or a reindex, is ordered with `after`:
+
+```yaml
+    reindex: { run: [bin/reindex, "{run.date}"], after: [apply], timeout_s: 300 }
+```
+
+Its argv templates may use `{run.id}`, `{run.date}`, `{run.graph}`, `{run.dir}`, `{run.sandbox}`, `{node}` and `{workspace}`; any other field is refused with `config.bad_template`. The command runs in the workspace directory with stdin closed, in a new session, and with a scrubbed environment: `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR` and `TZ`, the variables the node lists in `env`, and `DOCKET_NONINTERACTIVE=1`, `DOCKET_RUN_ID`, `DOCKET_RUN_DIR`, `DOCKET_NODE` and `DOCKET_WORKSPACE`. Its output goes to `logs/run/<node>.log` in the run directory. A non-zero exit, a command that cannot start, or one that outlives `timeout_s` (default 120 seconds) fails with `node.command_failed`, which is retryable and names the log. The nodes that name it wait, and `docket do <node>` runs it again. A node that succeeded is current, so repeating a command never runs it twice (FR-APP-04, FR-APP-06). A sandbox run runs the node's `dry_run` form, or skips the node when it has none (§14.3).
+
+The seal ends every run once every node is done. `docket seal` takes two steps, each with a receipt: `seal:state` applies the cursor proposals (§13.4), writes the dispositions (§13.7) and the item ledger (§13.8) and appends the configured ledgers, in one transaction; `seal:journal` renders the journal (§13.5) to `journal.md` and, when `journal.destination` names a destination, writes the entry through it. A seal that stops anywhere starts again at the first step without a receipt and repeats no completed step (FR-APP-06). `docket seal --dry-run` shows what sealing would do.
 
 ### 13.7 Dispositions
 
-Close writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05).
+The seal writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05).
 
 ### 13.8 The item ledger
 
@@ -935,9 +946,9 @@ A state is where an item is; a decision is what moves it. The states are `new`, 
 
 Destinations are projections of the ledger. Templates can write the item's `key`, and merge treats an item whose key is on an open task line as tracked, so an item is recognised wherever it landed and by whatever tool reads it next. No destination is the ledger's home: the same ledger serves a Markdown list today and another task store tomorrow.
 
-Close writes the ledger with the dispositions; a sandbox run leaves it as it was. `docket ledger list [--state S]` and `docket ledger show <key>` read it, and `docket ledger import <file>` enters items by hand from a JSON array or JSON lines, never overwriting a row. An imported item may carry the `key` already written where it lives and name that place (`destination`, `adapter`), so an item adopted from an existing list is followed there like any other.
+The seal writes the ledger with the dispositions; a sandbox run leaves it as it was. `docket ledger list [--state S]` and `docket ledger show <key>` read it, and `docket ledger import <file>` enters items by hand from a JSON array or JSON lines, never overwriting a row. An imported item may carry the `key` already written where it lives and name that place (`destination`, `adapter`), so an item adopted from an existing list is followed there like any other.
 
-The operator works in the destination, not in Docket, so the ledger follows it. A destination that can report the status of the keys it holds does so (`key_status`: `open` or `done` per key; the Markdown task store reads its lines). After its own writes, every durable close reads each destination back: an item whose line is closed moves to `done`, and so does one whose line is gone after having been seen there. A destination that cannot be read, or whose lines never carried the key, moves nothing: absence is evidence only where presence was observed. `docket ledger reconcile [--dry-run]` does the same on demand.
+The operator works in the destination, not in Docket, so the ledger follows it. A destination that can report the status of the keys it holds does so (`key_status`: `open` or `done` per key; the Markdown task store reads its lines). After its own writes, every durable seal reads each destination back: an item whose line is closed moves to `done`, and so does one whose line is gone after having been seen there. A destination that cannot be read, or whose lines never carried the key, moves nothing: absence is evidence only where presence was observed. `docket ledger reconcile [--dry-run]` does the same on demand.
 
 Blocks are tracked back to their items. After a run that applies a plan, the blocks that stand (those kept and those written) are placements of the ledger items among their task ids: an item split into parts has several, each saying how many (`of`), and a batch block is a placement of each of its items, naming the others (`with`). An item's calendar placements are replaced by the present ones on every such run, so the record follows when blocks are consolidated, split up or released: an open item with a block is `scheduled`, and one whose blocks are gone returns to `backlog`. A scheduled item is still followed on its task line. `docket ledger show <block key>` gives the items a block is for.
 
@@ -949,7 +960,7 @@ Every check in Docket belongs to one of two classes, and the class is declared i
 
 | Integrity (refuse: `integrity.*`) | Shape (tolerate: `unexpected()`) |
 |---|---|
-| Stage digest mismatch on an artifact a command consumes | A response field missing, renamed, or of a new value |
+| Node digest mismatch on an artifact a command consumes | A response field missing, renamed, or of a new value |
 | Approval digest differs from the plan digest | A unit of a new type, or with no display name |
 | Identity partition of a task result | An unknown vocabulary value in a task result |
 | Verbatim evidence not found in the raw record | A calendar event no classification rule matches |
@@ -968,26 +979,26 @@ unexpected(area="source.contract", detail="space.type=THREADED_DM",
            extend="preset mcp/chat-codemode: contract.space.type")
 ```
 
-Each record has an area, a detail key (the shape, not the instance, so repeats aggregate), a redacted sample of at most 500 bytes, the reading taken and the extension point. Records go to the run's `unexpected.jsonl`, the `unexpected` table, the envelope's `unexpected` array of the command that hit them, the journal and rehearsal output. `docket unexpected [--since 7d]` aggregates unaccepted shapes by area and detail, most frequent first, with first and last seen and the extension point (FR-ROB-01, FR-ROB-02). `docket unexpected --all` includes accepted shapes. `docket unexpected accept <area> <detail> --reason ...` writes the `unexpected_accepted` table and prints the matching `shapes.accepted` configuration entry. Committed `shapes.accepted` entries make review durable and portable.
+Each record has an area, a detail key (the shape, not the instance, so repeats aggregate), a redacted sample of at most 500 bytes, the reading taken and the extension point. Records go to the run's `unexpected.jsonl`, the `unexpected` table, the envelope's `unexpected` array of the command that hit them, the run's summary and the journal. `docket unexpected [--since 7d]` aggregates unaccepted shapes by area and detail, most frequent first, with first and last seen and the extension point (FR-ROB-01, FR-ROB-02). `docket unexpected --all` includes accepted shapes. `docket unexpected accept <area> <detail> --reason ...` writes the `unexpected_accepted` table and prints the matching `shapes.accepted` configuration entry. Committed `shapes.accepted` entries make review durable and portable.
 
-### 14.3 Rehearsal
+### 14.3 Sandbox runs
 
-`docket run rehearse [--run <id>] [--answers recommended|recorded|file:<path>]` copies the whole workspace database and the run directory into `runs/<id>/rehearse-<n>/state/`. It hard-links immutable blobs when the filesystem permits and copies them otherwise. It then swaps every destination for its sandbox twin and every source for replay over the run's recorded records, and drives the engine loop itself:
+`docket run start <graph> --sandbox` starts a run of the graph that writes nothing outside the run. It is driven by the same loop and the same commands as any run:
 
-- delegated stages use accepted results where they exist, and otherwise build schema-valid conservative results from the task kind's own field and cross-field-rule declarations, labelled as synthetic;
-- interactive stages use recorded answers, then each question's recommended option, then the first option;
-- apply runs against twins, including verify;
-- close runs against the copy, including hooks in `--dry-run` form where the hook declares one, and skipping others with a note.
+- every destination the run writes is its sandbox twin (§11.1), under `runs/<id>/sandbox/` for Markdown;
+- a `run` node runs its `dry_run` form, or is skipped when it has none;
+- a `write` node appends no commitments;
+- the seal writes the journal to `journal.md` and through the journal destination's twin, and moves no cursor and writes no disposition, item ledger row, ledger row or label.
 
-The report lists each stage's outcome, every operation the live run would perform, every refusal with its code, every unexpected shape, and the elapsed time (FR-ROB-03). Nothing outside the rehearse directory is written. The reference workflow runs a rehearsal automatically at the evening pause, so a defect surfaces in the evening, not in the operator's morning.
+Sources are read live, since a source has no write path. Every other step is the code a live run takes: the same packs, questions, plan, approval, executor, receipts and verify. The journal and the run's summary report every operation, refusal and unexpected shape, so a defect shows up in a sandbox run before a live run meets it (FR-ROB-03, NFR-08).
 
-### 14.4 Crash, refresh and change
+### 14.4 Crash, repetition and change
 
-All three reduce to §5.4: read the state, compute digests, recompute what is stale, reuse what is current, never cross the apply boundary backward. There is no separate resume code path to fall out of date (FR-ROB-04).
+A crash, a repeated command and a mid-run change of code or configuration reduce to §5.4: read the state, compute digests, recompute what is stale, reuse what is current, and read the nodes upstream of a write as pinned. There is no separate recovery code path to fall out of date (FR-ROB-04).
 
 ### 14.5 Unattended operation
 
-Every subprocess Docket starts (transports, auth checks, adapters, hooks) runs with stdin closed, no controlling TTY, a timeout, and `DOCKET_NONINTERACTIVE=1`. A timeout reports the command and the elapsed time. `docket doctor` lists each configured subprocess and checks it in this mode (FR-ROB-06, NFR-05).
+Every subprocess Docket starts (transports, auth checks, adapters, run nodes) runs with stdin closed, no controlling TTY, a timeout, and `DOCKET_NONINTERACTIVE=1`. A timeout reports the command and the elapsed time. `docket doctor` lists each configured subprocess and checks it in this mode (FR-ROB-06, NFR-05).
 
 ## 15. CLI
 
@@ -996,19 +1007,18 @@ Every subprocess Docket starts (transports, auth checks, adapters, hooks) runs w
 | Group | Commands |
 |---|---|
 | Loop | `next [--full]` |
-| Runs | `run abandon`, `run continue`, `run list`, `run rehearse`, `run resume`, `run start`, `run status`, `run steal` |
-| Stages | `apply`, `close`, `collect`, `merge`, `plan build`, `plan diff`, `plan explain`, `plan load` |
+| Runs | `run abandon`, `run continue`, `run list`, `run start`, `run status`, `run steal`, `seal` |
+| Nodes | `do`, `graph show`, `plan diff`, `plan explain`, `plan load` |
 | Tasks | `task issue`, `task kinds`, `task list`, `task show`, `task submit` |
 | Decisions | `ask answer`, `ask list`, `ask resolve`, `ask show`, `ask undo` |
-| Graphs | `graph start`, `graph next`, `graph status`, `graph exec`, `graph show` |
 | Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import`, `ledger reconcile` |
 | Config | `config explain`, `config test`, `config validate`, `init`, `presets list`, `presets show` |
 | Sources | `source list`, `source test` |
-| Health | `doctor [--workflow <name>]` |
+| Health | `doctor [--graph <name>] [--probe]` |
 | Plugins and import | `import cursors`, `plugin check`, `plugin list` |
 | Self-description | `help`, `schema`, `schema list`, `version` |
 
-This table lists all 48 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
+This table lists all 51 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
 
 Every command takes `--json`, `--workspace` and `--run` where it applies. Every mutating command takes `--dry-run` and reports what it would do (AE-06).
 
@@ -1021,21 +1031,21 @@ Every command takes `--json`, `--workspace` and `--run` where it applies. Every 
   "workspace": "/workspace",
   "run": "2026-10-16-daily",
   "data": { "...": "..." },
-  "warnings": [ { "code": "decide.option_removed", "message": "..." } ],
+  "warnings": [ { "code": "lease.adopted", "message": "..." } ],
   "unexpected": [ { "area": "...", "detail": "...", "reading": "...", "extend": "..." } ],
-  "next": { "command": ["docket", "next", "--json"], "why": "3 questions remain" }
+  "next": { "command": ["docket", "next", "--json"], "shell": "docket next --json", "why": "3 questions remain" }
 }
 ```
 
-On failure, `ok` is false and `error` replaces `data`:
+On failure, `ok` is false and `error` stands in place of `data`:
 
 ```json
 { "ok": false,
   "error": { "code": "apply.stale_inputs", "kind": "integrity",
-             "message": "Calendar changed since the plan was built (2 events added).",
-             "hint": "docket plan build", "retryable": true,
-             "details": { "destination": "work-calendar", "added": 2 } },
-  "next": { "command": ["docket", "plan", "build", "--json"], "why": "Rebuild against current calendar" } }
+             "message": "The plan is stale: work-calendar: 2 events added. Rebuild it and show the new diff before approving.",
+             "hint": "docket do plan", "retryable": true,
+             "details": { "plan_digest": "...", "destinations": { "work-calendar": { "...": "..." } } } },
+  "next": { "command": ["docket", "do", "plan", "--json"], "shell": "docket do plan --json", "why": "Rebuild the plan against the current calendar" } }
 ```
 
 Human output (without `--json`) is a short summary and the `next` line. Long payloads are files whose paths appear in `data` (AE-08).
@@ -1050,14 +1060,14 @@ Codes are dotted `<area>.<condition>`, stable across versions, and listed by `do
 | 2 | input | `input.unknown_option`, `input.ambiguous_option`, `input.bad_duration` |
 | 3 | config | `config.unknown_key`, `config.bad_reference`, `config.invalid` |
 | 4 | integrity | `integrity.partition`, `integrity.evidence`, `apply.stale_inputs`, `dest.line_changed`, `dest.redaction_leak` |
-| 5 | external | `source.unavailable`, `transport.timeout`, `dest.apply_failed` |
+| 5 | external | `source.unavailable`, `transport.timeout`, `dest.apply_failed`, `node.command_failed` |
 | 6 | lease | `lease.held` |
-| 7 | state | `run.none_open`, `run.sealed`, `stage.not_ready` |
+| 7 | state | `run.none_open`, `run.sealed`, `node.not_ready`, `node.post_apply_change`, `state.too_old` |
 | 70 | internal | `internal.bug` (with a traceback path, never a traceback on stdout) |
 
 ### 15.4 Doctor
 
-`docket doctor` writes nothing and checks: configuration validity; state root writability and database version; each transport's binary or endpoint; each auth check in unattended mode; each destination's location, permissions and capability declarations; each hook's command; platform permissions an adapter declares. Each failure names the fix. `docket doctor --workflow <name>` limits source, transport, destination and hook checks to those used by that workflow.
+`docket doctor` writes nothing and checks: configuration validity; state root writability and database version; each transport's binary or endpoint; each auth check in unattended mode; each destination's location, permissions and capability declarations; each run node's command and its `dry_run` form; platform permissions an adapter declares. Remote endpoints are reported as configured and contacted only with `--probe`. Each check names the graphs it affects, and each failure names the fix. `docket doctor --graph <name>` limits source, transport, destination and command checks to those that graph uses.
 
 ### 15.5 Input normalization
 
@@ -1071,7 +1081,7 @@ Codes are dotted `<area>.<condition>`, stable across versions, and listed by `do
 
 - **Credentials.** Configuration names credential sources (an environment variable name, a file path, a command that prints a token). Values are read at use, passed to transports only, and never logged, stored in records, artifacts, envelopes or unexpected samples. A redaction filter on all output paths masks any value read from a credential source (NFR-01).
 - **Untrusted content.** Source text appears to agents only inside fenced, nonce-delimited pack sections (§9.3). Docket itself never interprets source text as instructions: templates do not evaluate content, and a source field cannot name a command, path or destination.
-- **Least effect.** Sources have no write path. Destinations write only owned objects (§11.2). Message destinations create drafts; sending is not implemented.
+- **Least effect.** Sources have no write path. Destinations write only owned objects (§11.2). A `write` node needs no approval, so it may target only a private destination. Message destinations create drafts; sending is not implemented.
 - **Samples.** Unexpected-shape samples pass through redaction (protected entities, people, figures) before storage.
 
 ## 17. Extensibility
@@ -1106,9 +1116,9 @@ A long-lived child process reads JSON-lines requests on stdin and writes JSON-li
 | Path | Budget | Mechanism |
 |---|---|---|
 | `docket next`, read-only commands | under 300 ms warm | Cached resolved configuration, stored digests, lazy imports |
-| Collection | Network-bound | `asyncio`, per-source and global concurrency, long-lived transport sessions |
+| Source reads | Network-bound | `asyncio`, per-source and global concurrency, long-lived transport sessions |
 | Assess pack build for 500 items | under 1 s | In-process, no subprocess |
-| Plan build, 200 tasks, 42 days | under 5 s | Incremental free intervals per day (§12.3) |
+| A plan node placing 200 tasks over 42 days | under 5 s | Incremental free intervals per day (§12.3) |
 | Full synthetic run in tests | under 60 s | Recorded transports, sandbox twins, synthetic task results |
 
 No command launches a process per item (AE-10).
@@ -1119,7 +1129,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 
 - **Chat over an MCP gateway's code-mode tool.** The `mcp/chat-codemode` preset ships the paging and projection script with no deployment-specific host or tool names; the workspace sets the server and tool names.
 - **The native calendar bridge.** Wrapped through `calendar_exec` (§11.3). The bridge's existing verbs map one to one onto the exec protocol; a small shim translates its argument shapes. The shim lives with the workspace.
-- **External state tools.** The predecessor kept watermarks in an external tool. Docket's database replaces it; a one-time `docket import cursors --from <json>` seeds cursors so the first Docket run does not re-read weeks of history.
+- **External state tools.** The predecessor kept watermarks in an external tool. Docket keeps cursors in its own database, and a one-time `docket import cursors --from <json>` seeds them so the first Docket run does not re-read weeks of history.
 
 ## 20. Decisions and open questions
 
@@ -1127,17 +1137,19 @@ The reference workspace models the predecessor as configuration. It lives in the
 
 | Decision | Alternatives rejected | Reason |
 |---|---|---|
-| Digest-named artifacts replace generation bookkeeping | Generation numbers on every artifact | One rule detects every cross-generation mix (PRD §2.2). |
+| Digest-named artifacts | A version counter on every artifact | One rule detects every artifact built from stale inputs (PRD §2.2). |
+| A graph of single-verb nodes, each naming what it needs | Scripted control flow with branches and loops | The shape is checked when the workspace loads; independent nodes are ready together; a wait holds back only what depends on it. |
+| Each write pins the nodes upstream of it | Recomputing upstream after a write | A run's own writes cannot make it go back. |
 | Pydantic models as the single schema source | Hand-written JSON Schema, prompt text | Prompt, validator and `docket schema` cannot drift. |
 | Closed predicate and effect sets with a plugin escape hatch | An expression language | Validatable, explainable, and resistant to creep (PRD §14.1). |
 | A restricted template language | Jinja | Total rendering, no code execution, one page of docs. |
-| Explicit stage commands plus `next` | `next` executing computational stages itself | The agent's transcript shows every effect; `next` stays read-only and fast. |
+| Explicit node commands plus `next` | `next` doing the work of computed nodes itself | The agent's transcript shows every effect; `next` stays read-only and fast. |
 | Destinations build operations in core; programs only execute | Programs build their own operations | Ownership, redaction and quality rules stay in one place. |
-| Synthetic conservative task results in rehearsal | Skipping delegated stages in rehearsal | Rehearsal must exercise decide, plan and apply on realistic shapes. |
+| Sandbox twins swap only the adapter's I/O layer | Separate mock destinations | A sandbox run exercises the preview, apply and verify code a live run takes. |
 
 ### 20.2 Open questions
 
-1. Should `docket next` be allowed to execute computational stages itself behind a flag (`--auto`), to halve round trips for agents that trust it?
+1. Should `docket next` be allowed to do the work of computed nodes itself behind a flag (`--auto`), to halve round trips for agents that trust it?
 2. Should the review task batch by topic cluster rather than by score order, to help the reviewer spot merges?
 3. Should accepted unexpected shapes expire after a period, so a forgotten acceptance resurfaces?
 4. Is SQLite enough for a later multi-workspace mode, or does that mode need a shared store?
@@ -1163,15 +1175,15 @@ The reference workspace models the predecessor as configuration. It lives in the
 | Milestone | Status | Result |
 |---|---|---|
 | M0 | Built | Foundation, configuration, schemas, CLI contracts and state store |
-| M1 | Built | Engine, stages, leases, workflows and the agent loop |
-| M2 | Built | Collection, transports, cursors, contracts and generations |
+| M1 | Built | Engine, graphs, nodes, leases and the agent loop |
+| M2 | Built | Source reads, transports, cursors and response contracts |
 | M3 | Built | Items, signals, scoring, merge and explanations |
 | M4 | Built | Agent task kinds, packs, prompts and validation |
 | M5 | Built | Questions, answers, reconciliation and verification |
 | M6 | Built | Destination adapters, ownership, twins and conformance |
 | M7 | Built | Planning, calendar classification, constraints and scheduling |
-| M8 | Built | Approval, apply, receipts, close, journals and hooks |
-| M9 | Built | Rehearsal, unexpected-shape review, doctor and agent polish |
+| M8 | Built | Approval, apply, receipts, the seal, journals and run nodes |
+| M9 | Built | Sandbox runs, unexpected-shape review, doctor and agent polish |
 | M10 | Not started | Requires the operator's live workspace and accounts |
 | M11 | Not started | Requires shadow runs against the operator's live systems |
 | M12 | Not started | Requires live cutover of the operator's accounts and calendars |

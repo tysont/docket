@@ -112,7 +112,7 @@ class WaitStep(BaseModel):
     node: str | None = None
     reason: str
     instructions: str
-    resume_when: str | None = None
+    ready_when: str | None = None
     command: Command | None = None
     inspect: list[Command] = []     # read-only commands that show the cause (post_apply_change)
 

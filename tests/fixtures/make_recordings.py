@@ -2,7 +2,7 @@
 
 Each persona keeps the upstream truth in ``data/``. This script plays a small
 fake of every upstream system (a chat gateway's code tool, a mail server, two
-JSON APIs, three exec bridges), drives the real collection pipeline against
+JSON APIs, three exec bridges), drives the real reader against
 them through ``Recorder``, and writes ``recordings/<transport>.jsonl``. It runs
 two passes: a first run from no cursor, and a follow-up from the first run's
 proposals, which is what the next run requests.

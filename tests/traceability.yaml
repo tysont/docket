@@ -18,7 +18,7 @@ FR-SRC-02:
   - tests/unit/sources/test_cursor_models.py::test_incremental_proves_coverage_and_proposes_the_last_order_key
   - tests/unit/sources/test_cursor_models.py::test_id_scan_reads_unprocessed_ids_each_individually
   - tests/unit/sources/test_cursor_models.py::test_cadence_skips_and_never_reports_a_gap
-  - tests/scenario/test_collection.py::test_isolation_journal_and_units
+  - tests/scenario/test_reading.py::test_isolation_journal_and_units
 FR-SRC-03:
   - tests/conformance/test_transports.py::test_mcp_stdio_conformance
   - tests/conformance/test_transports.py::test_mcp_http_conformance
@@ -36,7 +36,7 @@ FR-SRC-05:
   - tests/unit/shapes/test_unexpected.py::test_shapes_reach_envelope_run_file_db_and_report
   - tests/scenario/test_task_scenarios.py::test_evidence_is_checked_against_the_latest_version_of_a_record
 FR-SRC-06:
-  - tests/scenario/test_collection.py::test_isolation_one_failing_one_unavailable_one_partial
+  - tests/scenario/test_reading.py::test_isolation_one_failing_one_unavailable_one_partial
   - tests/unit/sources/test_auth_resolve_units.py::test_exceptions_at_the_source_boundary_are_isolated
 FR-SRC-07:
   - tests/unit/sources/test_contracts.py::test_missing_optional_is_not_drift_and_takes_the_declared_reading
@@ -49,7 +49,7 @@ FR-SRC-08:
   - tests/unit/sources/test_cursor_models.py::test_truncated_at_min_page_size_is_partial_with_its_retry_position
   - tests/unit/sources/test_cursor_models.py::test_budget_ends_as_partial_never_failed_and_the_proposal_ends_at_the_gap
 FR-SRC-09:
-  - tests/scenario/test_collection.py::test_context_records_never_enter_the_item_pipeline
+  - tests/scenario/test_reading.py::test_context_records_never_become_items
 FR-SRC-10:
   - tests/unit/sources/test_auth_resolve_units.py::test_resolve_claims_by_pattern_and_reports_unclaimed_refs
   - tests/scenario/test_decisions_scenario.py::test_verify_questions_come_from_resolve
@@ -57,11 +57,11 @@ FR-SRC-11:
   deferred: "IP §5: rule classification of units is in v1; agent classification of units is deferred to v1.1."
   tests:
     - tests/unit/sources/test_auth_resolve_units.py::test_unit_rules_apply_in_order_by_name_type_and_members
-    - tests/scenario/test_collection.py::test_isolation_journal_and_units
+    - tests/scenario/test_reading.py::test_isolation_journal_and_units
 FR-SRC-12:
   - tests/unit/sources/test_auth_resolve_units.py::test_auth_checks_run_unattended
   - tests/unit/sources/test_auth_resolve_units.py::test_an_auth_check_that_waits_is_treated_as_interactive
-  - tests/scenario/test_collection.py::test_required_unavailable_source_waits_then_its_command_reads_it
+  - tests/scenario/test_reading.py::test_required_unavailable_source_waits_then_its_command_reads_it
 
 # --- items and signals -------------------------------------------------------------------------
 FR-SIG-01:

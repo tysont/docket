@@ -8,11 +8,11 @@
 
 ## 1. What the tests must prove
 
-The predecessor had a large passing test suite and still failed in a new place on most mornings of its final week. The tests checked the shapes the code expected. The failures came from shapes it did not expect, from state crossing generations, and from code paths that met live data for the first time in the operator's morning. Docket's test plan is built against those three causes:
+The predecessor had a large passing test suite and still failed in a new place on most mornings of its final week. The tests checked the shapes the code expected. The failures came from shapes it did not expect, from state of one read checked against another, and from code paths that met live data for the first time in the operator's morning. Docket's test plan is built against those three causes:
 
 1. **Variation, not examples.** Fixtures are generated with systematic variation (missing optional fields, unknown enum values, empty units, nameless units, tombstones, long spans), and every test asserts that variation produces a safe reading plus a recorded unexpected shape, not a failure (§5.6).
 2. **Invariants, not cases.** Properties that must hold for every input are tested as properties: a built plan validates, derived artifacts are deterministic, prompts and validators agree, integrity checks refuse (§5).
-3. **Live data before the morning.** Rehearsal on a copy of a live run is a required verification step, not an optional tool (§8).
+3. **Live data before the morning.** A sandbox run on live reads is a required verification step, not an optional tool (§8).
 
 ## 2. Isolation rules
 
@@ -23,7 +23,7 @@ Every test obeys these, and `tests/conftest.py` enforces them with an autouse fi
 - No network. A socket guard blocks connections except to `127.0.0.1` servers the test started.
 - Stub binaries first on `PATH` for every external program a configuration names.
 - A pinned clock (`--now` or the run's clock pin). No test reads the wall clock for derived output.
-- Subprocesses launched only by tests of transports, adapters and hooks, and only to stubs. Every other path runs in process (`docket.cli.main(argv)`) to avoid repeated process-launch overhead.
+- Subprocesses launched only by tests of transports, adapters and `run` nodes, and only to stubs (`tests/fixtures/bin/`). Every other path runs in process (`docket.cli.main(argv)`) to avoid repeated process-launch overhead.
 
 ## 3. Tiers and layout
 
@@ -32,30 +32,30 @@ Every test obeys these, and `tests/conftest.py` enforces them with an autouse fi
 | Smoke | `make test-smoke` | Smoke-marked unit, contract, scenario and litmus tests | About 20 s |
 | Fast | `make test-fast` | All tests except those marked slow, with `pytest-xdist -n auto` | 30 s |
 | Full | `make test` | Every test, including performance and exhaustive shape variants, with `pytest-xdist -n auto` | About 30 s |
-| Rehearse | `make rehearse-fixtures` | Rehearsal of each persona fixture's recorded live-like run | 2 min |
 
 Run the cheapest tier that covers a change while iterating, `test-fast` before claiming anything works, and `test` before a commit to main.
 
 ```
 tests/
-  unit/<package>/          one directory per src package
-  contract/                envelope, error codes, schemas, CLI help
-  property/                hypothesis-based invariant tests (§5)
+  unit/<package>/          one directory per src package, with the invariant tests of §5
+  contract/                envelope, error codes, schemas, CLI help, traceability
   conformance/             transport and adapter suites (§7)
-  scenario/                end-to-end runs per persona (§6)
+  scenario/                end-to-end runs of each persona's graphs (§6)
   litmus/                  §4
   perf/                    §10
   fixtures/
-    personas/reference-like/   workspace, recorded transports, task results, answers
+    personas/reference-like/   workspace, data and recorded transports
     personas/support-lead/     same, materially different
     shapes/                    variation generators
+    bin/                       stub programs for run nodes and exec adapters
+  agent_loop.py            the minimal agent of §6.1
 ```
 
 ## 4. The litmus test
 
 Two automated checks, both in every tier (PRD §12).
 
-**4.1 Nothing hardcoded.** `tests/litmus/test_no_literals.py` collects forbidden literals from three sources:
+**4.1 Nothing hardcoded.** `tests/litmus/test_no_literals.py` gathers forbidden literals from three sources:
 
 1. A static list in the test of conventions from the reference world: calendar title words, glyph conventions, block key formats, note-repository folder names, organization and product names, hosts and service vocabularies. The list is reviewed when the reference workspace changes.
 2. Every identifier in the reference workspace configuration when it is available (`DOCKET_LITMUS_WORKSPACE`, set in the operator's environment and in the shadow-period job): names, aliases, handles, domains, paths, title patterns, tool names, template literals.
@@ -63,13 +63,13 @@ Two automated checks, both in every tier (PRD §12).
 
 It scans `src/docket/` including `presets/`, case-insensitively, on word boundaries, and reports each hit with file, line and the source list. Generic words that collide (for example "focus" as a classification kind) are allowed only through an explicit, commented allowlist entry naming the generic meaning.
 
-**4.2 Everything modellable.** The full scenario suite (§6) passes for both personas with no persona-specific code, and the reference workspace passes a full rehearsal on recorded live data (§8).
+**4.2 Everything modellable.** The full scenario suite (§6) passes for both personas with no persona-specific code, and the reference workspace's graphs reach the seal in a sandbox run on live reads (§8).
 
 ## 5. Invariant tests
 
 ### 5.1 Integrity versus shape in code
 
-`tests/contract/test_raise_discipline.py` parses every module under `src/` and fails on a `raise` inside a function that handles source, agent or destination data, unless the raised type is an `IntegrityError` subclass with a code listed in the error catalog, or a `ConfigError` raised during configuration loading. Data-handling functions are identified by their package (`sources`, `transports`, `items`, `signals`, `tasks`, `decide`, `destinations`, `plan`, `apply`, `close`) and a decorator for exceptions. This is the automated form of TD §14.1.
+`tests/contract/test_raise_discipline.py` parses every module under `src/` and fails on a `raise` inside a function that handles source, agent or destination data, unless the raised type is an `IntegrityError` subclass with a code listed in the error catalog, or a `ConfigError` raised during configuration loading. Data-handling functions are identified by their package (`sources`, `transports`, `items`, `signals`, `tasks`, `decide`, `destinations`, `plan`, `apply`, `seal`) and a decorator for exceptions. This is the automated form of TD §14.1.
 
 A second check asserts that every `unexpected()` call names a non-empty `extend`.
 
@@ -103,7 +103,7 @@ One test per integrity code in the catalog proves it refuses, with the documente
 
 ### 5.6 Shape tolerance
 
-`tests/fixtures/shapes/` holds variation generators over each persona's recorded responses: drop each optional field, drop each required field, replace each enum with an unknown value, change each field's type, empty each collection, remove display names, add unknown fields, inject tombstones and long recurring spans. For every variant, the test runs collection and the downstream stages and asserts:
+`tests/fixtures/shapes/` holds variation generators over each persona's recorded responses: drop each optional field, drop each required field, replace each enum with an unknown value, change each field's type, empty each list, remove display names, add unknown fields, inject tombstones and long recurring spans. For every variant, the test runs the read nodes and the nodes downstream of them and asserts:
 
 - the run continues past the affected record or unit;
 - the expected safe reading was taken;
@@ -116,19 +116,21 @@ A variant that makes a run stop is a defect, unless the change hits an integrity
 
 Each scenario runs in process against a persona fixture, using recorded transports and sandbox twins.
 
-**6.1 Agent loop.** `tests/agent_loop.py` is a minimal agent: it loops on `docket next --json`, runs `run` steps, answers `dispatch` steps from recorded task results (or synthetic results), answers `ask` steps from a scripted answer file, and stops on `wait` or `done`. It reads no Docket documentation and uses only fields from the step. Every scenario below drives Docket through it, which proves AE-01 on every run.
+**6.1 Agent loop.** `tests/agent_loop.py` is a minimal agent. Each round it calls `docket next --json` and does every step that is ready: it runs `run` steps, answers `dispatch` steps with synthetic results, and answers `ask` steps with the first option or a scripted choice. It stops when the run is sealed, when a round holds only `wait` steps, or on the first failed command. It reads no Docket documentation and uses only fields from the steps. Every scenario below drives Docket through it, which proves AE-01 on every run.
 
 **6.2 Scenario list.**
 
 | Scenario | Proves |
 |---|---|
-| Evening start, pause, morning finish with refresh | Workflow pause, `refresh_on_resume`, incremental reads, review carry-forward, answers kept for unchanged items |
-| Triage workflow | A second workflow from the same stages, no planning |
-| One source failing, one unavailable, one partial | Isolation, outcomes, cursor holding per source and unit |
+| Full daily graph | Every verb in one run; independent nodes ready together; a node waits only for what it names |
+| Triage graph | A second graph from the same verbs, no planning |
+| A second run of the same graph | Cursors moved at the seal; only new records read; accepted results reused by input digest |
+| One source failing, one unavailable, one partial | Isolation, outcomes, cursor holding per source and unit; a required unavailable source holds only its read node and the nodes after it |
 | Kill after every command and repeat it | AE-06 and FR-ROB-04 |
-| Crash after every apply operation | Receipts, no duplicate effect, resume |
-| Configuration edit mid-run (weights, then planning policy) | Partial digests stale exactly the declared stages |
-| Code schema bump mid-run | Stage schema versions recompute exactly the affected stages |
+| Crash after every apply operation | Receipts, no duplicate effect, repeat continues from the receipts |
+| Configuration edit mid-run (weights, then planning policy) | Partial digests stale exactly the nodes that read the edited section |
+| Code schema bump mid-run | A verb's schema version recomputes exactly the nodes of that verb |
+| Upstream change after apply began | Pinned nodes are not recomputed; `wait` with `post_apply_change`; `docket run continue` finishes the run |
 | Calendar change between plan build and approval | State-based freshness refusal and rebuild |
 | Backlog line edited after plan build | `dest.line_changed`, others applied |
 | Every structured answer override | FR-DEC-04 with no hand edits |
@@ -136,7 +138,8 @@ Each scenario runs in process against a persona fixture, using recorded transpor
 | Carry limit reached | Rescope options replace not done |
 | Two concurrent agents | Lease held, dead-owner adoption, explicit steal |
 | Shared calendar with a protected entity | Redaction, leak refusal |
-| Hook failure under warn | Close completes, no repeat on resume |
+| A `run` node that fails or hangs | `node.command_failed` with the command and its log; repeating runs only that node; a run node runs once per run |
+| Sandbox run of each persona | Nothing outside the run changes (§8.1) |
 | Untrusted content with embedded instructions | Fence present with nonce; content cannot close it; no instruction text reaches a command or path |
 
 Every scenario runs for both personas unless it is persona-specific by nature, and the list is the minimum for v1.
@@ -153,7 +156,7 @@ Every scenario runs for both personas unless it is persona-specific by nature, a
 
 Unit, property and scenario tests cannot see the shapes in tomorrow's live data. Two practices cover that gap.
 
-**8.1 Rehearsal as a gate.** A change to any stage, adapter or preset is not verified until `docket run rehearse` has run on a copy of a recent live run of the reference workspace and reported no refusal and no new unexpected shape that the change should have handled. The reference workflow also rehearses automatically at each evening pause (TD §14.3), and a failing evening rehearsal is triaged before the morning session.
+**8.1 A sandbox run as a gate.** A change to any verb, adapter or preset is not verified until a sandbox run of each reference graph (`docket run start <graph> --sandbox`) has reached the seal on live reads and reported no refusal and no new unexpected shape that the change should have handled. A sandbox run binds every destination to its sandbox twin, runs each `run` node in its `dry_run` form or skips it, and writes nothing outside the run: no cursor, disposition, ledger entry or live destination (FR-ROB-03). `tests/scenario/test_sandbox.py` proves this by hashing the workspace, its destination files and the durable tables before and after a sandbox run of each persona. The reference workspace runs a sandbox run of its daily graph each evening, and a failing one is triaged before the morning session.
 
 **8.2 Config test as a gate.** A change to the reference workspace configuration is not verified until `docket config test` has shown its effect on the last run's raw records and the differences are the intended ones.
 
@@ -175,7 +178,7 @@ Performance tests run in the full tier and report their timings; a budget miss f
 
 ## 11. Shadow parity (M11)
 
-During the shadow period (IP M11), `docket shadow compare --date D` (a test utility under `tests/tools/`, not a product command) reads the predecessor's day record and audit and the Docket sandbox run for the same date, and reports:
+During the shadow period (IP M11), `shadow compare --date D`, a test utility M11 adds under `tests/tools/` and not a product command, reads the predecessor's day record and audit and the Docket sandbox run for the same date, and reports:
 
 - findings asked by both, by one only, and why (from `item why` and the predecessor's audit);
 - route and option differences for shared findings;
@@ -191,7 +194,7 @@ Every change is checked against the predecessor's regression checklist. The inhe
 | Class | Guard |
 |---|---|
 | Exact check on a varying shape | §5.1, §5.6 |
-| State from one generation checked against another | Digest-named artifacts (TD §4.4); §6.2 refresh and mid-run edit scenarios |
+| State from one read checked against another | Digest-named artifacts (TD §4.4); the apply boundary (TD §5.4); §6.2 mid-run edit and post-apply scenarios |
 | Two implementations of one rule | §5.3, §5.4 |
 | Hand edits of machine artifacts | §6.2 structured answer scenario; no command accepts an edited artifact without its digest |
 | Prompt and validator drift | §5.3 |

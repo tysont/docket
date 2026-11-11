@@ -1,5 +1,5 @@
 """Agent tasks end to end (IP M4 exit, TD §9): refusals with per-row fixes, safe readings, review
-verdicts in the pipeline, accepted results reused across runs, dispatch guidance and task
+verdicts in the graph, accepted results reused across runs, dispatch guidance and task
 schemas. All data is invented."""
 from __future__ import annotations
 

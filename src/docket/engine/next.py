@@ -59,7 +59,7 @@ def compute_steps(rc: RunContext, *, token: str | None = None, full: bool = Fals
         return [WaitStep(reason="lease_held",
                          instructions=f"Session {held['owner']} (pid {held['pid']} on {held['host']}) holds run {r.id}. "
                                       f"Wait for it to finish, or take over with the steal command.",
-                         resume_when="the other session's lease is released or goes stale",
+                         ready_when="the other session's lease is released or goes stale",
                          command=Command.of(steal))]
     from docket.apply.boundary import unacknowledged
     drift = unacknowledged(rc)
@@ -69,7 +69,7 @@ def compute_steps(rc: RunContext, *, token: str | None = None, full: bool = Fals
                          instructions=f"Upstream changed after a node wrote receipts ({what}). The run does not go "
                                       f"backward: inspect the change, then finish this run on what was written with "
                                       f"the continue command (the change applies to the next run), or abandon it.",
-                         resume_when="the operator has inspected the change",
+                         ready_when="the operator has inspected the change",
                          command=Command.of(rc.argv("run", "continue")),
                          inspect=_inspect(rc, drift))]
     out = []

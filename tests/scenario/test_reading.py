@@ -229,7 +229,7 @@ def test_source_test_samples_and_writes_nothing(persona, cli, pinned_now):
     assert not (state_root(ws, os.environ) / "runs").exists()
 
 
-def test_context_records_never_enter_the_item_pipeline(persona, cli, pinned_now):
+def test_context_records_never_become_items(persona, cli, pinned_now):
     ws = persona("support-lead")
     cfg = ws / "docket.yaml"
     text = cfg.read_text().replace("    assess: { judge: assess, from: [read-tickets, read-pager] }\n",

@@ -31,17 +31,48 @@ Drive the run by repeating:
 uv run docket next --workspace ./workspace --json
 ```
 
-The returned step has one of five kinds:
+`data.steps` lists every step that is ready now. Steps of nodes that do not depend on each other are ready together; do them together, then ask again. Each step names its node and has one of four kinds:
 
 | Kind | Action |
 |---|---|
 | `run` | Run `step.command`. |
 | `dispatch` | Complete each task from its pack and prompt, then run its submit command. |
 | `ask` | Ask the questions and record answers with the provided template. |
-| `wait` | Report the reason and stop until its condition is met. |
-| `done` | Report the summary and stop. |
+| `wait` | Report the reason. This node and the nodes after it wait until its condition is met. |
+
+When the run is sealed, `data.done` is true and `data.summary` describes the run.
 
 Use `uv run docket next --workspace ./workspace --full --json` when an ask step needs full evidence, refused options and exact commands for every option.
+
+## Graphs
+
+Every run is a run of one graph. A graph is a set of named nodes, and each node does one thing, named by its verb:
+
+```yaml
+graphs:
+  daily:
+    read-mail: { read: mail }
+    assess:    { judge: assess, from: [read-mail] }
+    merge:     { merge: [assess] }
+    decide:    { ask: default, from: [merge] }
+    plan:      { plan: [decide] }
+    approve:   { approve: plan }
+    apply:     { apply: approve }
+```
+
+| Verb | The node | Done by |
+|---|---|---|
+| `read: <source>` | Reads one source from its cursor | Docket |
+| `run: [argv]` | Runs a command once | Docket |
+| `judge: <task kind>` | Has an agent judge what it works on | the agent |
+| `merge: [nodes]` | Combines rules, scores and judgments into what is worth showing | Docket |
+| `ask: <option set>` | Asks the operator to decide each item | the operator |
+| `plan: [nodes]` | Turns decisions into operations | Docket |
+| `approve: <plan node>` | Asks the operator to approve the plan, bound to its digest | the operator |
+| `apply: <approve node>` | Writes the approved operations | Docket |
+| `write: <action>` | Writes operations that need no approval, to a private destination | Docket |
+
+`from` names the nodes whose output a node works on; `after` names nodes it must follow and that hand it nothing. A node is ready when every node it names is done. Every graph ends with a seal, which is not written in it: cursors advance, dispositions and the ledger are written, and the journal entry is made. `docket graph show daily` prints a graph's nodes and what each waits for.
 
 ## Safety Model
 
@@ -49,8 +80,9 @@ Use `uv run docket next --workspace ./workspace --full --json` when an ask step 
 - Message actions create drafts. Sending is deferred.
 - Approval binds to the exact plan digest and destination snapshots.
 - Apply is idempotent. Every operation has a receipt and read-back verification.
-- Sandbox runs use destination twins and write no durable cursors, dispositions or ledgers.
-- `docket run rehearse` drives a copied run to completion with replayed sources and sandbox twins.
+- `docket run start <graph> --sandbox` binds every destination to its sandbox twin and writes nothing outside the run: no cursors, dispositions or ledger entries.
+- Once an `apply` or `write` node begins writing, the nodes upstream of it are read as pinned. A later upstream change waits for the operator instead of moving the run backward.
+- A `write` node needs no approval, so it may only target a private destination.
 - Docket mutates only destination objects carrying its ownership marker.
 
 ## Configuration
@@ -59,7 +91,7 @@ A workspace contains `docket.yaml` and may include more YAML files. A convention
 
 | File | Purpose |
 |---|---|
-| `docket.yaml` | Version, includes, presets and workflows |
+| `docket.yaml` | Version, includes, presets and graphs |
 | `profile.yaml` | Identity, relationships, topics, forums and calendar vocabulary |
 | `sources.yaml` | Sources and transports |
 | `signals.yaml` | Rules, scoring, budgets and unit classification |

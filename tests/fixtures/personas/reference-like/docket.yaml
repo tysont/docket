@@ -6,7 +6,7 @@ presets: [markdown/tasks-inline-fields, policy/basic-defaults, options/basic, op
 
 graphs:
   daily:
-    # Evening collection, morning decisions.
+    # Read in the evening, decide in the morning.
     read-chat: { read: chat }
     read-mail: { read: mail }
     read-transcripts: { read: transcripts }

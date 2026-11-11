@@ -248,7 +248,7 @@ class ReadNode(BaseNode):
                 (f" -> {row['instructions']}" if row.get("instructions") else "")
             return WaitStep(node=self.name, reason="source_unavailable",
                             instructions="A required source could not be read. " + text,
-                            resume_when="the operator has fixed access to the source",
+                            ready_when="the operator has fixed access to the source",
                             command=Command.of(run.argv("do", self.name, "--again")))
         return super().step(run)
 

@@ -12,7 +12,7 @@ Docket is a command-line tool that an AI agent drives to turn the day's signals 
 
 Docket itself never calls a model. Every judgment (is this message a request, who owns this commitment, is this finding overstated) arrives from the agent as a typed answer to a task Docket issued, and every effect on the outside world happens only after the human approves the exact change.
 
-Docket is the generic successor to an earlier personal workflow, referred to here as the predecessor. The predecessor proved the shape of the product. It also hardcoded the operator's identity, organization, note layout, calendar vocabulary and judgment, and it failed in a new place on most mornings of its final week. Docket keeps what the predecessor proved and applies the lessons from those failures.
+Docket is the generic successor to an earlier personal tool, referred to here as the predecessor. The predecessor proved the shape of the product. It also hardcoded the operator's identity, organization, note layout, calendar vocabulary and judgment, and it failed in a new place on most mornings of its final week. Docket keeps what the predecessor proved and applies the lessons from those failures.
 
 ## 2. Background: what the predecessor proved
 
@@ -32,10 +32,10 @@ The mechanisms that made this trustworthy are worth keeping exactly:
 2. **Judgment is bounded.** Agents score from self-contained packs, cannot read outside them, and return typed records that the tool validates.
 3. **An adversarial reviewer** sees each candidate without its score and must state the strongest argument against asking.
 4. **Decisions happen in one burst.** No source reads between questions. The user decides; the tool writes.
-5. **Every effect is bound to an approval.** The approval covers an exact, digest-bound change set. Execution is idempotent and receipted, so a crash resumes without duplicate events.
+5. **Every effect is bound to an approval.** The approval covers an exact, digest-bound change set. Execution is idempotent and receipted, so repeating it after a crash makes no duplicate event.
 6. **Read positions advance only over proven coverage.** A gap holds the position; the next run re-reads.
 7. **Privacy is structural.** Blocks on a shared calendar never name protected customers or sensitive subjects. Mail is drafted, never sent.
-8. **Rehearsal.** The remaining steps of a live run can be driven end to end on a copy, against fake backends, before the user is asked anything.
+8. **Dry runs on live data.** A full run can be driven end to end against live reads and fake backends before the user is asked anything.
 9. **Integrity versus shape.** Digest and binding checks refuse. A data shape the code has not modelled takes the safe reading, continues, and records where the tooling should grow.
 
 The last two mechanisms were added after repeated live-data failures and shaped this product's current form.
@@ -47,7 +47,7 @@ In its final week, live runs stopped or degraded in several distinct ways. They 
 | Class | Example |
 |---|---|
 | Exact checks on shapes that merely varied | A verb allowlist refused "Determine", "Notify", "Reconnect". A shape probe of one chat space failed when that space was a direct message with no display name. `returned == read` called a complete source incomplete. |
-| State from one generation checked against another | After a refresh, plans built from the first read were validated against the second read's bindings, and refused. |
+| State from one read checked against another | Plans built from a first read were validated against a second read's bindings, and refused. |
 | Two implementations of one rule | The schedule builder and its validator encoded placement separately and disagreed about whether a slot was free. |
 | Hand edits of machine artifacts | "Monday", "60 minutes", "merge these two" and "over the flight" had nowhere to go in an answer, so the agent edited plan JSON by hand, which nothing could verify. |
 | Prompt and validator drift | Agents were told one schema and checked against another, and wrote the wrong source name, object-shaped evidence, or a missing owner. |
@@ -61,25 +61,25 @@ Every one of these was fixed, and each fix was correct. The pattern is the probl
 - **Nothing user-specific in code.** Identity, people, groups, topics, protected entities, note layouts, calendar vocabulary, source endpoints, weights, vocabularies and templates are configuration.
 - **Robust to new shapes by construction.** Configuration is strict and validated up front. Data is tolerant: unknown shapes take a declared safe reading and are recorded with the extension point that would model them.
 - **One implementation per rule.** A constraint is checked by the same code whether Docket is building a plan or validating one.
-- **The CLI owns the procedure.** The agent never needs a long document of command ladders. It asks Docket what to do next and gets one concrete step.
+- **The CLI owns the procedure.** The agent never needs a long document of command ladders. It asks Docket what to do next and gets every step that is ready, each concrete.
 - **Answers carry everything the user says.** No user decision ever requires editing an artifact by hand.
-- **Rehearsal and sandboxes are part of the product,** not a test harness.
+- **Sandbox runs are part of the product,** not a test harness.
 
 ## 3. Goals and non-goals
 
 ### 3.1 Goals
 
-- **G1. Generic.** Model the predecessor workflow completely through configuration, and model a materially different workflow (different role, different tools) with zero code changes. See §12.
+- **G1. Generic.** Model the predecessor completely through configuration, and model a materially different operator (different role, different tools) with zero code changes. See §12.
 - **G2. Agent-native.** Be the most ergonomic possible CLI for an AI agent: discoverable, self-describing, deterministic, with structured output, actionable errors, and a single "what next" entry point.
 - **G3. Safe by construction.** No external effect without approval of the exact change. No send by default. No mutation of anything Docket does not own. No step that can block on a person while unattended.
-- **G4. Robust.** A run completes in the presence of data shapes nobody anticipated, partial source failures, crashes, refreshes and mid-run code or configuration changes. Unanticipated shapes become a visible, prioritized extension list.
+- **G4. Robust.** A run completes in the presence of data shapes nobody anticipated, partial source failures, crashes, and mid-run code or configuration changes. Unanticipated shapes become a visible, prioritized extension list.
 - **G5. Fast for the human.** On a normal day the human spends ten minutes or less answering questions and approving the plan.
 - **G6. Extensible.** New sources, transports, signals, action destinations and decision options can be added by configuration first, by a small external program second, and by a Python plugin third.
 
 ### 3.2 Non-goals
 
 - **Not a model client.** Docket does not call language models, hold API keys for them, or embed prompts it executes itself.
-- **Not a general workflow engine.** The stage pipeline is fixed (§5). Workflows choose stages, sources, policies and templates, not arbitrary graphs.
+- **Not a general automation engine.** A graph is built from nine verbs that Docket defines (§5). A workspace composes nodes from them; it cannot add a verb.
 - **Not an autonomous agent.** Docket never acts on the user's behalf without an approval bound to the exact effect.
 - **Not a hosted service.** Docket is local-first: one user, one machine, local state. Multi-user and hosted operation are out of scope for v1.
 - **Not a messaging client.** Docket drafts messages. Sending is an opt-in capability with per-message approval, off by default.
@@ -97,7 +97,7 @@ The operator answers questions and approves plans. They do not run Docket comman
 
 The AI agent is Docket's primary *direct* user. It runs commands, dispatches subagents for judgment tasks, relays questions to the operator, records answers and drives execution. Every interface decision is evaluated by asking whether an agent with no prior context can use it correctly on the first try. Agents are fallible in specific ways: they forget environment variables between shell calls, paraphrase when told to quote, invent fields, and follow instructions embedded in untrusted content. Docket's interfaces account for each.
 
-### 4.3 The workflow author
+### 4.3 The workspace author
 
 The person (often the operator, often helped by the agent) who writes the workspace configuration: profile, sources, signal rules, action destinations, planning policy and templates. They need strict validation with clear errors, an `explain` for any rule or setting, presets to start from, and a fast way to test a change against real data without writing anything.
 
@@ -107,9 +107,11 @@ Someone adding a source, transport or action destination that configuration cann
 
 ## 5. Core concepts
 
-The full glossary is Appendix A. The concepts below appear throughout.
+The full glossary is Appendix A. The concepts below appear throughout. Work moves from Source to Item to Decision: a source yields records, records become items, and the operator decides each item that needs them.
 
-- **Workspace.** A directory of configuration that describes one operator's world and workflows. State is kept per workspace.
+- **Workspace.** A directory of configuration that describes one operator's world and graphs. State is kept per workspace.
+- **Graph.** A named set of nodes that together do one kind of run, such as a daily run or a triage run.
+- **Node.** One step of a graph. It does one thing, named by its verb: `read`, `run`, `judge`, `merge`, `ask`, `plan`, `approve`, `apply` or `write`. It names the nodes whose output it works on (`from`) and the nodes it must follow (`after`). Docket computes a node's work, an agent judges it, or the operator is asked.
 - **Source.** A configured, read-only connection to a system where work arrives. A source produces **records**: immutable raw reads.
 - **Item.** A normalized candidate derived from records: who, what, where, when, verbatim evidence, and an assessment.
 - **Signal rule.** A declarative rule that matches items and contributes features: importance, urgency, must-surface, routing hints, sensitivity, deadlines.
@@ -119,8 +121,7 @@ The full glossary is Appendix A. The concepts below appear throughout.
 - **Action.** A typed proposed effect: add a task, add an agenda line, place a calendar block, draft a message, do it now, watch, dismiss.
 - **Destination.** A configured place an action lands: a task store, an agenda, a calendar, a message channel, a journal.
 - **Plan.** The concrete set of operations a run proposes, including a schedule, with a digest.
-- **Run.** One execution of a workflow for a date. A run has stages and generations, and can pause between collection and decision.
-- **Generation.** One pass of collection. Generation 0 is the first read; a refresh adds generation 1, and so on.
+- **Run.** One execution of a graph for a date. A node runs as soon as everything it names is done, and every run ends with a **seal** that advances cursors and writes the journal.
 - **Cursor.** A durable read position per source (and per unit, such as a chat space) that advances only across proven coverage.
 - **Unexpected shape.** A record of data the code did not model, with the safe reading taken and the extension point named.
 
@@ -128,19 +129,19 @@ The full glossary is Appendix A. The concepts below appear throughout.
 
 ### 6.1 Setup
 
-The operator or agent runs `docket init`, chooses presets (for example a Google Workspace preset, a Markdown task-store preset and a calendar preset), and fills in the profile: identity and handles, people and relationships, groups and their meeting forums, topics the operator owns, protected entities, and how their calendar titles map to availability. `docket doctor` checks configuration, credentials, binaries and adapter permissions without writing anything, and names each failure and its fix. `docket source test <id>` reads a small sample from a source and shows what Docket made of it.
+The operator or agent runs `docket init`, chooses presets (for example a chat preset, a Markdown task-store preset and a calendar preset), and fills in the profile: identity and handles, people and relationships, groups and their meeting forums, topics the operator owns, protected entities, and how their calendar titles map to availability. `docket doctor` checks configuration, credentials, binaries and adapter permissions without writing anything, and names each failure and its fix. `docket source test <id>` reads a small sample from a source and shows what Docket made of it.
 
 ### 6.2 The daily run
 
-The reference workflow splits a day into two sessions.
+The reference workspace defines a `daily` graph. The agent starts a run of it with `docket run start daily` and loops on `docket next`.
 
-**Evening (start).** The agent runs `docket next` in a loop. Docket collects every source, issues assessment tasks, which the agent runs as parallel subagents, merges the results, issues a review task, drafts the questions and a preliminary plan, rehearses the rest of the run against sandboxes, and pauses. No questions are asked yet.
+The read nodes, one per source, are ready together, and the agent runs them at once. A judge node is ready once the reads it works on are done; it issues assessment tasks, which the agent runs as parallel subagents. A merge node combines rules, scores and judgments, and a review node issues the adversarial review task. The ask node then asks one burst of questions: reconcile yesterday's blocks, decide the findings. The agent relays them; the operator answers in their own words and the agent records structured answers ("due Monday, 60 minutes, merge with the other one, schedule it over my flight"). The plan node builds the plan, the approve node shows the change list, and on approval the apply node writes it and records receipts. The seal advances cursors and writes the journal.
 
-**Morning (finish).** `docket next` resumes the run, refreshes the volatile sources incrementally, re-assesses only what changed, carries forward review verdicts for unchanged items, and returns one batch of questions: reconcile yesterday's blocks, decide the findings. The agent relays them; the operator answers in their own words and the agent records structured answers ("due Monday, 60 minutes, merge with the other one, schedule it over my flight"). Docket builds the plan, shows the change list, and on approval applies it, records receipts, advances cursors and writes the journal.
+The evening before, a sandbox run of the same graph (`docket run start daily --sandbox`) drives every node against live reads and sandbox twins, with each question answered by its recommended option. A defect surfaces then, not in the operator's morning.
 
 ### 6.3 Other runs
 
-A workspace can define other workflows from the same stages. A **triage** run reads chat, direct messages and mail, asks about anything urgent, routes to the task store, and schedules nothing. A **weekly** run might reconcile the whole task store and agendas. Workflows share sources, profile and rules.
+A workspace can define other graphs from the same verbs. A **triage** graph reads chat, direct messages and mail, asks about anything urgent, routes to the task store, and schedules nothing. A **weekly** graph might reconcile the whole task store and agendas. Graphs share sources, profile and rules. `docket graph show <graph>` lists a graph's nodes: what each does, who does it, and what it waits for.
 
 ### 6.4 The agent loop
 
@@ -148,16 +149,17 @@ The agent's entire procedure is:
 
 ```
 loop:
-  step = docket next --json
-  match step.kind:
+  reply = docket next --json
+  if reply.done: report reply.summary; stop
+  for each step in reply.steps, together:
     run      -> execute step.command
     dispatch -> run step.tasks as subagents (at most step.concurrency at once), submit each result
     ask      -> put step.questions to the operator, record answers with docket ask answer
-    wait     -> report step.reason and step.instructions to the operator; stop
-    done     -> report step.summary; stop
+    wait     -> report step.reason and step.instructions; this node and the nodes after it wait
+  if every step is a wait: stop
 ```
 
-Every step names the command to run and why. A failed command returns a machine-readable error with a code, a one-line cause and the next command to try.
+Every step names its node, the command to run and why. A failed command returns a machine-readable error with a code, a one-line cause and the next command to try.
 
 ## 7. Functional requirements
 
@@ -165,14 +167,14 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 
 ### 7.1 Sources
 
-- **FR-SRC-01 (Must).** A source is configured, not coded. Its configuration declares the system, the transport, the record kind, how to page, how to resume (cursor model), which fields are read, and how fields map to item fields.
-- **FR-SRC-02 (Must).** Supported cursor models: *snapshot* (re-read the whole thing each generation), *incremental* (read records newer than the cursor), *units* (discover units such as chat spaces, then read each unit incrementally with its own cursor), *id-scan* (read every id not yet processed), and *cadence* (read only on configured days).
+- **FR-SRC-01 (Must).** A source is configured, not coded. Its configuration declares the system, the transport, the record kind, how to page, where the next read starts (cursor model), which fields are read, and how fields map to item fields.
+- **FR-SRC-02 (Must).** Supported cursor models: *snapshot* (re-read the whole thing each run), *incremental* (read records newer than the cursor), *units* (discover units such as chat spaces, then read each unit incrementally with its own cursor), *id-scan* (read every id not yet processed), and *cadence* (read only on configured days).
 - **FR-SRC-03 (Must).** Supported transports: an MCP client (stdio and streamable HTTP), MCP code-mode (a server exposing a code-execution tool, used to project results server-side and stay under response-size caps), a local executable speaking Docket's JSON-lines protocol, HTTP JSON, and local files.
 - **FR-SRC-04 (Must).** Vendor specifics (tool names, argument shapes, pagination fields, field paths) ship as **presets**: data files with no user information. A workspace extends presets and overrides any field.
 - **FR-SRC-05 (Must).** Every raw read is persisted, unmodified, before interpretation, with the query, the interval and the outcome.
 - **FR-SRC-06 (Must).** One source's failure never discards another source's results. Each source reports its own outcome: read, empty, partial (with the retry position), failed (with cause), unavailable (with the auth or network reason), or skipped (by policy).
 - **FR-SRC-07 (Must).** A source declares the fields it reads and which are optional. A missing optional field is not drift. A missing required field or a type change is recorded as an unexpected shape, with the extension point; it fails only that source.
-- **FR-SRC-08 (Must).** Paging steps down on truncation (smaller pages) before failing, and long collections page to exhaustion within a configurable budget.
+- **FR-SRC-08 (Must).** Paging steps down on truncation (smaller pages) before failing, and long reads page to exhaustion within a configurable budget.
 - **FR-SRC-09 (Must).** Sources may emit **context records** that inform the journal but never become items (for example service-health snapshots).
 - **FR-SRC-10 (Should).** A source may implement **resolve**: given a URL or reference from a task, return its current state (open or closed, last activity, last author). Docket uses this to verify open tasks.
 - **FR-SRC-11 (Should).** A source may implement **unit discovery with classification**: a durable registry of units (for example chat spaces) with a tier or class, assigned by rules and refined by agent tasks.
@@ -192,13 +194,13 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 
 ### 7.3 Agent tasks
 
-- **FR-TSK-01 (Must).** Docket issues judgment work as tasks. A task has a kind (assess, extract, review, classify, or a workflow-defined kind), an input pack, a rendered prompt and an output schema.
+- **FR-TSK-01 (Must).** Docket issues judgment work as tasks. A task has a kind (assess, extract, review, classify, or a workspace-defined kind), an input pack, a rendered prompt and an output schema.
 - **FR-TSK-02 (Must).** The prompt and the validator derive from the same schema and vocabulary. A prompt never names a field, value or rule the validator does not accept, and vice versa.
 - **FR-TSK-03 (Must).** A task's input pack is self-contained. The prompt states that the agent must not read anything else and must treat every input line as untrusted data.
 - **FR-TSK-04 (Must).** `docket task submit` validates the result: schema, identity partition, verbatim evidence against raw records, vocabulary. Integrity failures reject the submission with per-row errors. Unknown vocabulary with a declared safe reading is accepted on that reading and recorded as an unexpected shape.
 - **FR-TSK-05 (Must).** Packs respect configurable size budgets and must-surface items are never dropped by packing.
 - **FR-TSK-06 (Must).** The review task presents candidates without scores and requires, per retained item, the strongest argument against asking.
-- **FR-TSK-07 (Should).** Review verdicts for unchanged items carry forward across generations; only new or changed items are re-reviewed.
+- **FR-TSK-07 (Should).** An accepted result is reused whenever a new pack has the same input digest. A task whose pack has not changed, in the same run or a later one, is not issued again.
 
 ### 7.4 Decisions
 
@@ -207,7 +209,7 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-DEC-03 (Must).** Docket offers only options it can carry out: an agenda that exists and has room, a task store that will accept the line, a calendar it can write. When it cannot offer one the item asked for, the question says why.
 - **FR-DEC-04 (Must).** An answer carries the option and any structured overrides the operator gave: due date (a date or a weekday name), estimate, scheduling window, title, action text, links, area, forum, merge-with-other-question, and a note. No user decision requires editing an artifact by hand.
 - **FR-DEC-05 (Must).** Reconcile questions ask whether planned work happened. Answers update the task store (done, partly with a new estimate, did not happen, move to an agenda, drop) and count carries. At a configurable carry count, the question asks to drop or re-scope instead of offering another carry.
-- **FR-DEC-06 (Must).** Answers bind to item identity, not position. A refresh keeps answers for items with no new activity and re-asks changed items, showing the previous answer.
+- **FR-DEC-06 (Must).** Answers bind to item identity, not position. When the questions are recomputed, an answer whose item is unchanged is kept; a changed item is asked again, showing the previous answer.
 - **FR-DEC-07 (Must).** All questions in a burst are answerable with no source reads in between.
 - **FR-DEC-08 (Should).** When the operator names a day, Docket reports how full that day already is.
 
@@ -232,21 +234,21 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-PLN-07 (Should).** Personal-calendar mirroring: opaque busy holds copied from one calendar to another, reconciled each run, honoring the operator's deletions.
 - **FR-PLN-08 (Must).** `docket plan diff` shows every change in human terms, and `docket plan explain <item>` says why an item landed where it did or why it could not be placed.
 
-### 7.7 Apply, close and memory
+### 7.7 Apply, seal and memory
 
 - **FR-APP-01 (Must).** Approval binds the exact plan digest. Approval is invalidated by any change to the plan's inputs.
 - **FR-APP-02 (Must).** Freshness is checked against state, not a clock: at approval, Docket compares the live calendar and task store with what the plan was built from, approves if unchanged, and refuses with a rebuild instruction if changed. A configurable note records any delay.
-- **FR-APP-03 (Must).** Apply is idempotent and resumable. Each operation writes a receipt. A crash resumes from receipts.
-- **FR-APP-04 (Must).** Close advances cursors only across proven, contiguous coverage, writes the journal from a configurable template, appends ledgers, and runs configured hooks (for example a commit or a reindex).
+- **FR-APP-03 (Must).** Apply is idempotent and repeatable. Each operation writes a receipt. Repeating apply after a crash continues from the receipts and makes no duplicate effect.
+- **FR-APP-04 (Must).** The seal advances cursors only across proven, contiguous coverage, writes the journal from a configurable template and appends ledgers. A command the workspace runs after apply (for example a commit or a reindex) is a `run` node ordered with `after`, and it runs once per run.
 - **FR-APP-05 (Must).** A dispositions memory records every decision (done, watch, dismiss, routed) so the next run suppresses or re-surfaces correctly.
-- **FR-APP-06 (Must).** Close is resumable after a partial failure and never repeats a completed step.
+- **FR-APP-06 (Must).** The seal can be repeated after a partial failure and never repeats a completed step. A failing `run` node stops the run at that node; repeating it runs only that node.
 
 ### 7.8 Robustness
 
 - **FR-ROB-01 (Must).** Integrity checks (digests, bindings, identity partitions, receipts) are exact and refuse. Shape checks are tolerant: the code takes a declared safe reading, continues, and records an unexpected shape with the area, the detail, a sample and the extension point.
-- **FR-ROB-02 (Must).** Unexpected shapes appear in the journal, in `docket unexpected` (aggregated across runs, most frequent first), in rehearsal output and in test reports.
-- **FR-ROB-03 (Must).** `docket run rehearse` drives the remainder of a live run on a copy of its state, with every destination swapped for its sandbox twin and recommended answers for unanswered questions, and reports what the real run will do, what would fail, and what shapes are unexpected. Nothing live is written.
-- **FR-ROB-04 (Must).** Refresh, resume and a mid-run code or configuration change are the same operation: recompute stale derived stages from immutable raw reads and recorded answers. Completed effects are never recomputed.
+- **FR-ROB-02 (Must).** Unexpected shapes appear in the journal, in `docket unexpected` (aggregated across runs, most frequent first), in the run's summary and in test reports.
+- **FR-ROB-03 (Must).** `docket run start <graph> --sandbox` binds every destination of the run to its sandbox twin and runs each `run` node in its `dry_run` form, or skips it when it has none. A sandbox run reads live sources and goes to its seal, and writes nothing outside the run: no cursor, disposition, ledger entry or live destination.
+- **FR-ROB-04 (Must).** A crash, a repeated command and a mid-run code or configuration change are handled the same way: every node whose digest changed recomputes from immutable raw reads and recorded answers, and nothing else does. Once a write has begun, the nodes upstream of it are read as pinned; a completed effect is never recomputed.
 - **FR-ROB-05 (Must).** A run holds a lease. A crashed owner's lease is adoptable; a live foreign owner requires an explicit steal.
 - **FR-ROB-06 (Must).** Nothing Docket runs unattended can block on a person: no browser, no keychain prompt, no permission dialog. `docket doctor` detects each such dependency up front.
 
@@ -254,7 +256,7 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 
 These requirements carry the same weight as the functional ones.
 
-- **AE-01 (Must). One entry point.** `docket next` returns the single next step for the current run: a command to run, tasks to dispatch, questions to ask, a reason to wait, or a summary. An agent that knows nothing else about Docket can complete a run by looping on it.
+- **AE-01 (Must). One entry point.** `docket next` returns every step that is ready in the current run: commands to run, tasks to dispatch, questions to ask and reasons to wait, each naming its node. When the run is sealed it returns a summary. An agent that knows nothing else about Docket can complete a run by looping on it.
 - **AE-02 (Must). Structured output everywhere.** Every command accepts `--json` and returns a stable envelope: `ok`, `data`, `warnings`, `unexpected`, and `next` (the suggested following command and why). Human output is concise by default.
 - **AE-03 (Must). Actionable errors.** Every error has a stable dotted code, a kind (input, config, integrity, external, lease, internal), a one-line message, a hint naming the command that fixes it, and whether a retry can succeed. Exit codes map to error kinds.
 - **AE-04 (Must). Self-description.** `docket schema <name>` prints the JSON Schema for any input or output. `docket help <command> --json` returns the command's arguments, effects and examples. `docket config explain <path>` explains any setting and where its value came from.
@@ -268,12 +270,12 @@ These requirements carry the same weight as the functional ones.
 
 ## 9. Configuration and customization
 
-- **CFG-01 (Must).** A workspace is a directory of YAML files: workspace and workflows, profile, sources, signals, destinations and planning. Any split or a single file is allowed.
+- **CFG-01 (Must).** A workspace is a directory of YAML files: workspace and graphs, profile, sources, signals, destinations and planning. Any split or a single file is allowed.
 - **CFG-02 (Must).** Configuration is strict. Unknown keys, bad references and type errors fail `docket config validate` with the file, line and fix. A run never starts on invalid configuration.
 - **CFG-03 (Must).** Presets ship with Docket and contain no user data. A workspace extends presets and overrides any value. `docket config explain` shows each value's origin.
-- **CFG-04 (Must).** Workflows are customizable within a fixed pipeline: which stages run, which sources, whether and where the run pauses, which sources refresh on resume, whether review runs and its pool size, which question kinds are asked and in how many bursts, planning on or off, the option set and labels, journal sections, and hooks.
+- **CFG-04 (Must).** A graph is composed from a closed set of verbs. A workspace chooses the nodes, what each works on (`from`) and what it follows (`after`): which sources are read and how often, which task kinds are judged, whether review runs and its pool size, which question kinds are asked, in how many bursts and within what budget, the option set and labels, whether the plan places tasks on the calendar, which commands `run` nodes run, and the journal sections. A graph's shape is checked when the workspace loads: an unknown name, a cycle or an input of the wrong kind fails at the node.
 - **CFG-05 (Must).** Templates (block titles and notes, task lines, agenda lines, journal sections, redacted titles) use one documented, safe formatting language with item and run fields.
-- **CFG-06 (Must).** A configuration digest is part of every derived stage's identity. Changing configuration mid-run marks exactly the affected stages stale.
+- **CFG-06 (Must).** A configuration digest is part of every node's identity. Changing configuration mid-run stales exactly the nodes that read the changed sections, and the nodes downstream of them.
 - **CFG-07 (Should).** `docket config test` runs the current configuration against the last run's raw records and shows what changed (items kept, scores, routes, questions) without writing.
 
 ## 10. Non-functional requirements
@@ -283,17 +285,17 @@ These requirements carry the same weight as the functional ones.
 - **NFR-03 Determinism.** Given the same raw records, configuration, answers and clock, every derived artifact is byte-identical.
 - **NFR-04 Auditability.** Every item, question, decision and operation traces to the raw records and rules that produced it.
 - **NFR-05 Unattended operation.** No step blocks on a person. Failures are named and fast.
-- **NFR-06 Performance.** Collection is network-bound and concurrent within configured limits. Planning a 42-day horizon with 200 open tasks takes under 5 seconds. A full synthetic run in the test suite takes under 60 seconds.
+- **NFR-06 Performance.** Reading is network-bound. Read nodes that do not depend on each other are ready together, so the agent runs them at once. Planning a 42-day horizon with 200 open tasks takes under 5 seconds. A full synthetic run in the test suite takes under 60 seconds.
 - **NFR-07 Portability.** macOS is the primary supported platform; Linux is also supported. Platform-specific adapters (for example a native calendar bridge) are optional and isolated.
-- **NFR-08 Testability.** The full pipeline runs offline against sandbox twins and recorded transports. Tests never touch live state or real credentials.
-- **NFR-09 Compatibility.** Configuration, artifact schemas and the plugin protocol are versioned. Docket reads the previous minor version of each.
+- **NFR-08 Testability.** Every graph runs offline against sandbox twins and recorded transports. Tests never touch live state or real credentials.
+- **NFR-09 Compatibility.** Configuration, artifact schemas, the workspace database and the plugin protocol each carry a version. An artifact written under another schema version is stale and recomputed. A database or protocol at a version Docket does not read is refused with a named error code, never read on a guess.
 
 ## 11. Success metrics
 
 | Metric | Target |
 |---|---|
 | Operator time per day (answering and approving) | 10 minutes or less on a normal day |
-| Runs that hit a code defect after a passing evening rehearsal | 0 over 10 consecutive working days |
+| Runs that hit a code defect after a passing sandbox run the evening before | 0 over 10 consecutive working days |
 | User-specific literals in Docket's source tree | 0, enforced by an automated litmus test (§12) |
 | Second-persona run with zero code changes | Passes end to end in the test suite |
 | Shadow parity with the predecessor over 5 working days | Same questions for at least 90% of the predecessor's findings, every difference explained by `item why` |
@@ -305,13 +307,13 @@ These requirements carry the same weight as the functional ones.
 Two conditions, both automated in the test suite:
 
 1. **Nothing hardcoded.** The Docket source tree contains no literal from the reference operator's world: no names, handles, email domains, organization or product names, note-repository names, folder names, calendar titles, glyph conventions, hosts or service vocabularies. The test extracts every identifier from the reference workspace configuration (kept outside the Docket repository) and asserts none appears under `src/`. A second, static list covers conventions such as the reference calendar's title words.
-2. **Everything modellable.** The reference workflow (Appendix B) runs end to end as configuration only, and a second, materially different persona (different role, different chat and ticket tools, different task-store grammar, different calendar conventions) runs on the same code.
+2. **Everything modellable.** The reference workspace (Appendix B) runs end to end as configuration only, and a second, materially different persona (different role, different chat and ticket tools, different task-store grammar, different calendar conventions) runs on the same code.
 
 ## 13. Release scope
 
 ### 13.1 v1
 
-Everything marked Must, the Should items not deferred by the implementation plan, the reference workflow ported as a workspace, the second persona as a test fixture, and a shadow period against the predecessor before cutover.
+Everything marked Must, the Should items not deferred by the implementation plan, the reference workspace ported from the predecessor, the second persona as a test fixture, and a shadow period against the predecessor before cutover.
 
 ### 13.2 Later
 
@@ -329,7 +331,7 @@ Everything marked Must, the Should items not deferred by the implementation plan
 - **MCP variance.** Servers differ in pagination, size caps and auth. Mitigation: transports are generic, quirks live in presets, and shape contracts record drift instead of failing runs.
 - **Native permission prompts.** OS-level calendar access can prompt once and hang unattended. Mitigation: `doctor` checks permission state; the native bridge is optional.
 - **Agent variance.** Different agents follow prompts differently. Mitigation: schema-derived prompts, strict integrity validation, tolerant vocabulary with recorded unexpected shapes.
-- **Porting effort.** The reference workflow contains many small judgments. Mitigation: shadow runs with per-item diffs before cutover.
+- **Porting effort.** The reference workspace contains many small judgments. Mitigation: shadow runs with per-item diffs before cutover.
 
 ### 14.2 Open questions
 
@@ -354,28 +356,29 @@ Everything marked Must, the Should items not deferred by the implementation plan
 | Disposition | A remembered decision about an item, used to suppress or re-surface it later. |
 | Finding | An item retained after scoring and review that needs the operator. |
 | Forum | A recurring meeting with an agenda, attached to a person or group. |
-| Generation | One collection pass within a run. |
+| Graph | A named set of nodes that together do one kind of run. |
 | Item | A normalized candidate derived from records. |
 | Must-surface | A rule effect that exempts an item from floors and caps. |
+| Node | One step of a graph, with one verb. Its work is computed by Docket, judged by an agent or asked of the operator. `from` names the nodes whose output it works on; `after` names nodes it follows. |
 | Plan | The concrete operation set and schedule a run proposes, with a digest. |
 | Preset | A shipped configuration fragment with no user data. |
 | Profile | The operator's identity, people, groups, topics, protected entities, forums and calendar vocabulary. |
 | Question | A structured decision with typed options: reconcile, finding or approve. |
 | Receipt | Proof that an operation was applied, keyed by operation id. |
 | Record | An immutable raw read from a source. |
-| Rehearsal | Driving the rest of a live run on a copy, against sandbox twins. |
-| Run | One execution of a workflow for a date. |
+| Run | One execution of a graph for a date. |
+| Sandbox run | A run started with `--sandbox`: every destination is bound to its sandbox twin and nothing is written outside the run. |
+| Seal | The end of every run, implicit in every graph: cursors advance, dispositions and the ledger are written, and the journal entry is made. |
 | Signal rule | A declarative match and effect over items. |
 | Source | A configured read-only connection to a system. |
-| Stage | One step of the fixed pipeline: collect, assess, merge, review, decide, plan, approve, apply, close. |
 | Unexpected shape | A recorded instance of data the code did not model, with the safe reading taken and the extension point. |
 | Unit | A sub-collection of a source with its own cursor, such as a chat space or a conversation. |
-| Workflow | A named selection of stages, sources, policies and templates. |
+| Verb | What a node does: `read`, `run`, `judge`, `merge`, `ask`, `plan`, `approve`, `apply` or `write`. |
 | Workspace | A directory of configuration describing one operator's world. |
 
-## Appendix B: Reference workflow mapping
+## Appendix B: Reference workspace mapping
 
-Every element of the predecessor workflow, and where it lives in Docket. "Profile", "Sources", "Signals", "Destinations", "Planning" and "Workflow" are workspace configuration; "Preset" is shipped data; "Core" is generic code with no user data.
+Every element of the predecessor, and where it lives in Docket. "Profile", "Sources", "Signals", "Decisions", "Destinations", "Planning" and "Graphs" are workspace configuration; "Preset" is shipped data; "Core" is generic code with no user data.
 
 | Predecessor element | Docket home |
 |---|---|
@@ -404,12 +407,12 @@ Every element of the predecessor workflow, and where it lives in Docket. "Profil
 | Personal calendar mirrored as opaque busy holds | Planning: `mirrors` |
 | Work hours, deep window, lunch, buffers, caps, batching, horizon, move lock, ordering | Planning: policy |
 | Score formula, floor, overflow, caps, question budget, review pool | Signals: `scoring` |
-| Gate A answers, Gate B option labels, "Already handled", "Handle now" | Workflow: decision option templates |
+| Gate A answers, Gate B option labels, "Already handled", "Handle now" | Decisions: option sets and label templates, chosen by each `ask` node |
 | Structured answer fields (due, estimate, window, merge, links) | Core |
 | Watermarks in an external state tool, unit watermarks, processed document ids | Core: state database |
 | Dispositions ledger, prior decisions | Core: dispositions memory |
 | Day record, surfaced-items audit, coverage and run ledgers | Destinations: journal templates; Core ledgers |
-| Search reindex and note-repository commit after finalize | Workflow: close hooks |
+| Search reindex and note-repository commit after finalize | Graphs: `run` nodes after the apply node |
 | Credential refresh through a local auth tool and a browser-free token check | Sources: auth check and refresh commands |
-| Evening start, morning finish, refresh on resume | Workflow: `pause_before: decide`, `refresh_on_resume` |
-| Rehearsal, unexpected shapes, leases, receipts, integrity checks | Core |
+| Evening check, morning decisions | Graphs: a sandbox run of the daily graph in the evening, the live run in the morning |
+| Dry runs, unexpected shapes, leases, receipts, integrity checks | Core |
