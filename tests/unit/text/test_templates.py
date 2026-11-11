@@ -107,3 +107,12 @@ def test_sentence_keeps_the_first_sentence(text, want):
     """A task line is an action and its evidence. Where only the action belongs, such as a
     title others can read, ``sentence`` keeps the first sentence, without its full stop."""
     assert render("{title|sentence}", {"title": text}) == want
+
+
+def test_a_block_can_render_when_a_field_is_absent():
+    """One field, else another: the pair of blocks says it without an expression."""
+    tpl = "{?topic}{topic}{/topic}{!topic}{ask}{/topic}"
+    assert render(tpl, {"topic": "Capacity: who signs off?", "ask": "Reply"}) == "Capacity: who signs off?"
+    assert render(tpl, {"topic": "", "ask": "Reply"}) == "Reply" and render(tpl, {"ask": "Reply"}) == "Reply"
+    with pytest.raises(TemplateError):
+        parse("{!topic}never closed")

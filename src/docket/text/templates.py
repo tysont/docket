@@ -5,6 +5,7 @@ Syntax:
 - ``{field}`` and ``{a.b}`` substitute a value; ``{.}`` is the current list item.
 - ``{field|filter|filter:arg}`` applies filters from a closed set.
 - ``{?field}...{/field}`` renders the body when the field is present and non-empty.
+- ``{!field}...{/field}`` renders the body when the field is absent or empty.
 - ``{#list}...{/list}`` repeats the body for each element; inside, names resolve
   against the element first and the enclosing scope second.
 - ``{{`` and ``}}`` are literal braces.
@@ -51,7 +52,7 @@ class Var:
 
 @dataclass
 class Block:
-    kind: str  # "?" or "#"
+    kind: str  # "?" (when present), "!" (when absent or empty) or "#" (for each)
     path: str
     body: list[Any] = field(default_factory=list)
     pos: int = 0
@@ -131,7 +132,7 @@ def parse(source: str) -> Template:
         flush()
         if not inner.strip():
             raise TemplateError("empty substitution '{}'", i)
-        if inner[0] in "?#":
+        if inner[0] in "?#!":
             name = inner[1:].strip()
             if not _NAME.match(name) or name == ".":
                 raise TemplateError(f"bad block name {name!r}", i)
@@ -355,6 +356,9 @@ def render(template: str | Template, context: dict[str, Any], *, redactor: Calla
                 v = _lookup(nd.path, frames)
                 if nd.kind == "?":
                     if not _empty(v):
+                        walk(nd.body, frames)
+                elif nd.kind == "!":
+                    if _empty(v):
                         walk(nd.body, frames)
                 else:
                     if isinstance(v, (list, tuple)):
