@@ -7,3 +7,4 @@ from docket.cli.commands import ask_cmds  # noqa: F401  (M5: ask list, show, ans
 from docket.cli.commands import close_cmds  # noqa: F401  (M8: run continue)
 from docket.cli.commands import import_cmds  # noqa: F401  (M9: import cursors)
 from docket.cli.commands import doctor_cmds  # noqa: F401  (M9: doctor)
+from docket.cli.commands import graph_cmds  # noqa: F401  (graphs: start, next, status, exec, show)

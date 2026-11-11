@@ -38,6 +38,8 @@ class RunHeader(BaseModel):
     applied_plan: str | None = None
     pinned: dict[str, str] = {}     # stage -> digest the applied plan was built from (TD §5.4)
     drift_ack: str | None = None    # digest of the upstream drift the operator chose to finish on
+    graph_run: str | None = None    # the graph run this run is a node of (TD §5.7)
+    node: str | None = None         # and which node
 
 
 class Store:
@@ -191,8 +193,9 @@ def new_run_id(store: Store, date: str, workflow: str) -> str:
     return rid
 
 
-def create_run(store: Store, *, run_id: str, workflow: str, clock: Clock, sandbox: bool) -> Run:
-    header = RunHeader(run_id=run_id, workflow=workflow, clock=clock, sandbox=sandbox)
+def create_run(store: Store, *, run_id: str, workflow: str, clock: Clock, sandbox: bool,
+               graph_run: str | None = None, node: str | None = None) -> Run:
+    header = RunHeader(run_id=run_id, workflow=workflow, clock=clock, sandbox=sandbox, graph_run=graph_run, node=node)
     run = Run(store, header)
     run.dir.mkdir(parents=True, exist_ok=False)
     run.save_header()

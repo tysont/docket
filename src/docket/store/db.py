@@ -104,6 +104,18 @@ CREATE TABLE task_labels (
   task_id TEXT PRIMARY KEY, text_digest TEXT NOT NULL, label TEXT NOT NULL, run_id TEXT
 )
 """),
+    # Graph runs (TD §5.7): one run of a graph, and the state of each of its nodes.
+    (13, """
+CREATE TABLE graph_runs (
+  graph_run_id TEXT PRIMARY KEY, graph TEXT NOT NULL, date TEXT NOT NULL, clock TEXT NOT NULL,
+  sandbox INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'open', created_at TEXT
+);
+CREATE TABLE graph_nodes (
+  graph_run_id TEXT NOT NULL, node TEXT NOT NULL, kind TEXT NOT NULL, run_id TEXT,
+  state TEXT NOT NULL DEFAULT 'open', detail TEXT,
+  PRIMARY KEY (graph_run_id, node)
+)
+"""),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

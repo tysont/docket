@@ -379,6 +379,34 @@ A workflow says how often it reads each of its sources. A source it lists is rea
 
 `docket run start <workflow> [--date D] [--sandbox] [--new]` creates a run. Repeating it for the same workflow, date and sandbox mode returns the existing run unless `--new` is present. `--sandbox` binds every destination to its sandbox twin for the whole run. Sandbox runs may read live sources but write no durable cursors, dispositions or ledgers. Their hooks run only in declared `dry_run` form, or are skipped. `docket next` with no run open reports `done` with the command to start one. A paused run advances only through `docket run resume`.
 
+### 5.7 Graphs
+
+A workflow is a chain: each stage waits for the one before it. A day's work is not a chain. Holding personal time on the calendar and bringing agenda notes up to date depend on nothing, reading the sources depends on nothing, and triage depends on all of them. A graph says that, and lets work that does not depend on other work run at the same time.
+
+```yaml
+graphs:
+  morning:
+    nodes:
+      personal-time: { command: [bin/hold-personal-time, "{run.date}"], dry_run: [bin/hold-personal-time, "{run.date}", --dry-run] }
+      agendas:       { workflow: agendas, approve: auto }
+      promised:      { refresh: { node: triage, sources: [commitments] }, needs: [agendas] }
+      triage:
+        workflow: daily
+        gates: { decide: [agendas, promised], plan: [personal-time] }
+```
+
+**Nodes.** A node is a workflow, a command, or a refresh of a workflow node's sources. `needs` are the nodes that must be done before it starts. A workflow node is an ordinary run, with its own artifacts, lease, plan and apply boundary, so everything a run guarantees holds for it; all the nodes of a graph run share one pinned clock. A command node runs a program once (its `dry_run` form in a sandbox graph). A refresh node opens a new collect generation of a workflow node for the named sources, which is how something one node produces becomes input to another that is already under way.
+
+**Gates.** A stage of a workflow node can wait for other nodes: `gates: { decide: [agendas] }` holds triage until the agendas node is done, while the stages before it run. A stage that waits reads `waiting (needs)`, for `docket next` on the run as for the graph.
+
+**Done.** A workflow node is done when its run is sealed; a command or refresh node when it has run. A graph run is sealed when every node is done. The graph must be acyclic, checked when the workspace loads.
+
+**Running.** `docket graph start <graph>` creates the graph run and a run per workflow node. `docket graph next` returns every step that is ready across the nodes, not one: run steps, dispatches and asks, each naming its node, and the nodes that wait with what they wait for. The driver runs the ready steps together and asks again. The steps are the same steps `docket next` gives for each run, so nothing about a stage changes; the graph only decides which runs may move.
+
+**Approval in advance.** `approve: auto` on a workflow node answers its approval question for it, and only when every operation of the plan is for a destination with `visibility: private`. A plan that would write anywhere others can read is still put to the operator. This is how a node whose writes are bookkeeping finishes without waiting for the operator, and so can gate a node that needs them.
+
+`docket graph show <graph>` gives the graph as tasks: each workflow node's stages in order, the node's needs before its first stage, each gate before its stage, and who does each task (docket, an agent, the operator, or nobody because it is approved in advance).
+
 ## 6. Sources
 
 ### 6.1 Source model
@@ -972,6 +1000,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, hooks) runs w
 | Stages | `apply`, `close`, `collect`, `merge`, `plan build`, `plan diff`, `plan explain`, `plan load` |
 | Tasks | `task issue`, `task kinds`, `task list`, `task show`, `task submit` |
 | Decisions | `ask answer`, `ask list`, `ask resolve`, `ask show`, `ask undo` |
+| Graphs | `graph start`, `graph next`, `graph status`, `graph exec`, `graph show` |
 | Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import`, `ledger reconcile` |
 | Config | `config explain`, `config test`, `config validate`, `init`, `presets list`, `presets show` |
 | Sources | `source list`, `source test` |

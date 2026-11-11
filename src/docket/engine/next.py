@@ -93,6 +93,14 @@ def _compute(rc: RunContext, token: str | None) -> Any:
         return WaitStep(stage=ev.name, reason="paused", instructions=text,
                         resume_when="the operator starts the next session",
                         command=Command.of(rc.argv("run", "resume")), rehearse=rehearse)
+    if ev.reason == "needs":
+        needs = ", ".join(ev.extra.get("needs") or [])
+        return WaitStep(stage=ev.name, reason="needs",
+                        instructions=f"{ev.name} waits for other nodes of the graph to be done: {needs}. "
+                                     f"Run the graph's next steps.",
+                        resume_when=f"the graph nodes {needs} are done",
+                        command=Command.of(["docket", "graph", "next", r.header.graph_run or "",
+                                            "--workspace", str(rc.ws.root), "--json"]))
     if ev.reason == "post_apply_change":
         return WaitStep(stage=ev.name, reason="post_apply_change",
                         instructions=f"{ev.name} changed after apply wrote receipts; the run does not go backward. "

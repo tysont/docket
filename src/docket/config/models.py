@@ -11,6 +11,7 @@ maps for now; ``shapes`` holds reviewed shape acceptances (TD §14.2);
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -537,6 +538,81 @@ class ShapesConfig(Strict):
 # --- top level -------------------------------------------------------------
 
 
+class GraphRefresh(Strict):
+    """Read named sources of a workflow node again, once what this node needs is done."""
+    node: str
+    sources: list[str] = Field(min_length=1)
+
+
+class GraphNode(Strict):
+    """One node of a graph (TD §5.7): a workflow, a command, or a refresh of a workflow node's
+    sources. ``needs`` are the nodes that must be done before it starts. For a workflow,
+    ``gates`` name nodes a stage waits for, and ``approve: auto`` approves its plan in advance
+    when every operation is for a private destination."""
+    workflow: str | None = None
+    command: list[str] | None = None
+    refresh: GraphRefresh | None = None
+    description: str | None = None
+    needs: list[str] = []
+    gates: dict[StageName, list[str]] = {}
+    approve: Literal["ask", "auto"] = "ask"
+    dry_run: list[str] | None = None     # a command's side-effect-free form, for a sandbox graph
+    env: list[str] = []                  # environment variables a command is passed, by name
+    timeout_s: float = Field(120.0, gt=0, le=3600)
+
+    @model_validator(mode="after")
+    def _one_kind(self) -> "GraphNode":
+        kinds = [k for k in ("workflow", "command", "refresh") if getattr(self, k) is not None]
+        if len(kinds) != 1:
+            raise ValueError("a node is exactly one of workflow, command or refresh")
+        if kinds != ["workflow"] and (self.gates or self.approve != "ask"):
+            raise ValueError("gates and approve apply to a workflow node")
+        if kinds != ["command"] and (self.dry_run or self.env):
+            raise ValueError("dry_run and env apply to a command node")
+        return self
+
+    @property
+    def kind(self) -> str:
+        return "workflow" if self.workflow is not None else ("command" if self.command is not None else "refresh")
+
+
+class Graph(Strict):
+    description: str | None = None
+    nodes: dict[str, GraphNode] = Field(min_length=1)
+
+    def waits_on(self, node: str) -> set[str]:
+        n = self.nodes[node]
+        return set(n.needs) | {x for xs in n.gates.values() for x in xs}
+
+    @model_validator(mode="after")
+    def _shape(self) -> "Graph":
+        for nid, n in self.nodes.items():
+            if not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", nid):
+                raise ValueError(f"node name {nid!r} must be a lower-case word ([a-z][a-z0-9-]*)")
+            for other in sorted(self.waits_on(nid)):
+                if other not in self.nodes:
+                    raise ValueError(f"node {nid} waits on {other!r}, which is not a node of the graph")
+                if other == nid:
+                    raise ValueError(f"node {nid} waits on itself")
+            if n.refresh is not None and (n.refresh.node not in self.nodes or self.nodes[n.refresh.node].workflow is None):
+                raise ValueError(f"node {nid} refreshes {n.refresh.node!r}, which is not a workflow node of the graph")
+        seen: dict[str, int] = {}
+
+        def visit(nid: str, trail: tuple[str, ...]) -> None:
+            if seen.get(nid) == 2:
+                return
+            if seen.get(nid) == 1:
+                raise ValueError("the graph has a cycle: " + " -> ".join((*trail[trail.index(nid):], nid)))
+            seen[nid] = 1
+            for other in sorted(self.waits_on(nid)):
+                visit(other, (*trail, nid))
+            seen[nid] = 2
+
+        for nid in self.nodes:
+            visit(nid, ())
+        return self
+
+
 class DocketConfig(Strict):
     version: Literal[1]
     includes: list[str] = []
@@ -553,6 +629,28 @@ class DocketConfig(Strict):
     journal: JournalConfig = JournalConfig()
     hooks: dict[str, Hook] = {}
     shapes: ShapesConfig = ShapesConfig()
+    graphs: dict[str, Graph] = {}
+
+    @model_validator(mode="after")
+    def _graphs_name_workflows(self) -> "DocketConfig":
+        for gid, g in self.graphs.items():
+            for nid, n in g.nodes.items():
+                if n.workflow is None:
+                    continue
+                wf = self.workflows.get(n.workflow)
+                if wf is None:
+                    raise ValueError(f"graphs.{gid}.nodes.{nid}: no workflow {n.workflow!r}")
+                for stage in n.gates:
+                    if stage not in wf.stages:
+                        raise ValueError(f"graphs.{gid}.nodes.{nid}: gate on {stage}, which workflow {n.workflow} does not run")
+            for nid, n in g.nodes.items():
+                if n.refresh is not None:
+                    wf = self.workflows[g.nodes[n.refresh.node].workflow]
+                    unknown = sorted(set(n.refresh.sources) - set(wf.sources if wf.sources is not None else self.sources))
+                    if unknown:
+                        raise ValueError(f"graphs.{gid}.nodes.{nid}: refresh names {', '.join(unknown)}, "
+                                         f"which workflow {g.nodes[n.refresh.node].workflow} does not read")
+        return self
 
 
 SECTIONS: tuple[str, ...] = tuple(k for k in DocketConfig.model_fields if k not in ("includes",))

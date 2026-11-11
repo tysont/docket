@@ -76,6 +76,12 @@ class RunContext:
                 out.append(StageEval(name, impl.kind, "blocked", reason=f"waiting on {blocked_by}"))
                 continue
             idx = list(STAGE_IMPLS).index(name)
+            unmet = self.unmet_needs(name, first=not out)
+            if unmet:
+                # TD §5.6: a node of a graph; this stage waits for other nodes to be done.
+                out.append(StageEval(name, impl.kind, "waiting", reason="needs", extra={"needs": unmet}))
+                blocked_by = name
+                continue
             ev = impl.evaluate(self, up)
             if hdr.applied_plan and idx < APPLY_INDEX:
                 # TD §5.4: past the apply boundary an upstream stage that no longer matches is read as pinned.
@@ -99,6 +105,15 @@ class RunContext:
             up = ev
         self._evals = out
         return out
+
+    def unmet_needs(self, stage: str, *, first: bool) -> list[str]:
+        """The graph nodes this stage still waits for: the node's ``needs`` before its first
+        stage, and the stage's own ``gates``. Empty for a run that is not a node of a graph."""
+        hdr = self.run.header
+        if not hdr.graph_run or not hdr.node:
+            return []
+        from docket.engine import graph
+        return graph.unmet(self.ws, self.run.store, hdr.graph_run, hdr.node, stage, first=first)
 
     def invalidate(self) -> None:
         self._evals = None

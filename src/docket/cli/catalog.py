@@ -85,6 +85,8 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "config.bad_credential": ("config", False, "A credential reference is inconsistent: json_path without the "
                               "file it selects from, or an empty refresh command."),
     "input.unknown_source": ("input", False, "The workspace defines no source with this id."),
+    "input.unknown_graph": ("input", False, "The workspace defines no graph with this name."),
+    "graph.node_failed": ("external", True, "A command or refresh node of a graph failed."),
     "input.unknown_item": ("input", False, "The ledger has no item with this key or topic."),
     "input.unknown_unit": ("input", False, "The source discovered no unit with this id."),
     "source.failed": ("external", True, "A source or unit failed; details carry the raw cause."),
