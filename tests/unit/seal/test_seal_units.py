@@ -1,5 +1,5 @@
-"""Close units (TD §13.2, §13.4 to §13.7): cursors, ledgers, dispositions, journal rendering, change
-summaries and configuration checks. All data is invented."""
+"""Seal units (TD §13.2, §13.4 to §13.7): cursors, ledgers, dispositions, journal rendering, change
+summaries, step receipts and configuration checks. All data is invented."""
 from __future__ import annotations
 
 import json
@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import pytest
 
 from docket.apply.freshness import summarize
-from docket.close import cursors, dispositions, ledgers
-from docket.close.journal import render
-from docket.config.close_models import JournalConfig
+from docket.config.journal_models import JournalConfig
+from docket.seal import cursors, dispositions, ledgers
+from docket.seal.journal import render
 from docket.store.db import open_db
 
 pytestmark = pytest.mark.smoke
@@ -26,8 +26,8 @@ def _run(run_id="r2", sandbox=False, status="open"):
 
 
 def _proposal(db, run, source, unit, pos, model="timestamp"):
-    db.execute("INSERT INTO cursor_proposals (run_id, source, unit, position, coverage_end, generation, model, "
-               "complete) VALUES (?,?,?,?,?,0,?,1)", (run, source, unit, pos, pos, model))
+    db.execute("INSERT INTO cursor_proposals (run_id, source, unit, position, coverage_end, model, complete) "
+               "VALUES (?,?,?,?,?,?,1)", (run, source, unit, pos, pos, model))
 
 
 def test_gap_holds_while_others_advance_and_regressions_are_recorded(tmp_path):
@@ -63,7 +63,7 @@ def test_sandbox_and_abandoned_runs_advance_nothing(tmp_path, run):
 
 
 def test_ledgers_compute_rows_and_keep_recent_runs(tmp_path):
-    from docket.config.close_models import LedgerSpec
+    from docket.config.journal_models import LedgerSpec
     spec = {"carries": LedgerSpec.model_validate({"from": "answers", "where": {"action": "watch"}, "key": "{topic}",
                                                   "fields": {"title": "{title}", "since": "{run.date}"}})}
     ctx = {"run": {"date": "2026-10-15"}, "answers": [
@@ -125,36 +125,33 @@ def _issues(tmp_path: Path, extra: str) -> list:
     from docket.config.validate import validate
     ws = tmp_path / "ws"
     ws.mkdir()
-    (ws / "docket.yaml").write_text("version: 1\nprofile:\n  me: { name: Robin Vale }\nworkflows:\n"
-                                    "  w:\n    stages: [collect, close]\n    hooks: { after_close: [nope] }\n"
+    (ws / "docket.yaml").write_text("version: 1\nprofile:\n  me: { name: Robin Vale }\ngraphs:\n"
+                                    "  w:\n    notes: { run: [prog, '{run.date}', '{node}'], dry_run: [prog, '{item.text}'] }\n"
                                     "destinations:\n  backlog: { adapter: markdown_tasks }\n" + extra)
     _, iss = validate(load(ws))
     return iss
 
 
-def test_journal_and_hook_configuration_is_checked(tmp_path):
+def test_journal_and_run_command_configuration_is_checked(tmp_path):
     iss = _issues(tmp_path, "journal:\n  destination: backlog\n  sections:\n"
-                            "    - { heading: X, template: '{#findings}{secret_field}{/findings}' }\n"
-                            "hooks:\n  h:\n    command: [prog, '{item.text}']\n    events: [after_close]\n"
-                            "  bad:\n    command: [prog]\n    events: [before_lunch]\n")
+                            "    - { heading: X, template: '{#findings}{secret_field}{/findings}' }\n")
     by_path = {i.path: i.code for i in iss}
     assert by_path["journal.destination"] == "config.bad_reference"
     assert by_path["journal.sections[0].template"] == "config.bad_template"
-    assert by_path["hooks.h.command[1]"] == "config.bad_template"     # hook args see run facts only
-    assert by_path["workflows.w.hooks.after_close[0]"] == "config.bad_reference"
-    assert any(p.startswith("hooks.bad.events") for p in by_path)
+    assert by_path["graphs.w.notes.dry_run[1]"] == "config.bad_template"   # a run node's argv sees run facts only
+    assert not any(p.startswith("graphs.w.notes.run") for p in by_path)    # run.date and node are run facts
 
 
 def test_step_receipt_round_trip(tmp_path):
-    from docket.close import receipts
+    from docket.seal import receipts
     db = _db(tmp_path)
     with db:
-        receipts.put(db, "r1", "hook:after_close:h", "failed", {"exit": 3})
-    assert receipts.done(db, "r1", "hook:after_close:h") is None      # a failed step is retried
+        receipts.put(db, "r1", "seal:journal", "failed", {"error": "locked"})
+    assert receipts.done(db, "r1", "seal:journal") is None      # a failed step is retried
     with db:
-        receipts.put(db, "r1", "hook:after_close:h", "warned", {"exit": 3})
-    assert receipts.done(db, "r1", "hook:after_close:h")["exit"] == 3
-    assert json.loads(json.dumps(receipts.for_run(db, "r1")))[0]["step"] == "hook:after_close:h"
+        receipts.put(db, "r1", "seal:journal", "warned", {"error": "locked"})
+    assert receipts.done(db, "r1", "seal:journal")["error"] == "locked"
+    assert json.loads(json.dumps(receipts.for_run(db, "r1")))[0]["step"] == "seal:journal"
 
 
 def test_merge_reads_dispositions_by_topic_for_routed_and_now():

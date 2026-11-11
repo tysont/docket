@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 from docket.config import contexts
 from docket.config.loader import Issue, Loaded, Path_, closest, dotted, origin_for
 from docket.config.models import (
-    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, VERBS, WHEN_GUARDS, DocketConfig,
+    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, VERBS, WHEN_GUARDS, DocketConfig, Node, graph_problems,
 )
 from docket.text import templates
 
@@ -113,8 +113,12 @@ def pass_structure(loaded: Loaded) -> tuple[DocketConfig | None, list[Issue]]:
         return DocketConfig.model_validate(loaded.data), []
     except ValidationError as e:
         issues: list[Issue] = []
+        shapes = False
         for err in e.errors():
             loc = tuple(err["loc"])
+            if not loc and str(err.get("msg", "")).startswith("Value error, graphs."):
+                shapes = True  # reported per node below, with the node's file and line
+                continue
             path = _data_path(loaded.data, loc)
             t = err["type"]
             if t == "extra_forbidden":
@@ -130,7 +134,38 @@ def pass_structure(loaded: Loaded) -> tuple[DocketConfig | None, list[Issue]]:
                 expected = err.get("ctx", {}).get("expected") if isinstance(err.get("ctx"), dict) else None
                 issues.append(_issue(loaded, "config.bad_type", f"{dotted(path) or 'value'}: {err['msg']}", path, 1,
                                      expected=str(expected) if expected else None))
+        if shapes:
+            issues += graph_issues(loaded)
         return None, issues
+
+
+_NODE_IN = re.compile(r"^node (?:name )?'?([^' ]+)'?|cycle: ([^ ]+)")
+
+
+def graph_issues(loaded: Loaded) -> list[Issue]:
+    """The shape of each graph (``graph_problems``), one ``config.bad_graph`` issue per problem at
+    the node it names. A node that is itself invalid is left to the structure pass."""
+    out: list[Issue] = []
+    for gname, raw in _items(_get(loaded.data, "graphs")):
+        if not isinstance(raw, dict):
+            continue  # the structure pass reports it
+        if not raw:
+            out.append(_issue(loaded, "config.bad_graph", f"graphs.{gname} has no nodes", ("graphs", gname), 1))
+            continue
+        nodes: dict[str, Node] = {}
+        for nname, node in raw.items():
+            try:
+                nodes[str(nname)] = Node.model_validate(node)
+            except ValidationError:
+                pass
+        if len(nodes) != len(raw):
+            continue
+        for problem in graph_problems(nodes):
+            m = _NODE_IN.search(problem)
+            node = (m.group(1) or m.group(2)) if m else None
+            path: Path_ = ("graphs", gname, node) if node in nodes else ("graphs", gname)
+            out.append(_issue(loaded, "config.bad_graph", f"graph {gname!r}: {problem}", path, 1))
+    return out
 
 
 # --- defensive accessors ----------------------------------------------------
@@ -350,6 +385,12 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
                 if isinstance(when, str) and when.split(":", 1)[0] not in WHEN_GUARDS:
                     out.append(_issue(loaded, "config.unknown_kind", f"unknown guard {when!r}", base + ("when",), 3,
                                       suggestion=closest(when, list(WHEN_GUARDS))))
+    for gname, nodes in _items(_get(d, "graphs")):
+        for nname, node in _items(nodes):
+            for key in ("run", "dry_run"):
+                argv = node.get(key) if isinstance(node, dict) else None
+                for i, arg in enumerate(argv if isinstance(argv, list) else []):
+                    _check_template(loaded, arg, contexts.RUN_COMMAND, ("graphs", gname, nname, key, i), out)
     # --- M5 decisions: reconcile and verify label templates ---
     for sect, site in (("reconcile", contexts.RECONCILE), ("verify", contexts.VERIFY)):
         for oid, tpl in _items(_get(d, "decisions", sect, "labels")):

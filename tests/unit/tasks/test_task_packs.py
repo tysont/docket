@@ -295,7 +295,7 @@ def test_an_example_that_the_task_itself_would_refuse_is_a_configuration_error(t
     bad = [{"shows": "x", "row": {"keep": True, "score": 400, "kind": "request"}},          # out of range, and a kept row needs more
            {"shows": "y", "row": {"keep": False, "score": 5, "verdict": "ask"}}]            # not a field of this task
     (root / "docket.yaml").write_text(
-        "version: 1\nworkflows:\n  daily: { stages: [collect, close] }\n"
+        "version: 1\ngraphs:\n  daily: { touch: { run: [\"true\"] } }\n"
         "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
         "tasks:\n  assess:\n    examples: " + _json.dumps(bad) + "\n", encoding="utf-8")
     _, issues, _ = check(root)
@@ -303,7 +303,7 @@ def test_an_example_that_the_task_itself_would_refuse_is_a_configuration_error(t
     assert got == [("config.bad_example", "tasks.assess.examples[0].row"), ("config.bad_example", "tasks.assess.examples[1].row")]
     assert "score" in issues[0].message or "owner" in issues[0].message
     (root / "docket.yaml").write_text(
-        "version: 1\nworkflows:\n  daily: { stages: [collect, close] }\n"
+        "version: 1\ngraphs:\n  daily: { touch: { run: [\"true\"] } }\n"
         "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
         "tasks:\n  assess:\n    examples: " + _json.dumps(EXAMPLES) + "\n", encoding="utf-8")
     assert check(root)[1] == []

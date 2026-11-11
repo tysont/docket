@@ -229,12 +229,12 @@ FR-APP-03:
   - tests/scenario/test_close_scenarios.py::test_crash_after_verify_of_each_operation_resumes_without_duplicates
   - tests/scenario/test_apply_destinations.py::test_crash_after_each_operation_resumes_without_duplicates
 FR-APP-04:
-  - tests/unit/close/test_close_units.py::test_gap_holds_while_others_advance_and_regressions_are_recorded
+  - tests/unit/seal/test_seal_units.py::test_gap_holds_while_others_advance_and_regressions_are_recorded
   - tests/scenario/test_agent_loop.py::test_cursors_advance_at_seal_and_next_run_reads_only_new
   - tests/scenario/test_close_scenarios.py::test_journal_sections_render_for_both_personas
   - tests/scenario/test_close_scenarios.py::test_hooks_run_once_per_event_even_when_commands_repeat
 FR-APP-05:
-  - tests/unit/close/test_close_units.py::test_dispositions_by_topic_from_outcomes_answers_and_routes
+  - tests/unit/seal/test_seal_units.py::test_dispositions_by_topic_from_outcomes_answers_and_routes
   - tests/scenario/test_close_scenarios.py::test_a_dismissed_topic_is_suppressed_next_run_under_a_new_item_id
 FR-APP-06:
   - tests/scenario/test_close_scenarios.py::test_close_resumes_after_a_crash_between_steps_without_repeating
@@ -266,8 +266,8 @@ FR-ROB-06:
   - tests/unit/engine/test_doctor.py::test_a_hanging_auth_check_is_reported_as_interactive_or_hung
   - tests/unit/engine/test_doctor.py::test_exec_destination_permission_status_and_missing_programs
   - tests/unit/engine/test_doctor.py::test_doctor_writes_nothing_and_names_the_fix
-  - tests/unit/engine/test_doctor.py::test_doctor_workflow_checks_only_that_workflows_sources_destinations_and_hooks
-  - tests/unit/engine/test_doctor.py::test_doctor_without_a_workflow_reports_which_workflows_each_check_affects
+  - tests/unit/engine/test_doctor.py::test_doctor_graph_checks_only_that_graphs_sources_destinations_and_commands
+  - tests/unit/engine/test_doctor.py::test_doctor_without_a_graph_reports_which_graphs_each_check_affects
 
 # --- agent experience ----------------------------------------------------------------------------------------
 AE-01:
@@ -282,7 +282,7 @@ AE-03:
   - tests/contract/test_envelope.py::test_every_error_code_raised_in_src_is_cataloged
   - tests/contract/test_raise_discipline.py::test_every_error_construction_in_src_uses_a_catalogued_code
   - tests/unit/sources/test_source_config.py::test_an_unknown_mapping_key_suggests_the_closest_valid_key
-  - tests/unit/engine/test_doctor.py::test_doctor_names_the_closest_workflow
+  - tests/unit/engine/test_doctor.py::test_doctor_names_the_closest_graph
   - tests/unit/config/test_presets_init.py::test_a_source_preset_in_top_level_presets_names_the_scope_and_the_fix
 AE-04:
   - tests/contract/test_envelope.py::test_schema_list_prints_every_model
@@ -389,5 +389,5 @@ NFR-08:
 NFR-09:
   - tests/unit/store/test_store.py::test_refuses_newer_database
   - tests/unit/store/test_store.py::test_cli_reports_db_too_new
-  - tests/unit/store/test_store.py::test_migration_creates_tables_and_is_idempotent
+  - tests/unit/store/test_store.py::test_a_new_database_has_the_current_schema_and_reopens_unchanged
   - tests/conformance/test_destinations.py::test_exec_program_without_scratch_runs_handshake_only

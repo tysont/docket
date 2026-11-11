@@ -24,6 +24,8 @@ _VERIFY = ["task.id", "task.title", "task.line", "ref", "state", "last_actor", "
            "reason"]
 VERIFY = FieldSet(_VERIFY)
 MERGE_TITLE = FieldSet(["title", "titles[]", "count"])
+# A run node's argv (``run`` and ``dry_run``) sees run facts only (``docket.engine.nodes.RunNode``).
+RUN_COMMAND = FieldSet(["run.id", "run.date", "run.graph", "run.dir", "run.sandbox", "node", "workspace"])
 JOURNAL = FieldSet([
     "run.id", "run.date", "run.graph", "run.sandbox",
     "sources[]", "sources[].id", "sources[].outcome", "sources[].records",

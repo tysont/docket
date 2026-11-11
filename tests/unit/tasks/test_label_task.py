@@ -36,7 +36,7 @@ def db(tmp_path):
 
 def test_the_kind_asks_for_one_short_label_and_carries_the_workspaces_examples():
     kind = registry(TasksConfig.model_validate(CFG))["label"]
-    assert kind.stage == "label" and kind.core
+    assert kind.family == "label" and kind.core
     spec = {f.name: f for f in kind.fields}["label"]
     assert spec.required and spec.max_length == 60
     assert "Never name a person" in (kind.guidance or "")

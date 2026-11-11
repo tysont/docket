@@ -97,8 +97,8 @@ def test_a_source_preset_in_top_level_presets_names_the_scope_and_the_fix(tmp_pa
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "docket.yaml").write_text(
-        "version: 1\npresets: [files/jsonl]\nworkflows:\n  daily:\n    stages: [collect, assess, merge, decide, "
-        "plan, approve, apply, close]\nprofile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
+        "version: 1\npresets: [files/jsonl]\ngraphs:\n  daily:\n    touch: { run: [\"true\"] }\n"
+        "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
         "destinations:\n  backlog: { adapter: markdown_tasks, path: tasks.md }\n", encoding="utf-8")
     _, issues, _ = check(ws)
     assert [i.code for i in issues] == ["config.preset_scope"], [i.as_dict() for i in issues]
@@ -109,8 +109,8 @@ def test_a_workspace_preset_in_extends_is_a_scope_error(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "docket.yaml").write_text(
-        "version: 1\nworkflows:\n  daily:\n    stages: [collect, assess, merge, decide, "
-        "plan, approve, apply, close]\nprofile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
+        "version: 1\ngraphs:\n  daily:\n    read-feed: { read: feed }\n"
+        "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
         "sources:\n  feed: { extends: options/basic, path: x.jsonl, kind: files }\n"
         "destinations:\n  backlog: { adapter: markdown_tasks, path: tasks.md }\n", encoding="utf-8")
     _, issues, _ = check(ws)

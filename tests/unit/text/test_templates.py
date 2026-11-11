@@ -5,7 +5,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from docket.config import contexts
-from docket.engine.stages import JOURNAL_TEMPLATE
+from docket.seal.journal import JOURNAL_TEMPLATE
 from docket.text.templates import TemplateError, parse, render, validate
 
 pytestmark = pytest.mark.smoke

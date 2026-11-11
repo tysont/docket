@@ -14,9 +14,15 @@ pytestmark = pytest.mark.smoke
 
 MINIMAL = """\
 version: 1
-workflows:
+graphs:
   daily:
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    gather: { read: inbox }
+    decide: { ask: default, from: [gather] }
+    plan: { plan: [decide] }
+    approve: { approve: plan }
+    apply: { apply: approve }
+sources:
+  inbox: { kind: files, path: inbox.jsonl }
 profile:
   timezone: UTC
   me:
@@ -52,10 +58,9 @@ def test_personas_validate(persona, cli, name):
 
 BROKEN = """\
 version: 1
-workflows:
+graphs:
   daily:
-    options: director
-    stages: [collect, assess, merge, decide, plan, approve, apply, close]
+    decide: { ask: director }
 profile:
   timezone: UTC
   timezon: UTC
@@ -78,16 +83,16 @@ def test_unknown_key_bad_reference_bad_template_all_reported(tmp_path, cli):
     rows = {r["code"]: r for r in err["details"]["errors"]}
     assert set(rows) == {"config.unknown_key", "config.bad_reference", "config.bad_template"}
     unk = rows["config.unknown_key"]
-    assert (unk["file"], unk["line"], unk["column"]) == ("docket.yaml", 8, 3)
+    assert (unk["file"], unk["line"], unk["column"]) == ("docket.yaml", 7, 3)
     assert unk["suggestion"] == "timezone" and unk["path"] == "profile.timezon"
     ref = rows["config.bad_reference"]
-    assert (ref["path"], ref["file"], ref["line"]) == ("workflows.daily.options", "docket.yaml", 4)
+    assert (ref["path"], ref["file"], ref["line"]) == ("graphs.daily.decide.ask", "docket.yaml", 4)
     tpl = rows["config.bad_template"]
-    assert (tpl["path"], tpl["line"], tpl["suggestion"]) == ("destinations.backlog.line_template", 15, "title")
+    assert (tpl["path"], tpl["line"], tpl["suggestion"]) == ("destinations.backlog.line_template", 14, "title")
     # human output names file, line and the fix
     code, _ = cli("config", "validate", "--workspace", str(ws), json_out=False)
     assert code == 3
-    assert "docket.yaml:8:3: config.unknown_key" in cli.last_stderr
+    assert "docket.yaml:7:3: config.unknown_key" in cli.last_stderr
     assert "did you mean 'timezone'?" in cli.last_stderr
     # a run never starts on invalid configuration
     code, env = cli("run", "start", "daily", "--workspace", str(ws))
@@ -116,28 +121,75 @@ def test_unknown_preset_suggests(tmp_path):
     ws = write(tmp_path / "ws", {"docket.yaml": MINIMAL + "presets: [markdown/task-basic]\n"})
     _, issues, _ = check(ws)
     i = next(x for x in issues if x.code == "config.unknown_preset")
-    assert i.suggestion == "markdown/tasks-basic" and i.line == 13
+    assert i.suggestion == "markdown/tasks-basic" and i.line == MINIMAL.count("\n") + 1
 
 
 def test_semantic_checks(tmp_path):
     ws = write(tmp_path / "ws", {"docket.yaml": MINIMAL.replace("timezone: UTC", "timezone: Mars/Base")
-               .replace("[collect, assess, merge, decide, plan, approve, apply, close]",
-                        "[assess, collect, decide, close]") + textwrap.dedent("""\
-        sources:
-          feed:
-            kind: filez
-            mapping: { titel: "$.x", id: "x" }
-        """) + "  agendas2:\n    adapter: markdown_agenda\n"})
+               .replace("  inbox: { kind: files, path: inbox.jsonl }\n",
+                        "  inbox: { kind: files, path: inbox.jsonl }\n"
+                        "  feed:\n    kind: filez\n    mapping: { titel: \"$.x\", id: \"x\" }\n")
+               + "  agendas2:\n    adapter: markdown_agenda\n"})
     text = (ws / "docket.yaml").read_text()
     text = text.replace("profile:\n", "profile:\n  calendar:\n    classify:\n      - { match: { title_regex: \"(\" }, kind: focus }\n", 1)
     (ws / "docket.yaml").write_text(text)
     _, issues, _ = check(ws)
     cs = codes(issues)
-    for c in ("config.bad_timezone", "config.bad_stage_order", "config.bad_regex", "config.bad_mapping",
-              "config.unknown_kind"):
+    for c in ("config.bad_timezone", "config.bad_regex", "config.bad_mapping", "config.unknown_kind"):
         assert c in cs, (c, cs)
     kind = next(i for i in issues if i.code == "config.unknown_kind")
     assert kind.suggestion == "files"
+
+
+GRAPH_CASES = [
+    # a cycle through after
+    ("    gather: { read: inbox, after: [apply] }\n", "gather", "the graph has a cycle: gather -> apply -> approve"),
+    # a node that names a node the graph does not have
+    ("    decide: { ask: default, from: [gathr] }\n", "decide", "node decide names 'gathr', which is not a node"),
+    # an input of the wrong kind: approve works on a plan, not on items
+    ("    approve: { approve: gather }\n", "approve", "node approve (approve) cannot work on gather (read), which "
+                                                       "hands on items"),
+    # the seal is not a node anyone may name
+    ("    seal: { run: [\"true\"] }\n", "seal", "node name 'seal' must be a lower-case word"),
+]
+
+
+@pytest.mark.parametrize("line,node,message", GRAPH_CASES)
+def test_graph_shape_problems_are_reported_at_the_node(tmp_path, line, node, message):
+    """A graph's shape replaces the fixed order of the old model: every node may run once what it
+    names is done, so the checks are names, references, cycles and what each verb can work on."""
+    key = line.split(":", 1)[0]
+    lines = [ln for ln in MINIMAL.splitlines(keepends=True)]
+    at = next((i for i, ln in enumerate(lines) if ln.startswith(key + ":")), None)
+    if at is None:
+        at = lines.index("    apply: { apply: approve }\n") + 1
+        lines.insert(at, line)
+    else:
+        lines[at] = line
+    ws = write(tmp_path / "ws", {"docket.yaml": "".join(lines)})
+    _, issues, _ = check(ws)
+    bad = [i for i in issues if i.code == "config.bad_graph"]
+    assert bad, codes(issues)
+    hit = next(i for i in bad if message in i.message)
+    assert hit.path == f"graphs.daily.{node}" and hit.file == "docket.yaml" and hit.line == at + 1
+
+
+def test_a_node_has_exactly_one_verb_and_the_verbs_own_inputs(tmp_path):
+    ws = write(tmp_path / "ws", {"docket.yaml": MINIMAL.replace(
+        "    plan: { plan: [decide] }\n", "    plan: { plan: [decide], from: [gather] }\n").replace(
+        "    gather: { read: inbox }\n", "    gather: { read: inbox, run: [\"true\"] }\n")})
+    _, issues, _ = check(ws)
+    msgs = {i.message for i in issues if i.code == "config.bad_type"}
+    assert any("a node has exactly one verb" in m for m in msgs), msgs
+    assert any("plan names its inputs itself; it takes no from" in m for m in msgs), msgs
+
+
+def test_a_graph_with_no_nodes_is_refused(tmp_path):
+    ws = write(tmp_path / "ws", {"docket.yaml": MINIMAL.replace(
+        "graphs:\n  daily:\n", "graphs:\n  empty: {}\n  daily:\n")})
+    _, issues, _ = check(ws)
+    (bad,) = [i for i in issues if i.code == "config.bad_graph"]
+    assert bad.path == "graphs.empty" and "has no nodes" in bad.message
 
 
 def test_capability_missing(tmp_path):
@@ -189,7 +241,10 @@ def test_preset_may_not_define_people(tmp_path, monkeypatch):
     root = tmp_path / "presets"
     write(root, {"bad/people.yaml": "profile:\n  people:\n    - { id: x, name: X }\n"})
     monkeypatch.setattr(preset_mod, "PRESET_ROOT", root)
-    ws = write(tmp_path / "ws", {"docket.yaml": MINIMAL + "presets: [bad/people]\n"})
+    # no files source here: a files source extends a core preset, which the patched root lacks
+    bare = MINIMAL.replace("    gather: { read: inbox }\n", "").replace(", from: [gather]", "") \
+        .replace("sources:\n  inbox: { kind: files, path: inbox.jsonl }\n", "")
+    ws = write(tmp_path / "ws", {"docket.yaml": bare + "presets: [bad/people]\n"})
     loaded = load(ws)
     assert [i.code for i in loaded.issues] == ["config.preset_forbidden"]
 

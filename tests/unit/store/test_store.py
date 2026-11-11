@@ -6,7 +6,7 @@ import pytest
 
 from docket.cli.errors import DocketError
 from docket.store.blobs import BlobStore
-from docket.store.db import MIGRATIONS, SCHEMA_VERSION, open_db
+from docket.store.db import SCHEMA_VERSION, open_db
 from docket.store.paths import state_root, workspace_slug
 
 pytestmark = pytest.mark.smoke
@@ -14,17 +14,31 @@ TABLES = {"runs", "cursors", "cursor_proposals", "units", "processed_ids", "disp
           "unexpected", "ledgers", "leases", "schema_meta"}
 
 
-def test_migration_creates_tables_and_is_idempotent(tmp_path):
+def test_a_new_database_has_the_current_schema_and_reopens_unchanged(tmp_path):
     db = open_db(tmp_path / "docket.db")
     names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert TABLES <= names
     assert db.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == str(SCHEMA_VERSION)
     assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    # one schema: no generation column on proposals, no migration bookkeeping
+    cols = {r[1] for r in db.execute("PRAGMA table_info(cursor_proposals)")}
+    assert "generation" not in cols and {"run_id", "source", "unit", "position", "coverage_end"} <= cols
     db.close()
     db = open_db(tmp_path / "docket.db")
-    # migration numbers are reserved per milestone, so the sequence may have gaps
-    assert db.execute("SELECT COUNT(*) FROM schema_meta WHERE key LIKE 'migration.%'").fetchone()[0] == len(MIGRATIONS)
+    assert db.execute("SELECT COUNT(*) FROM schema_meta").fetchone()[0] == 1
+    assert {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")} == names
     db.close()
+
+
+def test_refuses_an_older_database(tmp_path):
+    db = open_db(tmp_path / "docket.db")
+    db.execute("UPDATE schema_meta SET value=? WHERE key='version'", (str(SCHEMA_VERSION - 1),))
+    db.commit()
+    db.close()
+    with pytest.raises(DocketError) as ei:
+        open_db(tmp_path / "docket.db")
+    assert ei.value.code == "state.too_old" and ei.value.exit_code == 7
+    assert ei.value.details["db_version"] == SCHEMA_VERSION - 1 and ei.value.details["supported"] == SCHEMA_VERSION
 
 
 def test_refuses_newer_database(tmp_path):

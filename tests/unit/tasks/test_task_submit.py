@@ -219,22 +219,18 @@ def test_a_reviewer_can_change_the_recommended_decision():
 
 
 def test_the_reviewers_decision_replaces_the_first_recommendation():
-    from types import SimpleNamespace
-    from docket.tasks.runner import combine_review
+    from docket.tasks.runner import NodePlan, combine_review
     items = [{"id": "a", "keep": True, "assessment": {"decision": "act", "ask": "Reply"}, "trace": []},
              {"id": "b", "keep": True, "assessment": {"decision": "act", "ask": "Reply"}, "trace": []}]
-    rows = {"a": ("t1", {"id": "a", "verdict": "ask", "against": "Settled already.", "decision": "note"}),
-            "b": ("t1", {"id": "b", "verdict": "ask", "against": "Could wait."})}
-    plan = SimpleNamespace(stage="review", carried={}, results={}, packs=[], kinds={})
-    import docket.tasks.runner as runner
-    real = runner._rows
-    runner._rows = lambda _plan: {"review": rows}
-    try:
-        out = {it["id"]: it for it in combine_review(items, plan)["items"]}
-    finally:
-        runner._rows = real
+    rows = [{"id": "a", "verdict": "ask", "against": "Settled already.", "decision": "note"},
+            {"id": "b", "verdict": "ask", "against": "Could wait."}]
+    plan = NodePlan(node="review", kind=persona_kinds("reference-like")["review"], packs=[{"task_id": "t1"}],
+                    results={"t1": {"items": rows}}, issued={"t1"})
+    out = {it["id"]: it for it in combine_review(items, plan)["items"]}
     assert out["a"]["assessment"]["decision"] == "note" and out["a"]["review"]["decision"] == "note"
-    assert out["a"]["trace"][-1]["decision"] == "note" and out["a"]["trace"][-1]["was"] == "act"
+    last = out["a"]["trace"][-1]
+    assert last["decision"] == "note" and last["was"] == "act"
+    assert (last["verb"], last["node"], last["task"]) == ("judge", "review", "t1")
     assert out["b"]["assessment"]["decision"] == "act" and "decision" not in out["b"]["review"]
 
 

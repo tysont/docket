@@ -79,17 +79,19 @@ def test_exec_destination_permission_status_and_missing_programs(persona, cli, t
     cfg = ws / "docket.yaml"
     dest = (f"  calendar:\n    adapter: calendar_exec\n    calendar: work\n"
             f"    program: [{sys.executable}, {STUB}, --state, {state}, --access, denied]\n")
-    hooks = ("\nhooks:\n  notes-commit:\n    command: [no-such-program-xyz, commit]\n    events: [after_close]\n"
-             "    dry_run: [docket-stub-auth, --ok]\n")
-    cfg.write_text(cfg.read_text().replace("\ndestinations:\n", "\ndestinations:\n" + dest, 1) + hooks)
+    commit = ("    notes-commit: { run: [no-such-program-xyz, commit], dry_run: [docket-stub-auth, --ok], "
+              "after: [apply] }\n")
+    text = cfg.read_text().replace("\ndestinations:\n", "\ndestinations:\n" + dest, 1)
+    cfg.write_text(text.replace("    apply: { apply: approve }\n", "    apply: { apply: approve }\n" + commit, 1))
     code, env = cli("doctor", "--workspace", str(ws))
     c = checks(env)
     assert c["dest.calendar.program"]["status"] == "ok" and "status" in c["dest.calendar.program"]["detail"]
     assert c["dest.calendar.permission"]["status"] == "fail"
     assert c["dest.calendar.permission"]["detail"] == "platform permission: denied"
     assert "calendar access" in c["dest.calendar.permission"]["fix"]
-    assert c["hook.notes-commit.command"]["status"] == "fail" and "no-such-program-xyz" in c["hook.notes-commit.command"]["fix"]
-    assert c["hook.notes-commit.dry_run"]["status"] == "ok"
+    run = c["command.shift.notes-commit.run"]
+    assert run["status"] == "fail" and "no-such-program-xyz" in run["fix"] and run["graphs"] == ["shift"]
+    assert c["command.shift.notes-commit.dry_run"]["status"] == "ok"
     assert not state.exists()  # the status verb wrote nothing
     # a bridge without the status verb is a warning, not a failure
     cfg.write_text(cfg.read_text().replace("--access, denied", "--caps, 'list,create'"))
@@ -131,50 +133,58 @@ def test_invalid_config_and_a_newer_database_fail(persona, cli):
     assert c["transports"]["status"] == "skip"
 
 
-# --- scoping to a workflow (AE-03: a failure the workflow never meets does not block it) ------------
+# --- scoping to a graph (AE-03: a failure the graph never meets does not block it) ------------------
 
 
-HOOKS = ("\nhooks:\n  isolation-only:\n    command: [no-such-program-xyz]\n    events: [after_close]\n"
-         "    workflows: [isolation]\n")
+ISOLATION_ONLY = "    isolation-only: { run: [no-such-program-xyz], after: [apply] }\n"
 
 
-def test_doctor_workflow_checks_only_that_workflows_sources_destinations_and_hooks(persona, cli):
-    ws = persona("support-lead")
+def _isolation_command(ws: Path) -> None:
     cfg = ws / "docket.yaml"
-    cfg.write_text(cfg.read_text() + HOOKS)
-    code, env = cli("doctor", "--workflow", "shift", "--workspace", str(ws))
-    assert code == 0, env  # kb (expired token) and the hook belong to isolation only
+    text = cfg.read_text()
+    at = text.index("  isolation:\n")
+    head, tail = text[:at], text[at:]
+    cfg.write_text(head + tail.replace("    apply: { apply: approve }\n",
+                                       "    apply: { apply: approve }\n" + ISOLATION_ONLY, 1))
+
+
+def test_doctor_graph_checks_only_that_graphs_sources_destinations_and_commands(persona, cli):
+    ws = persona("support-lead")
+    _isolation_command(ws)
+    code, env = cli("doctor", "--graph", "shift", "--workspace", str(ws))
+    assert code == 0, env  # kb (expired token) and the command belong to isolation only
     c = checks(env)
-    assert "auth.kb" not in c and "hook.isolation-only.command" not in c
+    assert "auth.kb" not in c and "command.isolation.isolation-only.run" not in c
     assert {"transport.pager-bridge", "dest.worklog.location", "config", "state.root"} <= set(c)
     assert not any(k.startswith(("transport.kb-bridge", "transport.metrics-api", "transport.history-bridge"))
                    for k in c)
-    assert env["data"]["workflow"] == "shift" and all("shift" in r["workflows"] for r in env["data"]["checks"])
-    code, env = cli("doctor", "--workflow", "isolation", "--workspace", str(ws))
+    assert env["data"]["graph"] == "shift" and all("shift" in r["graphs"] for r in env["data"]["checks"])
+    code, env = cli("doctor", "--graph", "isolation", "--workspace", str(ws))
     c = checks(env)
-    assert code == 5 and c["auth.kb"]["status"] == "fail" and c["hook.isolation-only.command"]["status"] == "fail"
+    assert code == 5 and c["auth.kb"]["status"] == "fail"
+    assert c["command.isolation.isolation-only.run"]["status"] == "fail"
 
 
-def test_doctor_without_a_workflow_reports_which_workflows_each_check_affects(persona, cli):
+def test_doctor_without_a_graph_reports_which_graphs_each_check_affects(persona, cli):
     ws = persona("support-lead")
     code, env = cli("doctor", "--workspace", str(ws))
     assert code == 5
     c = checks(env)
-    assert c["auth.kb"]["workflows"] == ["isolation"]
-    assert c["config"]["workflows"] == ["isolation", "shift"]
-    assert c["transport.pager-bridge"]["workflows"] == ["isolation", "shift"]
-    assert c["dest.worklog.location"]["workflows"] == ["isolation", "shift"]
-    by = env["error"]["details"]["workflows"]
+    assert c["auth.kb"]["graphs"] == ["isolation"]
+    assert c["config"]["graphs"] == ["isolation", "shift"]
+    assert c["transport.pager-bridge"]["graphs"] == ["isolation", "shift"]
+    assert c["dest.worklog.location"]["graphs"] == ["isolation", "shift"]
+    by = env["error"]["details"]["graphs"]
     assert by["shift"]["fail"] == 0 and by["isolation"]["fail"] >= 1
-    assert "affects workflow(s) isolation" in env["error"]["message"]
+    assert "affects graph(s) isolation" in env["error"]["message"]
     code, _ = cli("doctor", "--workspace", str(ws), json_out=False)
-    assert "affects workflow(s) isolation" in cli.last_stderr and "docket doctor --workflow shift" in cli.last_stderr
-    code, text = cli("doctor", "--workflow", "shift", "--workspace", str(ws), json_out=False)
-    assert code == 0 and "workflow shift: ok" in text
+    assert "affects graph(s) isolation" in cli.last_stderr and "docket doctor --graph shift" in cli.last_stderr
+    code, text = cli("doctor", "--graph", "shift", "--workspace", str(ws), json_out=False)
+    assert code == 0 and "graph shift: ok" in text
 
 
-def test_doctor_names_the_closest_workflow(persona, cli):
+def test_doctor_names_the_closest_graph(persona, cli):
     ws = persona("support-lead")
-    code, env = cli("doctor", "--workflow", "shfit", "--workspace", str(ws))
-    assert code == 2 and env["error"]["code"] == "input.unknown_workflow"
+    code, env = cli("doctor", "--graph", "shfit", "--workspace", str(ws))
+    assert code == 2 and env["error"]["code"] == "input.unknown_graph"
     assert env["error"]["details"]["suggestion"] == "shift"
