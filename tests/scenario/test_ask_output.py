@@ -19,7 +19,7 @@ BURST = """\
     assess: { judge: assess, from: [read-tickets, read-pager] }
     sla-check: { judge: sla_check, from: [read-tickets] }
     merge: { merge: [assess, sla-check] }
-    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 15 } }
+    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 15, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }

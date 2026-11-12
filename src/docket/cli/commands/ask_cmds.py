@@ -29,6 +29,7 @@ from docket.cli.envelope import Result
 from docket.cli.errors import DocketError, InputError, StateError
 from docket.cli.registry import Arg, command
 from docket.decide.answers import ANSWERS_FILE_EXAMPLE, ANSWERS_FILE_FORMS
+from docket.engine.steps import CARD_DETAILS
 
 _KEYS = ("option", "action", "overrides", "digest", "destinations", "merged_into")
 
@@ -58,20 +59,36 @@ def _row(ev: Any, q: dict[str, Any], a: dict[str, Any] | None) -> dict[str, Any]
                        for i, o in enumerate(q["options"], 1)],
            "answer": a}
     for k in ("evidence", "refused", "notes", "previous", "requires", "item_id", "block_key", "task_id",
-              "recommended", "batch_block", "meeting"):
-        if q.get(k):
+              "recommended", "batch_block", "meeting", "overflow", "passed", *CARD_DETAILS):
+        if q.get(k) not in (None, [], {}, ""):
             out[k] = q[k]
     return out
 
 
+def _not_asked(rc: Any) -> list[dict[str, Any]]:
+    """What each ask node was given and does not put to the operator, one row per item."""
+    from docket.engine.nodes import not_asked_rows
+    out = []
+    for ev in rc.evaluate():
+        if ev.verb == "ask" and "set" in ev.extra:
+            out += [{"node": ev.name, **r} for r in not_asked_rows(ev.extra["set"].not_asked)]
+    return out
+
+
 @command("ask list", "List the questions reachable now, their options and answers; a re-asked question shows its "
-                     "previous answer.", run=True, examples=["docket ask list --json"])
+                     "previous answer. Items past a question budget that are not asked are listed under not_asked.",
+         run=True, examples=["docket ask list --json"])
 def cmd_ask_list(ctx: Any, ns: Any) -> Result:
     rc = ctx.run_context()
     rows = [_row(ev, q, a) for ev, q, a in _questions(rc)]
+    skipped = _not_asked(rc)
     text = "\n".join(f"{r['id']}: {r['prompt']}" + (" [answered]" if r["answer"] else "")
-                     + (" [re-asked]" if r.get("previous") and not r["answer"] else "") for r in rows)
-    return Result({"questions": rows}, text or "no questions")
+                     + (" [re-asked]" if r.get("previous") and not r["answer"] else "")
+                     + (" [overflow]" if r.get("overflow") else "") for r in rows)
+    if skipped:
+        text = (text + "\n" if text else "") + f"not asked ({len(skipped)}):\n" + "\n".join(
+            f"  {r['item_id']}: {r['title']} ({r['reason']})" for r in skipped)
+    return Result({"questions": rows, "not_asked": skipped}, text or "no questions")
 
 
 @command("ask show", "Show one question with its evidence, options, refused options and answer.", run=True,
@@ -80,7 +97,8 @@ def cmd_ask_show(ctx: Any, ns: Any) -> Result:
     rc = ctx.run_context()
     for ev, q, a in _questions(rc):
         if q["id"] == ns.question_id:
-            lines = [f"{q['id']}: {q['prompt']}"] + [f"  > {e}" for e in q.get("evidence") or []]
+            lines = [f"{q['id']}: {q['prompt']}"] + ([f"  {q['url']}"] if q.get("url") else []) \
+                + [f"  > {e}" for e in q.get("evidence") or []]
             lines += [f"  {i}. {o['id']}: {o['label']}" for i, o in enumerate(q["options"], 1)]
             lines += [f"  ! {n}" for n in q.get("notes") or []]
             if q.get("previous"):

@@ -27,7 +27,7 @@ graphs:
     read-feed: { read: feed }
     assess: { judge: assess, from: [read-feed] }
     merge: { merge: [assess] }
-    decide: { ask: default, from: [merge], questions: { kinds: [finding], budget: 5 } }
+    decide: { ask: default, from: [merge], questions: { kinds: [finding], budget: 5, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }

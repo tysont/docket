@@ -25,11 +25,11 @@ MARKER = "(planned by docket: {key})"
 def setup(ws: Path) -> Path:
     cfg = ws / "docket.yaml"
     text = cfg.read_text()
-    triage = ("    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8 } }\n"
+    triage = ("    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8, overflow: drop } }\n"
               "    plan: { plan: [decide] }\n")
     assert triage in text
     # the triage graph also places tasks on the calendar, and asks about the blocks it placed
-    text = text.replace(triage, "    decide: { ask: basic, from: [merge], questions: { kinds: [reconcile, finding], budget: 8 } }\n"
+    text = text.replace(triage, "    decide: { ask: basic, from: [merge], questions: { kinds: [reconcile, finding], budget: 8, overflow: drop } }\n"
                                 "    plan: { plan: [decide], schedule_tasks: true }\n", 1)
     cfg.write_text(text)
     dests = ws / "destinations.yaml"

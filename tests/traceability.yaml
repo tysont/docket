@@ -156,6 +156,18 @@ FR-DEC-09:
   - tests/scenario/test_covered_scenario.py::test_a_sandbox_run_leaves_the_note_byte_identical
   - tests/unit/decide/test_covered.py::test_covered_kept_and_dropped_entries_become_one_roll
   - tests/unit/config/test_covered_config.py::test_assuming_and_asking_about_the_same_meetings_is_refused
+FR-DEC-10:
+  - tests/scenario/test_question_cards.py::test_a_finding_carries_what_a_card_needs_in_full_show_and_list_but_not_compact
+  - tests/scenario/test_question_cards.py::test_a_reconcile_question_carries_the_task_line_s_link
+  - tests/scenario/test_question_cards.py::test_a_covered_question_carries_the_agenda_entry_s_link
+  - tests/unit/decide/test_question_details.py::test_a_card_carries_link_source_sender_time_score_and_text
+  - tests/unit/decide/test_question_details.py::test_links_are_the_item_s_then_its_members_then_what_a_review_merged_in_each_once
+  - tests/unit/decide/test_question_details.py::test_reviewed_says_what_a_review_changed_or_doubted
+FR-DEC-11:
+  - tests/scenario/test_question_cards.py::test_items_past_the_budget_are_asked_after_the_rest_flagged_overflow
+  - tests/scenario/test_question_cards.py::test_with_drop_the_items_past_the_budget_are_reported_everywhere_up_to_the_seal
+  - tests/scenario/test_question_cards.py::test_null_budgets_mean_no_limit
+  - tests/unit/decide/test_question_details.py::test_overflow_is_list_or_drop_and_null_budgets_mean_no_limit
 
 # --- destinations ----------------------------------------------------------------------------------
 FR-ACT-01:

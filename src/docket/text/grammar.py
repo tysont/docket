@@ -98,6 +98,17 @@ class TaskLine:
         return replace(self, fields=fields + [(key, value)])
 
 
+def web_links(lines: list[str]) -> dict[str, Any]:
+    """``url`` and ``links`` of a task line or an agenda entry: the web links its words carry, in
+    order and each once. Empty when it carries none."""
+    links: list[str] = []
+    for ln in lines:
+        for u in TaskLine(status="open", text=str(ln)).links:
+            if "://" in u and u not in links:
+                links.append(u)
+    return {"url": links[0], "links": links} if links else {}
+
+
 @dataclass(frozen=True)
 class Grammar:
     open: str = "- [ ] "

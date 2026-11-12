@@ -24,6 +24,7 @@ def summary(rc: RunContext) -> dict[str, Any]:
     if asked:
         out["questions"] = len(asked.get("questions") or [])
         out["answered"] = len(asked.get("answers") or {})
+        out["not_asked"] = len(asked.get("not_asked") or [])  # kept, but never put to the operator
     receipts = [x for v in ("apply", "write") for x in (rc.output(v).get("receipts") or [])]
     if receipts:
         out["operations"] = len(receipts)

@@ -349,7 +349,7 @@ Where several nodes hand on to one, their outputs are joined: items by id (a lat
 |---|---|---|
 | `run` | Run this command: `docket do <node>`, `docket task issue`, `docket ask resolve` or `docket seal` | `command` (argv array and shell string), `why`, `expect` (what the command will produce), `timeout_s` |
 | `dispatch` | These agent tasks need results | `tasks[]`, each with `task_id`, `kind`, `pack_path`, `prompt_path`, `result_path`, `result_schema` and `submit` (exact argv); `concurrency`, `why` |
-| `ask` | Put these questions to the operator and record each answer | `questions[]`, one `docket ask answer {question} {option} ...` template, one `show` template, `burst`, `why` |
+| `ask` | Put these questions to the operator and record each answer | `questions[]`, one `docket ask answer {question} {option} ...` template, one `show` template, `burst`, `why`, and for an ask node `not_asked` (§10.1): its `count`, and with `--full` one row per item in `items` |
 | `wait` | Nothing can be done for this node until something outside changes | `reason` (code), `instructions`, `ready_when`, and the command to run then |
 
 `wait` reasons are `source_unavailable` (a required source could not be read; §6.8), `apply_partial` (operations failed; `docket do <node> --again` repeats the ones that did not complete), `plan_rejected` (the operator rejected the plan), `post_apply_change` (§5.4) and `lease_held` (§5.5).
@@ -700,7 +700,24 @@ An accepted result is indexed by its pack's input digest in the workspace databa
 
 An `ask` node builds its questions from four inputs: the findings in the items it works on, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), the agendas of meetings that left no record, and task-verification results. The node's `questions.kinds` says which it asks (`reconcile`, `covered`, `finding`, `verify`; default: `finding`); an unknown kind is refused. Each question has a stable id derived from its subject (`q_` + item id, `r_` + block key, `c_` + a digest of forum, meeting date and agenda entry, or `v_` + task key), a kind (`finding`, `reconcile`, `covered` or `verify`), a rendered prompt from templates, the evidence summary, and options. The approve question is the one exception: its id is the approve node's name (§13.1).
 
-Kinds are asked in the order of `decisions.order` (default: reconcile, covered, then findings by score, then verify). The node's `questions.budget` caps findings; the items past it become the journal section "Not asked" with their traces.
+Kinds are asked in the order of `decisions.order` (default: reconcile, covered, then findings by score, then verify). The node's `questions.budget` caps the findings asked one by one, and `questions.batch_budget` those recommended for a batch option. A budget of null means no limit.
+
+Nothing an ask node was given is dropped without the driver seeing it. `questions.overflow` says what happens to the findings past a budget:
+
+- `list` (the default): they are still asked. Each is flagged `overflow: true` in its details and they come after every other question of the burst, so a driver shows them as one list, as it shows a batch.
+- `drop`: they are not asked. Each becomes a `not_asked` row: the item's id, its title (or the assess task's ask), score, the option recommended from the option set, its link and the reason (`past the question budget` or `past the batch budget`). The rows are carried by the ask step (§5.2) and `docket ask list`, the seal step says how many there are, the run summary counts them as `not_asked`, and the journal lists them under "Not asked" with their traces.
+
+| `questions` setting | Default | Meaning |
+|---|---|---|
+| `kinds` | `[finding]` | The kinds of question the node asks |
+| `covered` | none | Where covered questions come from (§10.4); needed when `kinds` lists `covered` |
+| `bursts` | `1` | How many bursts the questions are asked in |
+| `budget` | null (no limit) | Findings asked one by one; an integer of 0 or more |
+| `batch_budget` | null (no limit) | Findings recommended for a batch option; an integer of 0 or more |
+| `must_surface` | `ranked` | `ranked`, `first` or `bypass`: how must-surface findings meet the budget |
+| `overflow` | `list` | `list` asks the findings past a budget after the rest, flagged; `drop` does not ask them and reports them as `not_asked` |
+
+A question about an item carries what a card needs to show it. In `docket next --full`, `docket ask show` and `docket ask list` a finding's details hold `url` (the item's link, else its first link), `links` (every link of the item and of the items merged into it, by topic or by a review, in order and each once), `source` and `source_label`, `from` (the sender's display name), `at`, `score`, `text` (the item's text, whitespace collapsed and cut at a word to at most 600 characters), and `reviewed` when a review node changed the recommendation (`{"was", "now", "why"}`) or doubted it (`doubt`: the item needs verification). A reconcile or verify question carries the web links of its task line in `url` and `links`, and a covered question those of its agenda entry, when there are any. The compact ask step keeps none of these, so it stays small.
 
 The question budget ranks findings by score. A must-surface finding is lifted only to the floor, so ranking alone cuts it first. The ask node's `questions.must_surface` decides: `ranked` (the default) leaves it to its score, `first` asks must-surface findings before the rest within the budget, and `bypass` asks them first and spends none of the budget on them. Items recommended for a batch option are ranked and cut in a group of their own against the node's `questions.batch_budget`, so a list to acknowledge and the questions asked one by one do not crowd each other out.
 
@@ -1252,7 +1269,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 | FR-SRC-01..12 | §6 |
 | FR-SIG-01..09 | §7, §8 |
 | FR-TSK-01..07 | §9 |
-| FR-DEC-01..09 | §10, §12.8 |
+| FR-DEC-01..11 | §5.2, §10, §12.8 |
 | FR-ACT-01..07 | §11 |
 | FR-PLN-01..08 | §12 |
 | FR-APP-01..06 | §13 |

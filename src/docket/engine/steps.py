@@ -78,13 +78,21 @@ QUESTION, OPTION = "{question}", "{option}"
 # (evidence, defaults, refused options, notes) is in ``docket ask show <id>``.
 # ``recommended`` is the option proposed for the question's item and ``batch`` the options whose
 # items are shown together: with them an agent lays out the triage view without further calls.
-COMPACT_DETAILS = ("digest", "diff_path", "counts", "requires", "previous", "recommended", "batch")
+# ``overflow`` marks a finding past a budget, asked after the rest; ``passed`` names the approve
+# question's blocks whose planned start has gone by.
+COMPACT_DETAILS = ("digest", "diff_path", "counts", "requires", "previous", "recommended", "batch", "overflow",
+                   "passed")
+# What a card shows of a question's subject (``docket next --full``, ``ask show``, ``ask list``).
+CARD_DETAILS = ("url", "links", "source", "source_label", "from", "at", "score", "text", "reviewed")
 
 
 class AskStep(BaseModel):
     """Questions to ask the operator. ``answer`` is the command template: replace
     ``{question}`` with a question id and ``{option}`` with one of its option ids.
-    ``show`` prints one question's evidence, defaults and refused options."""
+    ``show`` prints one question's evidence, defaults and refused options.
+
+    ``not_asked`` is what an ask node was given and does not put to the operator: ``count``,
+    and in the full form one row per item (``items``). None on an approve step."""
     kind: Literal["ask"] = "ask"
     node: str
     questions: list[AskQuestion]
@@ -93,6 +101,7 @@ class AskStep(BaseModel):
     full: bool = False
     burst: int = 1
     why: str
+    not_asked: dict[str, Any] | None = None
 
     def compact(self) -> "AskStep":
         qs = []
@@ -104,7 +113,8 @@ class AskStep(BaseModel):
                 details["previous"] = {"option": details["previous"].get("option")}
             qs.append(AskQuestion(id=q.id, kind=q.kind, prompt=q.prompt, details=details,
                                   options=[AskChoice(id=o.id, label=o.label) for o in q.options]))
-        return self.model_copy(update={"questions": qs, "full": False})
+        brief = {"count": self.not_asked["count"]} if self.not_asked is not None else None
+        return self.model_copy(update={"questions": qs, "full": False, "not_asked": brief})
 
 
 class WaitStep(BaseModel):

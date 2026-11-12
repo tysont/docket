@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from docket.config.digest import digest
 from docket.destinations.base import Action
 from docket.text import templates
+from docket.text.grammar import web_links
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
@@ -137,7 +138,8 @@ def question(rc: "RunContext", row: dict[str, Any]) -> dict[str, Any]:
             for oid in OPTIONS]
     return {"id": question_id(row), "kind": "covered", "prompt": templates.render(cfg.templates.get("covered_prompt", PROMPT), ctx),
             "evidence": list(row["entry"]["block"]), "options": opts, "refused": [], "notes": [],
-            "recommended": "covered", "meeting": dict(row["meeting"]), "subject": subject_digest(row)}
+            "recommended": "covered", "meeting": dict(row["meeting"]), "subject": subject_digest(row),
+            **web_links(row["entry"]["block"])}
 
 
 def _locate(entries: list[dict[str, Any]], row: dict[str, Any]) -> dict[str, Any] | None:

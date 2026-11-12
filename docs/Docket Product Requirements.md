@@ -213,6 +213,8 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-DEC-07 (Must).** All questions in a burst are answerable with no source reads in between.
 - **FR-DEC-08 (Should).** When the operator names a day, Docket reports how full that day already is.
 - **FR-DEC-09 (Should).** For a meeting that left no record, Docket can ask which agenda entries were covered instead of assuming all were: covered, still to raise, or drop. The answers of one meeting become one change to its agenda, approved like any other, and an entry kept for a meeting is not asked about again for that meeting.
+- **FR-DEC-10 (Must).** A question about an item carries what a driver needs to show it without reading an artifact: the item's link and every link merged into it, its source, sender, time, score and a bounded text, and what a review changed or doubted. A question about a task line or an agenda entry carries the line's link.
+- **FR-DEC-11 (Must).** Nothing an ask node was given is dropped without the driver seeing it. By default the items past a question budget are still asked, flagged and after the rest. A workspace can choose not to ask them; then they are listed on the ask step and in `docket ask list`, the seal step says how many, and the run summary counts them.
 
 ### 7.5 Actions and destinations
 

@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 from docket.config.digest import digest
 from docket.decide.store import StoreTask, block_key, open_tasks
 from docket.text import templates
+from docket.text.grammar import web_links
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
@@ -216,7 +217,7 @@ def question(rc: "RunContext", row: dict[str, Any]) -> dict[str, Any]:
     q = {"id": question_id(row), "kind": "reconcile", "block_key": row["block"]["key"],
          "task_id": row["task"]["id"], "prompt": prompt, "evidence": evidence,
          "options": opts, "refused": refused, "notes": notes, "requires": {k: v for k, v in REQUIRES.items() if v},
-         "subject": subject_digest(row)}
+         "subject": subject_digest(row), **web_links([row["task"]["line"]])}
     if batch:
         q["batch_block"] = {"key": row["block"]["key"], "title": row["block"]["title"], "members": row["block"]["batch"]}
     return q

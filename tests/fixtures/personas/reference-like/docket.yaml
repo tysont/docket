@@ -14,7 +14,7 @@ graphs:
     tone: { judge: tone, from: [read-chat] }
     merge: { merge: [assess, tone] }
     review: { judge: review, from: [merge] }
-    decide: { ask: basic, from: [review], questions: { kinds: [finding], bursts: 1, budget: 15 } }
+    decide: { ask: basic, from: [review], questions: { kinds: [finding], bursts: 1, budget: 15, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }
@@ -24,7 +24,7 @@ graphs:
     assess: { judge: assess, from: [read-chat, read-mail] }
     tone: { judge: tone, from: [read-chat] }
     merge: { merge: [assess, tone] }
-    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8 } }
+    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }
@@ -39,7 +39,7 @@ graphs:
     assess: { judge: assess, from: [read-chat, read-mail, read-transcripts, read-status, read-wiki, read-archive] }
     tone: { judge: tone, from: [read-chat] }
     merge: { merge: [assess, tone] }
-    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 5 } }
+    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 5, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }
@@ -58,7 +58,7 @@ graphs:
     assess: { judge: assess, from: [read-chat, read-mail] }
     tone: { judge: tone, from: [read-chat] }
     merge: { merge: [assess, tone] }
-    decide: { ask: standard, from: [merge], questions: { kinds: [reconcile, finding, verify], budget: 3 } }
+    decide: { ask: standard, from: [merge], questions: { kinds: [reconcile, finding, verify], budget: 3, overflow: drop } }
     plan: { plan: [decide], schedule_tasks: true }
 
 decisions:

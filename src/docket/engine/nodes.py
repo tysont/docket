@@ -30,7 +30,7 @@ from docket.cli.errors import ExternalError
 from docket.config.digest import digest, pretty_json
 from docket.config.models import Node
 from docket.engine.steps import (
-    OPTION, QUESTION, AskOption, AskQuestion, AskStep, Command, DispatchStep, RunStep, WaitStep,
+    CARD_DETAILS, OPTION, QUESTION, AskOption, AskQuestion, AskStep, Command, DispatchStep, RunStep, WaitStep,
 )
 from docket.store.paths import read_json, write_atomic
 from docket.text import templates
@@ -494,11 +494,27 @@ class AskNode(BaseNode):
         why = f"{len(pending)} question(s) need the operator's answer; ask them, then record each answer"
         if reasked:
             why += f" ({reasked} re-asked because their item changed; each shows its previous answer)"
-        return ask_step(run, self.name, pending, why=why)
+        over = sum(1 for q in pending if q.get("overflow"))
+        if over:
+            why += (f"; the last {over} are past the question budget (details.overflow), shown as one list "
+                    f"after the rest")
+        not_asked = ev.extra["set"].not_asked
+        if not_asked:
+            why += (f"; {len(not_asked)} item(s) past the question budget are not asked (not_asked): tell the "
+                    f"operator")
+        return ask_step(run, self.name, pending, why=why, not_asked=not_asked)
+
+
+NOT_ASKED_ROW = ("item_id", "title", "score", "recommended", "url", "reason")
+
+
+def not_asked_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The not-asked rows of an ask node as a driver shows them (no traces)."""
+    return [{k: r.get(k) for k in NOT_ASKED_ROW} for r in rows]
 
 
 def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why: str,
-             extra_args: list[str] | None = None) -> AskStep:
+             extra_args: list[str] | None = None, not_asked: list[dict[str, Any]] | None = None) -> AskStep:
     """The full ask step; ``docket next`` shows its compact form unless ``--full`` is given."""
     out = []
     extra = list(extra_args or [])
@@ -511,8 +527,8 @@ def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why:
         details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "counts",
                                                         "block_key", "task_id", "evidence", "refused", "notes",
                                                         "previous", "requires", "defaults", "recommended", "batch_block",
-                                                        "meeting")
-                   and v not in (None, [], {})}
+                                                        "meeting", "overflow", "passed", *CARD_DETAILS)
+                   and v not in (None, [], {}, "")}
         batch = [o["id"] for o in q["options"] if o.get("batch")]
         if batch:
             details["batch"] = batch
@@ -522,7 +538,8 @@ def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why:
     why = (f"{why}. Answer each with the answer command: replace {QUESTION} with the question id and {OPTION} "
            f"with one of that question's option ids; every other word is concrete. For a question's evidence, "
            f"defaults and refused options run the show command (docket ask show {QUESTION}), or docket next --full")
-    return AskStep(node=node, questions=out, answer=template, show=show, full=True, why=why)
+    na = None if not_asked is None else {"count": len(not_asked), "items": not_asked_rows(not_asked)}
+    return AskStep(node=node, questions=out, answer=template, show=show, full=True, why=why, not_asked=na)
 
 
 # --- plan --------------------------------------------------------------------
@@ -790,7 +807,12 @@ class SealNode(BaseNode):
 
     def step(self, run: "RunContext") -> Any:
         ev = run.eval(self.name)
-        return RunStep(node=self.name, command=Command.of(run.argv("seal")), why=self._why(ev), expect=self.expect)
+        why = self._why(ev)
+        n = len(run.output("ask").get("not_asked") or [])
+        if n:
+            why += (f"; {n} item(s) kept were never put to the operator (past a question budget): "
+                    f"docket ask list shows them")
+        return RunStep(node=self.name, command=Command.of(run.argv("seal")), why=why, expect=self.expect)
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
         from docket.seal.run import execute_seal

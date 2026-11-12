@@ -10,7 +10,7 @@ graphs:
     assess: { judge: assess, from: [read-tickets, read-pager] }
     sla-check: { judge: sla_check, from: [read-tickets] }
     merge: { merge: [assess, sla-check] }
-    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 12 } }
+    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 12, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }
@@ -23,7 +23,7 @@ graphs:
     assess: { judge: assess, from: [read-tickets, read-pager, read-metrics, read-kb, read-history] }
     sla-check: { judge: sla_check, from: [read-tickets] }
     merge: { merge: [assess, sla-check] }
-    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 4 } }
+    decide: { ask: queue, from: [merge], questions: { kinds: [finding], budget: 4, overflow: drop } }
     plan: { plan: [decide] }
     approve: { approve: plan }
     apply: { apply: approve }

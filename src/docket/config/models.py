@@ -165,12 +165,17 @@ class Questions(Strict):
     kinds: list[str] = ["finding"]
     covered: CoveredQuestions | None = None
     bursts: int = 1
-    budget: int | None = None
+    # How many findings are asked one by one, and how many recommended for a batch option.
+    # None (null) means no limit.
+    budget: int | None = Field(None, ge=0)
     # A must-surface finding and the budget: left to its score, asked first within the
     # budget, or asked first without using it.
     must_surface: Literal["ranked", "first", "bypass"] = "ranked"
     # Items recommended for a batch option are ranked and cut in their own group.
-    batch_budget: int | None = None
+    batch_budget: int | None = Field(None, ge=0)
+    # The findings past a budget: still asked, flagged overflow and after the rest (list),
+    # or not asked and reported as not_asked (drop).
+    overflow: Literal["list", "drop"] = "list"
 
     @field_validator("kinds")
     @classmethod

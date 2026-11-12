@@ -25,6 +25,7 @@ from docket.config.digest import digest, pretty_json
 from docket.decide.store import StoreTask, open_tasks
 from docket.store.paths import read_json, write_atomic
 from docket.text import templates
+from docket.text.grammar import web_links
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
@@ -214,7 +215,7 @@ def question(rc: "RunContext", row: dict[str, Any]) -> dict[str, Any]:
                          + (f", last actor {r['last_actor']}" if r.get("last_actor") else "")
                          + (f" ({r['title']})" if r.get("title") else "")],
             "options": opts, "refused": [], "notes": [], "requires": {"update": ["title|action|due|est"]},
-            "subject": subject_digest(row)}
+            "subject": subject_digest(row), **web_links([row["task"]["line"]])}
 
 
 def operations(rc: "RunContext", qid: str, row: dict[str, Any], answer: dict[str, Any]) -> tuple[
