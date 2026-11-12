@@ -33,7 +33,7 @@ from docket.cli.errors import InputError
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
 
-OVERRIDES = ("due", "est", "when", "title", "action", "links", "area", "forum", "merge_with", "note")
+OVERRIDES = ("due", "est", "when", "parts", "title", "action", "links", "area", "forum", "merge_with", "note")
 MERGED = "merged"
 
 
@@ -145,6 +145,15 @@ def normalize_overrides(rc: "RunContext", raw: dict[str, Any], ref: date) -> dic
         out["est"] = parse_duration(raw["est"])
     if raw.get("when") not in (None, ""):
         out["when"] = normalize_when(str(raw["when"]), ref)
+    if raw.get("parts") not in (None, ""):
+        try:
+            n = int(str(raw["parts"]).strip())
+        except ValueError:
+            n = 0
+        if not 1 <= n <= 12:
+            raise InputError("input.bad_argument", f"--parts must be a whole number from 1 to 12, not {raw['parts']!r}",
+                             details={"received": str(raw["parts"])})
+        out["parts"] = n
     for k in ("title", "action", "note"):
         if raw.get(k) not in (None, ""):
             out[k] = _text(raw[k], k)

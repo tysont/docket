@@ -22,7 +22,7 @@ from tests.agent_loop import run_agent
 from tests.scenario.test_seal_scenarios import STUB, add_nodes, run_node
 
 # Tables a run reads across runs: a sandbox run must leave every row as it was.
-DURABLE = ("cursors", "units", "processed_ids", "dispositions", "item_ledger", "ledgers", "task_labels")
+DURABLE = ("cursors", "units", "processed_ids", "dispositions", "item_ledger", "ledgers", "task_labels", "receipts")
 
 
 def digest_tree(p: Path) -> dict[str, str]:
@@ -82,6 +82,15 @@ def test_both_personas_run_a_sandbox_to_the_seal_writing_nothing_live(persona, c
     assert Path(summary["journal"]).is_file() and Path(summary["journal"]).resolve().is_relative_to(sdir.resolve())
     code, env = cli("next", "--workspace", str(ws))
     assert env["data"]["run"] == live and [(s["kind"], s["node"]) for s in env["data"]["steps"]] == [("ask", "decide")]
+    # The live run then plans the very same operations. The sandbox's receipts are its own: the
+    # live run must write every one of them for real, not take them as already done.
+    res = run_agent(ws)
+    assert res.failures == []
+    code, env = cli("next", "--run", live, "--workspace", str(ws))
+    assert code == 0 and env["data"]["done"] is True
+    done = env["data"]["summary"]
+    assert done["sandbox"] is False and done["applied"] == summary["applied"]
+    assert (ws / store).read_text().count(marker) == live_text.count(marker) + done["applied"]
 
 
 def test_a_sandbox_run_moves_no_cursor_and_writes_no_disposition(persona, cli, pinned_now):

@@ -306,3 +306,18 @@ def test_a_task_with_no_due_date_takes_the_earliest_slot_left_after_what_is_due_
     assert placed(res, "due-soon")[0] == TODAY and placed(res, "due-later")[0] == d(1)
     assert placed(res, "reading")[0] == d(4)            # the next working day: the weekend is not one
     assert not res.unit_for("reading").late
+
+
+def test_a_task_with_a_window_that_asks_for_parts_is_split_inside_the_window():
+    """A day has no free hour, only two half hours either side of a meeting. An hour of work
+    with that day as its window does not fit whole; asked for in two parts, both parts sit in
+    the window, on the same day."""
+    w = resolve_window(normalize_when("2026-10-16", TODAY), TODAY)
+    busy = [ev("am", d(1), "09:00", "13:00", "Workshop"), ev("mid", d(1), "13:30", "16:15", "Review"),
+            ev("late", d(1), "16:45", "17:00", "Wrap")]
+    whole = run([task("survey", 60, window=w, question_id="q_1")], busy)
+    assert whole.window_errors and whole.unit_for("survey").block is None
+    res = run([task("survey", 60, window=w, question_id="q_1", want_parts=2)], busy)
+    assert res.window_errors == []
+    parts = sorted((u.task.part, u.block.day, u.block.start, u.block.end) for u in res.units if u.task.part_of == "survey")
+    assert parts == [(1, d(1), hm("13:00"), hm("13:30")), (2, d(1), hm("16:15"), hm("16:45"))]

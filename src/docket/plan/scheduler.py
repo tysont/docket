@@ -121,14 +121,16 @@ def prepare(tasks: list[Task], today: date, policy: Policy) -> list[Task]:
 def split_long(tasks: list[Task], policy: Policy) -> list[Task]:
     """Tasks longer than ``split_over`` become even parts on the grid, each its own unit with
     its own key; the scheduler puts them on different days. A task with a window is left
-    whole: the window says when the work happens."""
+    whole, since the window says when the work happens, unless it asks for parts itself: then
+    its parts all sit inside the window, one after another."""
     cut = policy.split_over
     if not cut and not any(t.want_parts for t in tasks):
         return tasks
     cut = cut or max(t.est for t in tasks) + 1
     out: list[Task] = []
     for t in tasks:
-        if t.kind == "batch" or t.window is not None or (t.want_parts is None and t.est <= cut) or t.want_parts == 1:
+        if t.kind == "batch" or (t.window is not None and not t.want_parts) or \
+                (t.want_parts is None and t.est <= cut) or t.want_parts == 1:
             out.append(t)
             continue
         n = t.want_parts or -(-t.est // cut)
@@ -271,9 +273,10 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
                               "est": need, "free_minutes": total, "longest_free": longest}
 
     def after_siblings(u: Unit) -> None:
-        """A part goes on a later day than the parts before it."""
+        """A part goes on a later day than the parts before it. Parts of a task with a window
+        stay inside the window instead, in whatever free stretches it has."""
         t = u.task
-        if not t.part_of:
+        if not t.part_of or t.window is not None:
             return
         days = [o.block.day for o in units if o.task.part_of == t.part_of and o.task.part < t.part and o.block]
         if days:

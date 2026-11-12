@@ -63,14 +63,13 @@ def ordered(rc: Any, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def execute(rc: Any, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
     run = rc.run
-    db = run.store.db
     cache: dict[str, Any] = {}
     status: dict[str, str] = {}
     rows: list[dict[str, Any]] = []
     try:
         for raw in ordered(rc, ops):
             op = to_operation(raw)
-            prior = receipts.existing(db, raw)
+            prior = receipts.existing(run, raw)
             if op is None:  # a plan ``keep``: nothing to write, recorded so the journal shows it
                 if prior is None or prior["verify_status"] != "verified":
                     receipts.record(run, raw, "already_present", raw.get("external_id"), True)

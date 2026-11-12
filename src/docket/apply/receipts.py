@@ -1,7 +1,11 @@
-"""Apply receipts keyed by operation id (TD §13.3)."""
+"""Apply receipts keyed by operation id (TD §13.3).
+
+A live run's receipts are durable: the same operation, planned again by a later run, is
+known to be done. A sandbox run wrote to its own copies, so its receipts stay in the run
+(``receipts.jsonl``) and no other run ever sees them."""
 from __future__ import annotations
 
-import sqlite3
+import json
 from typing import Any
 
 from docket.cli.errors import IntegrityError
@@ -15,8 +19,25 @@ def payload_digest(op: dict[str, Any]) -> str:
     return digest({k: v for k, v in op.items() if k not in PROVENANCE})
 
 
-def existing(conn: sqlite3.Connection, op: dict[str, Any]) -> sqlite3.Row | None:
-    row = conn.execute("SELECT * FROM receipts WHERE op_id=?", (op["op_id"],)).fetchone()
+def _own(run: Run, op_id: str) -> dict[str, Any] | None:
+    """The latest receipt this run itself wrote for an operation."""
+    path = run.paths.receipts
+    if not path.is_file():
+        return None
+    last = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = json.loads(line)
+            if row.get("op_id") == op_id:
+                last = row
+    return {**last, "run_id": run.id} if last else None
+
+
+def existing(run: Run, op: dict[str, Any]) -> Any:
+    if run.header.sandbox:
+        row: Any = _own(run, op["op_id"])
+    else:
+        row = run.store.db.execute("SELECT * FROM receipts WHERE op_id=?", (op["op_id"],)).fetchone()
     if row is not None and row["payload_digest"] != payload_digest(op):
         raise IntegrityError(
             "apply.receipt_conflict",
@@ -35,13 +56,14 @@ def record(run: Run, op: dict[str, Any], outcome: str, external_id: str | None, 
         "external_id": external_id, "verify_status": "verified" if verified else "unverified",
         "payload_digest": payload_digest(op),
     }
-    with run.store.db:
-        run.store.db.execute(
-            "INSERT OR REPLACE INTO receipts (op_id, run_id, destination, outcome, external_id, verify_status, "
-            "payload_digest, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (op["op_id"], run.id, op["destination"], outcome, external_id, row["verify_status"],
-             row["payload_digest"], wall_stamp()),
-        )
+    if not run.header.sandbox:
+        with run.store.db:
+            run.store.db.execute(
+                "INSERT OR REPLACE INTO receipts (op_id, run_id, destination, outcome, external_id, verify_status, "
+                "payload_digest, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (op["op_id"], run.id, op["destination"], outcome, external_id, row["verify_status"],
+                 row["payload_digest"], wall_stamp()),
+            )
     if error is not None:
         row["error"] = error
     run.append_jsonl(run.paths.receipts, row)

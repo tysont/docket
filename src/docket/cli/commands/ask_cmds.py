@@ -381,6 +381,8 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
                              "a calendar event to schedule over."),
                Arg("--title", "Title override (the task title, and the calendar block's title)."),
                Arg("--action", "Task text override: what the task line says to do."),
+               Arg("--parts", "Block the work in this many even parts. With a window they all sit inside it; "
+                              "without one they go on different days."),
                Arg("--link", "A link to keep with the task (repeatable).", action="append"),
                Arg("--area", "Area override."),
                Arg("--forum", "Forum for an agenda item: a profile forum id or name."),
@@ -421,7 +423,7 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
     if not ns.question_id:
         raise InputError("input.bad_argument", "ask answer needs a question id and an option, or --file.",
                          hint="docket ask list")
-    raw = {"due": ns.due, "est": ns.est, "when": ns.when, "title": ns.title, "action": ns.action,
+    raw = {"due": ns.due, "est": ns.est, "when": ns.when, "parts": ns.parts, "title": ns.title, "action": ns.action,
            "links": ns.link or None, "area": ns.area, "forum": ns.forum, "merge_with": ns.merge_with or None,
            "note": ns.note}
     row = _normalize(rc, ctx, s, ns.question_id, ns.option, {k: v for k, v in raw.items() if v is not None},

@@ -245,6 +245,8 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
             fields["est"] = str(ov["est"])
         if ov.get("when"):
             fields["when"] = str(ov["when"])
+        if ov.get("parts"):
+            fields["parts"] = str(ov["parts"])
         out[tid] = _task_from_fields(tid, title, fields, inp, tier=0, source="answer", instances=instances, qid=qid)
     return [out[k] for k in sorted(out)]
 
