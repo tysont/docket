@@ -105,6 +105,16 @@ def test_required_fields_take_answer_then_defaults_then_refuse_with_the_override
     assert e.value.details["fix"] == "docket ask answer q_1 task --due <date>" == e.value.hint
 
 
+def test_a_missing_link_is_fixed_by_the_callers_flag_or_else_by_the_configuration(tmp_path):
+    d = tasks(tmp_path, quality={"require": ["link"]})
+    with pytest.raises(IntegrityError) as e:
+        preview(d, add("Watch the talk"), fix=lambda flag, ph: f"docket item add 'Watch the talk' {flag} {ph}")
+    assert e.value.details["field"] == "link" and e.value.hint == "docket item add 'Watch the talk' --link <url>"
+    with pytest.raises(IntegrityError) as e:       # a caller with no flag for it: the configuration names the fix
+        preview(d, add("Watch the talk"), fix=lambda flag, ph: None if flag == "--link" else f"answer {flag}")
+    assert e.value.hint.startswith("docket config explain destinations.")
+
+
 def test_max_length_and_evidence(tmp_path):
     d = tasks(tmp_path, quality={"max_length": 20})
     with pytest.raises(IntegrityError) as e:

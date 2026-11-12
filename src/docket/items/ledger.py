@@ -173,6 +173,39 @@ def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: st
     return {"imported": imported, "skipped": skipped, "problems": problems}
 
 
+def added(db: sqlite3.Connection, d: dict[str, Any], *, run_id: str, at: str, note: str | None) -> dict[str, Any]:
+    """The row an item added by hand becomes (``docket item add``); nothing is written.
+
+    ``d`` has ``key``, ``topic``, ``source``, ``title``, ``url``, ``due``, ``est``, ``area``
+    and the ``placement`` written. The item is in ``backlog``, and its history gets an entry
+    made by hand (``decision: added``) with the note. A row the ledger has keeps its first
+    sighting, and its other placements and history.
+    """
+    old = get(db, d["key"])
+    entry = {k: v for k, v in (("run", run_id), ("at", at), ("by", "hand"), ("decision", "added"),
+                               ("state", "backlog"), ("note", note)) if v is not None}
+    placements = list(old["placements"]) if old else []
+    if d.get("placement") and d["placement"] not in placements:
+        placements.append(d["placement"])
+    pick = lambda k: d.get(k) if d.get(k) not in (None, "") else (old or {}).get(k)   # noqa: E731
+    return {"key": d["key"], "topic": d["topic"], "source": pick("source"), "title": pick("title"),
+            "url": pick("url"), "state": "backlog",
+            "state_at": old["state_at"] if old and old["state"] == "backlog" else at,
+            "first_run": old["first_run"] if old else run_id, "first_at": old["first_at"] if old else at,
+            "last_run": run_id, "due": pick("due"), "est": pick("est"), "area": pick("area"),
+            "placements": placements, "history": (list(old["history"]) if old else []) + [entry]}
+
+
+def put(db: sqlite3.Connection, row: dict[str, Any]) -> None:
+    """Write one whole row, as ``added`` or ``get`` returns it (the caller holds the transaction)."""
+    db.execute(
+        "INSERT OR REPLACE INTO item_ledger (key, topic, source, title, url, state, state_at, first_run, first_at, "
+        "last_run, due, est, area, placements, history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (row["key"], row["topic"], row.get("source"), row.get("title"), row.get("url"), row["state"], row["state_at"],
+         row["first_run"], row["first_at"], row["last_run"], row.get("due"), row.get("est"), row.get("area"),
+         json.dumps(row.get("placements") or [], sort_keys=True), json.dumps(row.get("history") or [], sort_keys=True)))
+
+
 def observe(db: sqlite3.Connection, seen: dict[str, dict[str, str] | None], *, run_id: str, at: str,
             write: bool = True) -> list[dict[str, Any]]:
     """Follow what happened in the destinations (the caller holds the transaction).

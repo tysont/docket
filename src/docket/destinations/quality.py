@@ -15,7 +15,8 @@ Run on every rendered task line, in order:
 4. ``max_length``: the task text (without fields) must fit.
 
 A line that still fails refuses with ``dest.quality``; ``details.fix`` is the
-answer command with the override that fixes it, or the configuration path.
+command with the override that fixes it (the caller's ``fix`` builds it, and may have
+none for a field), or the configuration path.
 """
 from __future__ import annotations
 
@@ -28,10 +29,11 @@ from docket.shapes.unexpected import unexpected
 from docket.text.grammar import Grammar, TaskLine
 
 DEFAULT_VERB = "Follow up on"
-OVERRIDE_FLAGS = {"due": "--due", "est": "--est", "title": "--title", "note": "--note", "when": "--when"}
+OVERRIDE_FLAGS = {"due": "--due", "est": "--est", "title": "--title", "note": "--note", "when": "--when",
+                  "link": "--link"}
 PLACEHOLDER = {"due": "<date>", "est": "<duration>", "title": "<shorter imperative title>", "note": "<evidence>",
-               "when": "<window>"}
-Fix = Callable[[str, str], str]  # (flag, placeholder) -> command text
+               "when": "<window>", "link": "<url>"}
+Fix = Callable[[str, str], "str | None"]  # (flag, placeholder) -> command text, or None when no flag fixes it
 
 
 def _duration(v: Any, style: str) -> str:
@@ -66,9 +68,8 @@ def _value(name: str, ctx: dict[str, Any], defaults: dict[str, str], duration: s
 
 def _refuse(dest_id: str, rule: str, message: str, line: str, field: str | None, fix: Fix | None) -> IntegrityError:
     flag = OVERRIDE_FLAGS.get(field or "")
-    if flag and fix is not None:
-        fix_text = fix(flag, PLACEHOLDER[field or ""])
-    else:
+    fix_text = fix(flag, PLACEHOLDER[field or ""]) if flag and fix is not None else None
+    if fix_text is None:
         fix_text = f"docket config explain destinations.{dest_id}.quality (set quality.defaults.{field or rule})"
     return IntegrityError("dest.quality", f"{dest_id}: {message}", hint=fix_text,
                           details={"destination": dest_id, "rule": rule, "field": field, "line": line, "fix": fix_text})

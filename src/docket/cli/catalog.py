@@ -165,6 +165,14 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "cursor.read_in_open_run": ("state", False, "An open run that is not a sandbox run has already read the source; "
                                 "seal or abandon it before resetting the source's cursor."),
     "ledger.no_change": ("input", False, "A ledger edit gives no attribute, or only values the item already has."),
+    "input.unknown_destination": ("input", False, "No destination of the workspace has this name and accepts the "
+                                  "action; details.destinations lists those that do."),
+    "input.ambiguous_destination": ("input", False, "Several destinations accept the action and none was named; "
+                                    "details.destinations lists them."),
+    "input.unknown_tier": ("input", False, "The destination has no section for this tier; details.tiers lists them."),
+    "item.shared_destination": ("input", False, "A task added by hand names a shared destination. Nobody approves "
+                                "that write, so it goes only to a private destination."),
+    "item.closed": ("state", False, "The item is in the ledger and done or ignored; docket ledger edit reopens it."),
     "doctor.failed": ("external", True, "One or more doctor checks failed; details.checks names each with its fix."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),

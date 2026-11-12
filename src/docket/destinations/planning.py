@@ -40,7 +40,9 @@ def preview_action(rc: Any, kind: str, dest_id: str | None, fields: dict[str, An
                     item_id=item_id, option_id=option_id)
     dest = for_run(rc, dest_id)
     try:
-        def fix(flag: str, placeholder: str) -> str:
+        def fix(flag: str, placeholder: str) -> str | None:
+            if flag == "--link":  # an answer's links reach the line only through the template
+                return None
             return " ".join(rc.argv("ask", "answer", qid, str(option_id or "<option>"), flag, placeholder))
         if dest.adapter == "markdown_tasks":
             ops = dest.preview(action, dest.snapshot(), fix=fix)
