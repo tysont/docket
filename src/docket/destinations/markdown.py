@@ -342,9 +342,12 @@ class MarkdownAgenda(MarkdownBase):
         if not base.ok:
             return base
         path = self.target(action)
-        if path is None or files.get(path) is None:
+        new = path is not None and files.get(path) is None and bool(self.cfg.new_note) and path in self.forum_paths().values()
+        if path is None or (files.get(path) is None and not new):
             return Acceptance(ok=False, reason=f"{self.id}: no agenda found for this item", details={"path": path})
         cap = self.cfg.capacity
+        if new:  # the forum's note does not exist yet: it is created with the first item
+            return Acceptance(ok=True, details={"path": path, "items": 0, "capacity": cap, "new": True})
         n = self.items(Doc.parse(files[path]), self.section)
         if cap is not None and n >= cap:
             return Acceptance(ok=False, reason=f"{self.id}: {path} {self.section} is full ({n}/{cap})",
@@ -362,9 +365,10 @@ class MarkdownAgenda(MarkdownBase):
                                  details={"destination": self.id, **acc.details})
         line = templates.render(self.cfg.line_template or DEFAULT_AGENDA_LINE, action.fields)
         line = self.shared_text(line, "line_template")
+        note = templates.render(self.cfg.new_note or "", action.fields) if acc.details.get("new") else None
         return [make_op(self.id, "append", ident=self.section, path=acc.details["path"], anchor=self.section,
                         line=line, question_id=action.question_id, item_id=action.item_id,
-                        depends_on=action.depends_on or None)]
+                        depends_on=action.depends_on or None, **({"body": note} if note else {}))]
 
     # --- roll: what a meeting covered moves under its date (TD §11.3) -------------------
     def entries(self, text: str | None) -> list[dict[str, Any]]:
@@ -458,9 +462,11 @@ class MarkdownAgenda(MarkdownBase):
 
     def apply(self, op: Operation) -> Receipt:
         self.require_verb(op)
-        self.own_path(op, set(self.discover()))
+        self.own_path(op, set(self.discover()) | (set(self.forum_paths().values()) if self.cfg.new_note else set()))
         if op.verb == "roll":
             return self._apply_roll(op)
+        if op.body and not self.io.exists(op.path):  # the forum's first item: its note is created with it
+            self.io.write(op.path, op.body if op.body.endswith("\n") else op.body + "\n")
         return self._append(op, capacity=self.cfg.capacity)
 
     def verify(self, op: Operation, receipt: Receipt) -> VerifyResult:

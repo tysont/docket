@@ -426,3 +426,41 @@ def test_a_next_entry_edited_since_the_plan_is_left_where_it_is(tmp_path):
     d.apply(op)
     text = p.read_text()
     assert "- Budget for next year" in text.split("## 2026-10-15")[0] and "- Hiring plan" not in text
+
+
+def test_an_agenda_that_does_not_exist_yet_is_created_from_the_destination_s_new_note(tmp_path):
+    """A forum names its agenda's path. With ``new_note`` the first item for a forum whose
+    note is missing creates the note from that template and adds the line; without it the
+    item is refused, as before."""
+    (tmp_path / "meet").mkdir()
+    profile = Profile.model_validate({"me": {"name": "Robin Vale"}, "forums": [
+        {"id": "data", "name": "Data sync", "agenda": {"destination": "agendas", "path": "meet/Data sync.md"}}]})
+
+    def dest(**extra):
+        cfg = DestConfig.model_validate({"adapter": "markdown_agenda", "path": "meet", "section": "## Next", **extra})
+        return build("agendas", cfg, DestEnv(root=tmp_path, profile=profile, sandbox_dir=tmp_path / "sbx"))
+
+    item = ag("Capacity plan", forum={"id": "data", "name": "Data sync"})
+    assert not dest().can_accept(item).ok
+    d = dest(new_note="# {forum.name}\n\n## Next\n")
+    assert d.can_accept(item).ok
+    [op] = d.preview(item, d.snapshot())
+    assert op.path == "meet/Data sync.md" and op.body == "# Data sync\n\n## Next\n"
+    assert not (tmp_path / "meet" / "Data sync.md").exists()          # a preview writes nothing
+    assert d.apply(op).outcome == "applied" and d.verify(op, d.apply(op)).ok
+    assert (tmp_path / "meet" / "Data sync.md").read_text() == "# Data sync\n\n## Next\n- Capacity plan\n"
+    [again] = d.preview(ag("Second", forum={"id": "data", "name": "Data sync"}), d.snapshot())
+    assert again.body is None                                          # the note exists now
+
+
+def test_the_first_item_of_an_empty_section_keeps_the_blank_line_the_document_puts_under_headings():
+    from docket.destinations.markdown_io import Doc
+
+    def after(text):
+        doc = Doc.parse(text)
+        doc.append_in("## Next", "- one")
+        return doc.render()
+    assert after("# A\n\n## Next\n\n## 2026-01-05\n\n- old\n") == "# A\n\n## Next\n\n- one\n\n## 2026-01-05\n\n- old\n"
+    assert after("# A\n\n## Next\n\n") == "# A\n\n## Next\n\n- one\n"
+    assert after("# A\n## Next\n## Later\n") == "# A\n## Next\n- one\n## Later\n"            # a tight document stays tight
+    assert after("# A\n\n## Next\n\n- zero\n\n## Later\n") == "# A\n\n## Next\n\n- zero\n- one\n\n## Later\n"

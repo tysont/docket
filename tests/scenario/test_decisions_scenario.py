@@ -516,3 +516,24 @@ def test_an_option_can_fix_fields_of_its_action_and_the_line_uses_the_ask(person
     assert op["anchor"] == "## Inbox" and op["line"].startswith("- [ ] Follow up on ")   # the synthetic ask
     code, env = answer(cli, ws, q["id"], "task", "--action", "Call the vendor")
     assert env["data"]["preview"]["line"].startswith("- [ ] Call the vendor ")
+
+
+def test_an_agenda_item_with_no_forum_of_its_own_is_offered_and_the_answer_names_the_forum(persona, cli):
+    """An item nothing routes to a forum can still be raised in a meeting: the option is
+    offered, says a forum is needed, and is refused until the answer names one."""
+    ws = persona("reference-like")
+    (ws / "Syncs").mkdir(exist_ok=True)
+    (ws / "Syncs" / "Platform.md").write_text("# Platform Sync\n\n## Next\n")
+    start(cli, ws)
+    q = next(q for q in ask(ws)["questions"] if q["kind"] == "finding"
+             and not (q["details"].get("defaults") or {}).get("forum"))
+    agenda = next(o for o in q["options"] if o["id"] == "agenda")
+    assert agenda["label"] == "Raise it at a meeting (name it with --forum)"
+    assert q["details"]["requires"] == {"agenda": ["forum"]}
+    code, env = answer(cli, ws, q["id"], "agenda")
+    assert code != 0 and env["error"]["code"] == "input.missing_override" and "--forum" in env["error"]["message"]
+    code, env = answer(cli, ws, q["id"], "agenda", "--forum", "nowhere")
+    assert code != 0 and env["error"]["code"] == "input.unknown_forum"
+    code, env = answer(cli, ws, q["id"], "agenda", "--forum", "platform")
+    assert code == 0 and env["data"]["answer"]["overrides"]["forum"] == "platform-sync", env
+    assert env["data"]["preview"]["path"] == "Syncs/Platform.md"

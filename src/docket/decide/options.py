@@ -377,7 +377,9 @@ def finding_options(rc: "RunContext", it: dict[str, Any], opts: list[dict[str, A
         if action == "agenda.add" and not o.get("destination") and forum:
             from docket.decide.operations import forum_agenda_destination
             dest = forum_agenda_destination(rc, forum["id"]) or dest
-        if action in ACTION_NEEDS_DESTINATION:
+        # An agenda item with no forum derived for it is still offered: the answer names the forum.
+        needs = ["forum"] if action == "agenda.add" and not forum else []
+        if action in ACTION_NEEDS_DESTINATION and not needs:
             ok, reason = acceptor.check(action, dest, ctx)
             if not ok:
                 refused.append({"option": o["id"], "action": action, "reason": reason or "not accepted"})
@@ -385,7 +387,7 @@ def finding_options(rc: "RunContext", it: dict[str, Any], opts: list[dict[str, A
         od = {k: v for k, v in defaults.items() if k in ("due", "est", "area", "forum")}
         offered.append({"id": o["id"], "label": templates.render(o["label"], ctx), "action": action,
                         "destination": dest, "defaults": od, **({"set": dict(o["set"])} if o.get("set") else {}),
-                        **({"batch": True} if o.get("batch") else {})})
+                        **({"batch": True} if o.get("batch") else {}), **({"needs": needs} if needs else {})})
     return offered, refused, defaults
 
 

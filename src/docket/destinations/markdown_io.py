@@ -167,6 +167,17 @@ class Doc:
         ins = end
         while ins > start + 1 and not self.lines[ins - 1].strip():
             ins -= 1
+        if ins == start + 1 and end > start + 1:
+            # An empty section whose heading is followed by a blank line: the document sets its
+            # headings apart, so the first item keeps that blank line above it and one below.
+            ins = start + 2
+            self.lines.insert(ins, line)
+            rest = self.lines[ins + 1:]
+            if rest and rest[0].strip():
+                self.lines.insert(ins + 1, "")          # a blank line before what follows
+            elif not any(ln.strip() for ln in rest):
+                del self.lines[ins + 1:]                # the end of the file: no blank lines trail the item
+            return
         self.lines.insert(ins, line)
 
     def matches(self, anchor: str, old_digest: str) -> list[int]:

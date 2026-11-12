@@ -191,6 +191,7 @@ def _findings(rc: "RunContext", items: list[dict[str, Any]], acceptor: Acceptor,
             "prompt": templates.render(prompt_tpl, view), "evidence": ev, "options": offered, "refused": refused,
             "notes": notes, "defaults": {k: v for k, v in defaults.items() if k in ("due", "est", "area", "forum")},
             "subject": item_subject(it),
+            **({"requires": req} if (req := {o["id"]: o["needs"] for o in offered if o.get("needs")}) else {}),
             **({"recommended": rec} if (rec := recommended_option(it, offered, rc.ws.config.decisions.recommend)) else {}),
         })
     not_asked = [{"item_id": it["id"], "title": it.get("title", ""), "score": int(it.get("score") or 0),

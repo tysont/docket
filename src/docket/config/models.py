@@ -472,6 +472,7 @@ class Destination(Strict):
     sections: dict[str, str] = {}
     carry_field: str | None = None
     capacity: int | None = None
+    new_note: str | None = None        # an agenda: the text of a forum's note that does not exist yet
     pattern: str | None = None
     calendar: str | None = None
     title_template: str | None = None

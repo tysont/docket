@@ -6,7 +6,7 @@ decisions:
     standard:
       finding:
         - { id: task, action: task.add, label: "Add a task (due {due|date:%a})" }
-        - { id: agenda, action: agenda.add, label: "Raise it at {forum.name}", when: has_forum }
+        - { id: agenda, action: agenda.add, label: "Raise it at {?forum.name}{forum.name}{/forum.name}{!forum.name}a meeting (name it with --forum){/forum.name}" }
         - { id: block, action: calendar.place, label: "Block {est|duration} {when|default:this week}", when: has_calendar }
         - { id: draft, action: message.draft, label: "Draft a reply", when: has_reply_channel }
         - { id: now, action: now, label: "Handle it now" }
