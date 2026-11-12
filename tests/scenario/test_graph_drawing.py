@@ -1,4 +1,4 @@
-"""``docket graph show`` and ``docket run status --graph`` through the CLI (TD §5.6): the
+"""``docket graph show`` and ``docket run status --graph`` through the CLI (TD §5.9): the
 drawing, the flat list, Mermaid, and a run's state drawn on the graph."""
 from __future__ import annotations
 

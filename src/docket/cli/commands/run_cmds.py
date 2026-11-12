@@ -187,6 +187,41 @@ def cmd_run_list(ctx: Any, ns: Any) -> Result:
     return Result({"runs": rows}, "\n".join(f"{r['run_id']:<32} {r['status']}" for r in rows) or "no runs")
 
 
+@command("run diff", "Compare two runs of this workspace: counts side by side, items kept in one run only with the "
+                      "reason from the trace, items whose score, recommended decision or answer differs, and "
+                      "operations that differ by destination. Items are matched by topic. Works on sealed, open "
+                      "and sandbox runs.",
+         args=[Arg("a", "The first run id (A)."), Arg("b", "The second run id (B)."),
+               Arg("--limit", "Rows shown per group (default 20); each group gives its total.", metavar="N")],
+         examples=["docket run diff 2026-10-15-daily 2026-10-16-daily",
+                   "docket run diff 2026-10-16-daily 2026-10-16-daily-2 --limit 5",
+                   "docket run diff 2026-10-15-daily 2026-10-16-daily --json"])
+def cmd_run_diff(ctx: Any, ns: Any) -> Result:
+    from docket.engine.context import RunContext
+    from docket.engine.run_diff import compare, snapshot, text
+    from docket.store.runs import load_run
+    try:
+        limit = int(ns.limit) if ns.limit is not None else 20
+    except ValueError:
+        limit = -1
+    if limit < 1:
+        raise InputError("input.bad_argument", f"--limit must be a whole number of at least 1, not {ns.limit!r}.",
+                         hint="docket run diff <run-a> <run-b> --limit 20")
+    store = ctx.store()
+    ws = ctx.workspace()
+    runs = [load_run(store, ns.a), load_run(store, ns.b)]
+    snaps, head = [], {}
+    for key, run in zip(("a", "b"), runs):
+        rc = None
+        if run.header.status == "open" and run.header.graph in ws.config.graphs:
+            rc = RunContext(ws, run, ctx.env)  # an open run as it stands now, answers since its artifacts too
+        snaps.append(snapshot(run, rc))
+        head[key] = {"run": run.id, "graph": run.header.graph, "status": run.header.status,
+                     "sandbox": run.header.sandbox}
+    diff = compare(snaps[0], snaps[1], limit=limit)
+    return Result({**head, **diff}, text(head, diff))
+
+
 def _guard_mutable(rc: Any) -> None:
     if rc.run.header.status == "sealed":
         raise StateError("run.sealed", f"Run {rc.run.id} is sealed.", hint="docket run start <graph> --new")

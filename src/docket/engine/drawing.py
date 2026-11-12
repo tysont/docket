@@ -1,4 +1,4 @@
-"""A drawing of a graph (TD §5.6): its nodes laid out left to right, for ``docket graph show``
+"""A drawing of a graph (TD §5.9): its nodes laid out left to right, for ``docket graph show``
 and ``docket run status --graph``.
 
 A node's column is the longest chain of nodes before it, so everything a node waits for

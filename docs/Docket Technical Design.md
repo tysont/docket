@@ -382,7 +382,7 @@ A run is driven by one session at a time. A run lease is a row `(run_id, owner, 
 
 `--sandbox` binds every destination to its sandbox twin under the run directory for the whole run, so its writes stay inside the run. A sandbox run may read live sources. Its seal moves no durable cursor and writes no dispositions or ledgers, and each `run` node uses its `dry_run` form or is skipped.
 
-`docket run status` shows a run's header, each node's state, the lease and the ready steps. `docket run list` lists runs, newest first. `docket run abandon` ends a run without advancing cursors, so the next run reads the same records again. `docket graph show <graph>` draws a graph and `docket run status --graph` draws a run on its graph (§5.9).
+`docket run status` shows a run's header, each node's state, the lease and the ready steps. `docket run list` lists runs, newest first. `docket run abandon` ends a run without advancing cursors, so the next run reads the same records again. `docket graph show <graph>` draws a graph and `docket run status --graph` draws a run on its graph (§5.9). `docket run diff <run-a> <run-b>` compares two runs (§5.10).
 
 ### 5.7 Read schedules
 
@@ -411,6 +411,19 @@ edges not drawn in the rows:
 Listing the joins between rows, rather than drawing them, keeps a graph of 20 nodes in 12 columns readable in 80 characters: one line per row and band, no crossing lines, and every edge stated once. `--ascii` draws the same with plain ASCII. `--list` prints the flat list: each node, its verb, who does it and what it waits for. `--format mermaid` prints a Mermaid flowchart with data edges solid, order edges dotted and one class per worker (`docket`, `agent`, `operator`). The JSON output gives each node its verb, who does it, `from`, `after`, `description`, `column` and `row`, and the seal's `column`, `row` and `after`.
 
 `--run [<id>]` draws a run on its graph; with no id it takes the most recent unsealed run. A run of another graph is `run.graph_mismatch`. Each node is marked done (`✓`, current), ready now (`●`: everything it needs is done and its work can be done now, by docket, an agent or the operator), waiting (`○`, on the nodes before it that are not done) or blocked (`✗`: an unavailable source, failed operations, a rejected plan or a change past the apply boundary). A legend line names the marks, and lines under the drawing name what is ready, what each waiting node waits on, and why each blocked node is held. In JSON each node adds `mark`, `state`, `reason` and `waiting_on`. `docket run status --graph` prints the same drawing.
+
+### 5.10 Comparing two runs
+
+`docket run diff <run-a> <run-b>` compares two runs of one workspace and writes nothing. A sealed or abandoned run is read from the artifacts it stored. An open run is evaluated as `docket next` evaluates it, so answers given since its last artifact count; a sandbox run is read like any other. A run that does not exist is `run.not_found`.
+
+Items are matched by topic. A question is matched by its item's topic, or by its own id when it has no item. An operation is matched by its destination, its verb and its item's topic, or the line, title or subject it writes. The text output has four groups, each bounded by `--limit` (default 20) and headed by its total:
+
+- counts side by side: read, kept, asked, answered and operations, with the change;
+- items kept in one run only, highest score first, with the other run's status and the reason from its trace (`not read` when it never saw the topic);
+- items whose answer, recommended decision or score differs, in that order, then by the size of the score change; an item kept in one run only is not listed again for its score;
+- operations that differ, by destination, most differences first: those only in A, only in B, and those whose outcome differs.
+
+The JSON output carries `a` and `b` (run, graph, status, sandbox), `counts`, and `kept`, `changed` and `operations`, each `{total, rows}`, with `same` true when nothing differs.
 
 ## 6. Sources
 
@@ -1053,7 +1066,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, run nodes) ru
 | Group | Commands |
 |---|---|
 | Loop | `next [--full]` |
-| Runs | `run abandon`, `run continue`, `run list`, `run start`, `run status`, `run steal`, `seal` |
+| Runs | `run abandon`, `run continue`, `run list`, `run start`, `run status`, `run steal`, `seal`, `run diff` |
 | Nodes | `do`, `graph show`, `plan diff`, `plan explain`, `plan load` |
 | Tasks | `task issue`, `task kinds`, `task list`, `task show`, `task submit` |
 | Decisions | `ask answer`, `ask list`, `ask resolve`, `ask show`, `ask undo` |
@@ -1064,7 +1077,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, run nodes) ru
 | Plugins and import | `import cursors`, `plugin check`, `plugin list` |
 | Self-description | `help`, `schema`, `schema list`, `version` |
 
-This table lists all 51 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
+This table lists all 52 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
 
 Every command takes `--json`, `--workspace` and `--run` where it applies. Every mutating command takes `--dry-run` and reports what it would do (AE-06).
 

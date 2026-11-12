@@ -1,4 +1,4 @@
-"""The drawing of a graph (TD §5.6): layout, text in Unicode and ASCII, Mermaid, and run marks."""
+"""The drawing of a graph (TD §5.9): layout, text in Unicode and ASCII, Mermaid, and run marks."""
 from __future__ import annotations
 
 from typing import Any
