@@ -84,6 +84,16 @@ class RunContext:
             from docket.apply import boundary
             evs: dict[str, Eval] = {}
             pins = boundary.pins(self.run)
+            if self.run.sealed:
+                # A sealed run cannot change: every node is read as it last stood, whatever the
+                # configuration says today.
+                for name in self.order:
+                    impl = self.impls[name]
+                    latest = self.run.paths.artifacts(name) / "latest"
+                    was = boundary.pinned_eval(self, impl, latest.read_text().strip()) if latest.is_file() else None
+                    evs[name] = was or Eval(name, impl.verb, "current", how=impl.how)
+                self._evals = evs
+                return [evs[n] for n in self.order]
             self._partial = evs  # a node may read what it waits for (its needs) while it is evaluated
             try:
                 self._evaluate_into(evs, pins)

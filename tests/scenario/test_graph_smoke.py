@@ -195,3 +195,22 @@ def test_a_step_says_how_long_its_command_may_take(tmp_path: Path) -> None:
         "    kind: files\n", "    kind: files\n    budget: { max_seconds: 240 }\n"), encoding="utf-8")
     steps = {s["node"]: s for s in _ok(ws, ["run", "start", "daily", "--now", NOW, "--new"])["data"]["steps"]}
     assert steps["gather"]["timeout_s"] == 300
+
+
+def test_a_sealed_run_reads_as_it_was_sealed_whatever_the_configuration_says_now(tmp_path: Path) -> None:
+    """After the seal, a change to the configuration must not make any node of that run look
+    stale or ready: the run is history."""
+    ws = _workspace(tmp_path)
+    run = _ok(ws, ["run", "start", "daily", "--now", NOW])["data"]["run"]
+    for _ in range(30):
+        data = _ok(ws, ["next", "--run", run, "--full"])["data"]
+        if data["done"]:
+            break
+        for step in data["steps"]:
+            _do(ws, step)
+    assert data["done"]
+    (ws / "docket.yaml").write_text((ws / "docket.yaml").read_text().replace(
+        "path: tasks.md }", "path: tasks.md, line_template: '- [ ] {title} (changed)' }"), encoding="utf-8")
+    nodes = _ok(ws, ["run", "status", run])["data"]["nodes"]
+    assert nodes and {n["state"] for n in nodes} == {"current"}
+    assert _ok(ws, ["next", "--run", run])["data"]["done"] is True
