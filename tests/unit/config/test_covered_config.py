@@ -128,3 +128,16 @@ def test_the_order_of_kinds_and_the_labels_of_covered_are_configurable(tmp_path)
     assert any("unknown covered option(s) ['kept']" in i.message for i in issues), [i.message for i in issues]
     issues = issues_of(tmp_path, text.replace("{entry.text}", "{entry.title}"))
     assert [i.code for i in issues] == ["config.bad_template"]
+
+
+@pytest.mark.parametrize("setting,message", [
+    ("overflow: keep", "questions.overflow: Input should be 'list' or 'drop'"),
+    ("budget: -1", "questions.budget: Input should be greater than or equal to 0"),
+    ("batch_budget: -2", "questions.batch_budget: Input should be greater than or equal to 0"),
+])
+def test_overflow_and_the_budgets_are_validated_at_the_node(tmp_path, setting, message):
+    issues = issues_of(tmp_path, BASE.replace("kinds: [covered, finding]", f"kinds: [covered, finding], {setting}"))
+    assert any(i.code == "config.bad_type" and message in i.message for i in issues), issues
+    ok = BASE.replace("kinds: [covered, finding]", "kinds: [covered, finding], budget: null, batch_budget: null, "
+                                                   "overflow: drop")
+    assert issues_of(tmp_path / "ok", ok) == []

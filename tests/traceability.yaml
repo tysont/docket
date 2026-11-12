@@ -168,6 +168,7 @@ FR-DEC-11:
   - tests/scenario/test_question_cards.py::test_with_drop_the_items_past_the_budget_are_reported_everywhere_up_to_the_seal
   - tests/scenario/test_question_cards.py::test_null_budgets_mean_no_limit
   - tests/unit/decide/test_question_details.py::test_overflow_is_list_or_drop_and_null_budgets_mean_no_limit
+  - tests/unit/config/test_covered_config.py::test_overflow_and_the_budgets_are_validated_at_the_node
 
 # --- destinations ----------------------------------------------------------------------------------
 FR-ACT-01:
