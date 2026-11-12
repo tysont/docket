@@ -7,10 +7,12 @@ meetings a write node works on into roll operations, through the agenda destinat
 ``agenda.roll`` preview.
 
 A meeting with a recap (the ``recap`` task read its record) is rolled with what the recap
-says was covered. A meeting with no record is rolled only when it is the forum's latest:
-the agenda as it then stands moves down whole, with a note saying so. Meetings are rolled
-oldest first, each operation waiting on the one before, and a meeting on or before the
-agenda's latest dated section is left alone.
+says was covered. A meeting with no record is rolled only when the node says to assume its
+agenda was covered (``no_record``) and it is the forum's latest: the agenda as it then
+stands moves down whole, with a note saying so. Without ``no_record`` it is left alone, for
+a covered question to ask about (``docket.decide.covered``). Meetings are rolled oldest
+first, each operation waiting on the one before, and a meeting on or before the agenda's
+latest dated section is left alone.
 """
 from __future__ import annotations
 
@@ -53,10 +55,15 @@ def _lines(recap: dict[str, Any]) -> list[str]:
     return out
 
 
-def roll_operations(dest: Any, state: Any, forums: list[Any], me: set[str], meetings: list[dict[str, Any]], *,
-                    no_record: str, trailer: str) -> list[dict[str, Any]]:
-    """Roll operations for ``meetings`` (``id``, ``date``, ``title``, ``attendees``, ``url``,
-    ``recap`` or None), in the order they must be applied."""
+def has_record(m: dict[str, Any]) -> bool:
+    """Whether a meeting left a record: a recap read it, or (as read) it carries one."""
+    return bool(m.get("recap") or m.get("record"))
+
+
+def by_forum_day(forums: list[Any], me: set[str], meetings: list[dict[str, Any]]) -> dict[
+        str, tuple[Any, dict[str, dict[str, Any]]]]:
+    """The meetings that happened, by forum and local date: a meeting with a date whose forum
+    has an agenda, one a day, the one with a record when there are several."""
     by_forum: dict[str, tuple[Any, dict[str, dict[str, Any]]]] = {}
     for m in meetings:
         f = forum_for_meeting(forums, str(m.get("title") or ""), list(m.get("attendees") or []), me)
@@ -64,8 +71,17 @@ def roll_operations(dest: Any, state: Any, forums: list[Any], me: set[str], meet
         if f is None or not date:
             continue
         days = by_forum.setdefault(f.id, (f, {}))[1]
-        if date not in days or (m.get("recap") and not days[date].get("recap")):
+        if date not in days or (has_record(m) and not has_record(days[date])):
             days[date] = m  # one meeting a day; the one with a record
+    return by_forum
+
+
+def roll_operations(dest: Any, state: Any, forums: list[Any], me: set[str], meetings: list[dict[str, Any]], *,
+                    no_record: str | None, trailer: str) -> list[dict[str, Any]]:
+    """Roll operations for ``meetings`` (``id``, ``date``, ``title``, ``attendees``, ``url``,
+    ``recap`` or None), in the order they must be applied. With ``no_record`` None a meeting
+    with no record is left alone."""
+    by_forum = by_forum_day(forums, me, meetings)
     files = state.data.get("files") or {}
     out: list[dict[str, Any]] = []
     for fid in sorted(by_forum):
@@ -90,12 +106,12 @@ def roll_operations(dest: Any, state: Any, forums: list[Any], me: set[str], meet
                 if trailer and m.get("url"):
                     fields["trailer"] = templates.render(trailer, {"url": m["url"], "title": m.get("title") or ""})
                 remaining = [e for e in remaining if e["line"] not in gone]
-            elif date == dates[-1]:
+            elif date == dates[-1] and no_record is not None:
                 fields.update({"lines": [ln for e in remaining for ln in e["block"]],
                                "remove": [e["line"] for e in remaining], "suffix": no_record})
                 remaining = []
             else:
-                continue  # no record, and a later meeting follows: nothing is known of it
+                continue  # no record, and a later meeting follows or nothing is assumed of it
             ops = dest.preview(Action(kind="agenda.roll", destination=dest.id, fields=fields, item_id=str(m.get("id")),
                                       depends_on=[prev] if prev else []), state)
             for op in ops:

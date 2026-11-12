@@ -402,33 +402,41 @@ class MarkdownAgenda(MarkdownBase):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or (last is not None and date <= last):
             return []  # that meeting, or a later one, already has its section
         entries = self.entries(text)
+        by_id = {e["line"]: e["text"] for e in entries}
         if f.get("move_all"):
             lines = [ln for e in entries for ln in e["block"]]
             gone = [e["text"] for e in entries]
         else:
-            by_id = {e["line"]: e["text"] for e in entries}
             lines = [str(x).rstrip() for x in (f.get("lines") or []) if str(x).strip()]
             gone = [by_id[i] for i in (f.get("remove") or []) if i in by_id]
+        # entries that leave the section without being recorded under the date
+        dropped = [by_id[i] for i in (f.get("drop") or []) if i in by_id and by_id[i] not in gone]
         if not lines:
-            return []
+            if not dropped:
+                return []
+            return [make_op(self.id, "roll", ident=f"{path}#{date}", path=path, anchor=self.section, drop=dropped,
+                            question_id=action.question_id, item_id=action.item_id,
+                            depends_on=action.depends_on or None)]
         level = "#" * (heading_level(self.section) or 2)
         heading = f"{level} {date}" + (f" *({f['suffix']})*" if f.get("suffix") else "")
         body = "\n".join(lines) + (f"\n\n{f['trailer']}" if f.get("trailer") else "")
         body = self.shared_text(body, "roll")
         return [make_op(self.id, "roll", ident=f"{path}#{date}", path=path, anchor=self.section, title=heading,
-                        body=body, remove=gone, question_id=action.question_id, item_id=action.item_id,
-                        depends_on=action.depends_on or None)]
+                        body=body, remove=gone, drop=dropped or None, question_id=action.question_id,
+                        item_id=action.item_id, depends_on=action.depends_on or None)]
 
     def _apply_roll(self, op: Operation) -> Receipt:
         doc = self.doc(op.path)
         date = (op.title or "").split()[1] if len((op.title or "").split()) > 1 else ""
-        if any((m := _DATED.match(doc.lines[i])) and m.group(1) == date for i, _ in doc.headings()):
+        if op.title and any((m := _DATED.match(doc.lines[i])) and m.group(1) == date for i, _ in doc.headings()):
             return self.receipt(op, "already_present", self.ext(op.path, op.title or ""))
+        if not op.title and doc.section(op.anchor) is None:
+            return self.receipt(op, "already_present", self.ext(op.path, op.anchor or ""))
         sec = doc.section(op.anchor) or doc.add_section(op.anchor)
         start, end = sec
-        # take out the covered entries that still read as the plan saw them, with their sub-lines
+        # take out the entries that still read as the plan saw them, with their sub-lines
         drop: set[int] = set()
-        for want in op.remove:
+        for want in [*op.remove, *op.drop]:
             for i in range(start + 1, end):
                 if i not in drop and doc.lines[i].rstrip() == want.rstrip() and _LIST_ITEM.match(doc.lines[i]):
                     drop.add(i)
@@ -437,13 +445,16 @@ class MarkdownAgenda(MarkdownBase):
                         drop.add(j)
                         j += 1
                     break
+        if not op.title and not drop:  # a roll that only drops, and they are gone already
+            return self.receipt(op, "already_present", self.ext(op.path, op.anchor or ""))
         kept = [doc.lines[i] for i in range(start + 1, end) if i not in drop]
         while kept and not kept[-1].strip():
             kept.pop()
         while kept and not kept[0].strip():
             kept.pop(0)
-        block = [doc.lines[start], ""] + (kept + [""] if kept else []) + [op.title or "", ""] \
-            + (op.body or "").split("\n") + [""]
+        block = [doc.lines[start], ""] + (kept + [""] if kept else [])
+        if op.title:
+            block += [op.title, ""] + (op.body or "").split("\n") + [""]
         tail = doc.lines[end:]
         if not tail:
             block.pop()
@@ -472,6 +483,10 @@ class MarkdownAgenda(MarkdownBase):
     def verify(self, op: Operation, receipt: Receipt) -> VerifyResult:
         if op.verb == "roll":
             doc = self.doc(op.path)
+            if not op.title:  # a roll that only drops: none of the dropped entries is left
+                left = [ln for _, ln in doc.body(op.anchor or "") or [] if ln.rstrip() in {d.rstrip() for d in op.drop}]
+                return VerifyResult(ok=True) if not left else VerifyResult(ok=False, status="mismatch",
+                                                                           detail=f"{len(left)} entr(ies) still there")
             ok = any(doc.lines[i].strip() == (op.title or "").strip() for i, _ in doc.headings())
             return VerifyResult(ok=True) if ok else VerifyResult(ok=False, status="missing",
                                                                  detail=f"section {op.title} not found")

@@ -13,6 +13,7 @@ a non-destination outcome:
 | finding answered by merge | nothing of its own: the host's action carries its title, links, evidence |
 | reconcile              | ``task.close`` / ``task.carry`` / ``task.update`` (+ ``agenda.add``)     |
 | verify                 | ``task.close`` / ``task.update``; ``keep`` writes nothing                |
+| covered                | one ``roll`` per meeting on its agenda; ``keep`` is an outcome row        |
 
 Outcome rows (the plan's ``outcomes``)::
 
@@ -208,9 +209,10 @@ def plan_operations(rc: "RunContext", decide: dict[str, Any]) -> dict[str, Any]:
     adjust: dict[str, dict[str, Any]] = {}
     notes: list[str] = []
     seen_targets: dict[tuple[Any, ...], str] = {}
+    kinds = {q["id"]: q["kind"] for q in decide["questions"]}
     for qid in sorted(decide["answers"]):
-        if not any(q["id"] == qid for q in decide["questions"]):
-            continue
+        if qid not in kinds or kinds[qid] == "covered":
+            continue  # covered answers are taken a meeting at a time, below
         eff = answer_effects(rc, decide, qid)
         for op in eff["operations"]:
             tgt = (op["destination"], op.get("path"), op.get("anchor"), op.get("old_digest")) \
@@ -226,6 +228,11 @@ def plan_operations(rc: "RunContext", decide: dict[str, Any]) -> dict[str, Any]:
         for tid, adj in eff["adjust"].items():
             adjust.setdefault(tid, {}).update(adj)
         notes += eff["notes"]
+    if decide.get("covered"):
+        from docket.decide import covered
+        rolled = covered.plan(rc, decide)
+        ops += rolled["operations"]
+        outcomes += rolled["outcomes"]
     return {"operations": ops, "outcomes": outcomes, "adjust": adjust, "notes": notes}
 
 

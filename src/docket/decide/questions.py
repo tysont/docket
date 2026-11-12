@@ -8,11 +8,14 @@ the verification results into the ordered questions of the burst:
   the rest are ``not_asked`` with their traces;
 - ``reconcile``: one per elapsed owned block whose task is open (``r_`` +
   block key), when the ask node's ``questions.kinds`` lists ``reconcile``;
+- ``covered``: one per agenda entry of the latest meeting of a forum that left no
+  record (``c_`` + a digest of forum, date and entry), when the kinds list ``covered``
+  (``docket.decide.covered``);
 - ``verify``: one per open task that looks done (``v_`` + task key), when the
   kinds list ``verify``.
 
-Kinds are ordered by ``decisions.order`` (reference: reconcile, then findings
-by score, then verify). A question::
+Kinds are ordered by ``decisions.order`` (reference: reconcile, covered, then
+findings by score, then verify). A question::
 
     {"id", "kind", "prompt", "evidence": [str], "options": [{"id", "label", "action",
      "destination", "defaults"}], "refused": [{"option", "action", "reason"}], "notes": [str],
@@ -26,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from docket.config.defaults import DEFAULT_OPTION_SET
 from docket.config.digest import digest
-from docket.decide import reconcile, verify
+from docket.decide import covered, reconcile, verify
 from docket.decide.options import Acceptor, finding_options, item_view, recommended_option
 from docket.shapes.unexpected import unexpected
 from docket.text import templates
@@ -43,6 +46,7 @@ class QuestionSet:
     questions: list[dict[str, Any]] = field(default_factory=list)
     findings: list[dict[str, Any]] = field(default_factory=list)
     reconcile: list[dict[str, Any]] = field(default_factory=list)
+    covered: list[dict[str, Any]] = field(default_factory=list)
     verify: list[dict[str, Any]] = field(default_factory=list)
     not_asked: list[dict[str, Any]] = field(default_factory=list)
     pending_refs: list[str] = field(default_factory=list)
@@ -51,11 +55,11 @@ class QuestionSet:
         return {q["id"]: q for q in self.questions}
 
     def subjects(self) -> dict[str, dict[str, Any]]:
-        """Question id -> its subject row (the finding's item, the reconcile or verify row)."""
+        """Question id -> its subject row (the finding's item, the reconcile, covered or verify row)."""
         out: dict[str, dict[str, Any]] = {}
         for f in self.findings:
             out[f["question_id"]] = f["item"]
-        for r in self.reconcile + self.verify:
+        for r in self.reconcile + self.covered + self.verify:
             out[r["question_id"]] = r
         return out
 
@@ -209,7 +213,7 @@ def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionS
     qs.pending_refs = verify.pending(rc, tg)
     acceptor = Acceptor(rc)
     try:
-        by_kind: dict[str, list[dict[str, Any]]] = {"finding": [], "reconcile": [], "verify": []}
+        by_kind: dict[str, list[dict[str, Any]]] = {"finding": [], "reconcile": [], "covered": [], "verify": []}
         if "finding" in kinds:
             notes = verify.item_notes(rc, tg) if not qs.pending_refs else {}
             by_kind["finding"], qs.findings, qs.not_asked = _findings(rc, items, acceptor, notes, node)
@@ -218,6 +222,11 @@ def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionS
                 q = reconcile.question(rc, row)
                 qs.reconcile.append({"question_id": q["id"], **row})
                 by_kind["reconcile"].append(q)
+        if "covered" in kinds:
+            for row in covered.candidates(rc, node):
+                q = covered.question(rc, row)
+                qs.covered.append({"question_id": q["id"], **row})
+                by_kind["covered"].append(q)
         if "verify" in kinds and not qs.pending_refs:
             for row in verify.rows(rc, tg):
                 q = verify.question(rc, row)
@@ -225,7 +234,7 @@ def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionS
                 by_kind["verify"].append(q)
     finally:
         acceptor.close()
-    order = list(dict.fromkeys(list(rc.ws.config.decisions.order) + ["reconcile", "finding", "verify"]))
+    order = list(dict.fromkeys(list(rc.ws.config.decisions.order) + ["reconcile", "covered", "finding", "verify"]))
     for k in order:
         qs.questions += by_kind.get(k, [])
     return qs

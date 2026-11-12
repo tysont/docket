@@ -120,7 +120,7 @@ Top-level keys, each a Pydantic model with `extra="forbid"`:
 | `transports` | Shared transport instances keyed by id (§6.3) |
 | `signals` | `rules`, `scoring`, `budgets`, `units` classification (§8) |
 | `tasks` | Agent task kinds and their overrides (§9) |
-| `decisions` | Option sets, label templates, reconcile policy (§10) |
+| `decisions` | Option sets, label templates, reconcile and covered policy, the order of question kinds (§10) |
 | `destinations` | Destination instances keyed by id (§11) |
 | `planning` | Scheduling policy, mirrors (§12) |
 | `journal` | Journal sections, ledgers (§13.5) |
@@ -188,8 +188,8 @@ Merge order is: core defaults, then each preset in list order, then workspace fi
 
 1. **Syntax and structure.** YAML parse, unknown keys, types, and the shape of each graph (§5.1). Each error carries file, line, column, the offending key, the expected type and, for unknown keys, the closest valid key. A graph's shape problem is `config.bad_graph` at the node.
 2. **References.** Every id a value names (a person, group, topic, source, destination, forum, template, rule, task kind, option set) exists.
-3. **Semantics.** Regexes compile; templates parse and reference only fields of their context, including the argv of a `run` node (§5.8); durations and windows are well-formed; scoring weights are finite; a shared destination has redaction templates for every sensitivity class the rules can assign.
-4. **Capabilities.** Each source's transport serves the capabilities the source uses. Every action an `ask` node offers in a graph that applies has a destination that accepts it. A `write` node's destination is private. A calendar read through a destination is a calendar adapter.
+3. **Semantics.** Regexes compile; templates parse and reference only fields of their context, including the argv of a `run` node (§5.8); durations and windows are well-formed; scoring weights are finite; a shared destination has redaction templates for every sensitivity class the rules can assign. Two settings of one graph that ask for opposite things are `config.conflicting_settings`: a roll that assumes a meeting with no record covered its agenda, beside an ask node that asks about the same meetings (§12.8).
+4. **Capabilities.** Each source's transport serves the capabilities the source uses. Every action an `ask` node offers in a graph that applies has a destination that accepts it. A `write` node's destination is private. A calendar read through a destination is a calendar adapter. The destination an ask node's covered questions roll is an agenda.
 
 A run never starts on invalid configuration (CFG-02). Pass 4 is the only pass that needs a preset's capability declarations; it never contacts a system. `docket doctor` contacts systems (§15.4).
 
@@ -335,9 +335,9 @@ A node is ready when every node it names is current. Nodes that name nothing are
 
 Every graph ends with a seal, which is not written in it. The seal is ready when every node is current. Sealing advances cursors, writes dispositions and the item ledger, and makes the journal entry (§13.4); then the run is sealed and cannot change. A sandbox run seals without moving a cursor or writing dispositions and ledgers.
 
-The shape of a graph is checked when the workspace loads (§3.4). A graph has at least one node. Node names are lower-case words (`[a-z][a-z0-9-]*`, at most 40 characters) other than `seal`. Every name a node uses is a node of the graph, and there is no cycle. Each node works on the kind of thing its inputs hand on: a `merge`, an `ask` or a `write` on items, a `judge` on items or decisions, a `plan` on decisions or items (the decisions of at most one `ask` node), an `approve` on a plan, an `apply` on an approval. `merge`, `plan`, `approve` and `apply` name their inputs in the verb and take no `from`. `read` and `run` work on nothing another node hands on and take only `after`. A shape problem is `config.bad_graph`, reported at the node with its file and line.
+The shape of a graph is checked when the workspace loads (§3.4). A graph has at least one node. Node names are lower-case words (`[a-z][a-z0-9-]*`, at most 40 characters) other than `seal`. Every name a node uses is a node of the graph, and there is no cycle. Each node works on the kind of thing its inputs hand on: a `merge`, an `ask` or a `write` on items, a `judge` on items or decisions, a `plan` on decisions or items (the decisions of at most one `ask` node), an `approve` on a plan, an `apply` on an approval. `merge`, `plan`, `approve` and `apply` name their inputs in the verb and take no `from`. `read` and `run` work on nothing another node hands on and take only `after`. The node an ask node's covered questions take their meetings from is a `read` node. A shape problem is `config.bad_graph`, reported at the node with its file and line.
 
-A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`. Any node may carry a `description`, which `docket graph show` prints.
+A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`, and a `write: roll` its `no_record`, `trailer` and `commitments` (§12.8). An ask node's `questions.covered` names the read node of the meetings it asks about, the agenda destination, and the suffix of the heading (§10.4). Naming that read node makes the ask node wait for it, as `after` does. Any node may carry a `description`, which `docket graph show` prints.
 
 Where several nodes hand on to one, their outputs are joined: items by id (a later node adds to what an earlier one said of the same item), lists end to end, maps key by key.
 
@@ -665,9 +665,9 @@ An accepted result is indexed by its pack's input digest in the workspace databa
 
 ### 10.1 Building questions
 
-An `ask` node builds its questions from three inputs: the findings in the items it works on, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), and task-verification results. The node's `questions.kinds` says which of the three it asks (default: `finding`). Each question has a stable id derived from its subject (`q_` + item id, `r_` + block key, or `v_` + task key), a kind (`finding`, `reconcile` or `verify`), a rendered prompt from templates, the evidence summary, and options. The approve question is the one exception: its id is the approve node's name (§13.1).
+An `ask` node builds its questions from four inputs: the findings in the items it works on, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), the agendas of meetings that left no record, and task-verification results. The node's `questions.kinds` says which it asks (`reconcile`, `covered`, `finding`, `verify`; default: `finding`); an unknown kind is refused. Each question has a stable id derived from its subject (`q_` + item id, `r_` + block key, `c_` + a digest of forum, meeting date and agenda entry, or `v_` + task key), a kind (`finding`, `reconcile`, `covered` or `verify`), a rendered prompt from templates, the evidence summary, and options. The approve question is the one exception: its id is the approve node's name (§13.1).
 
-Kinds are asked in the order of `decisions.order` (default: reconcile, then findings by score, then verify). The node's `questions.budget` caps findings; the items past it become the journal section "Not asked" with their traces.
+Kinds are asked in the order of `decisions.order` (default: reconcile, covered, then findings by score, then verify). The node's `questions.budget` caps findings; the items past it become the journal section "Not asked" with their traces.
 
 The question budget ranks findings by score. A must-surface finding is lifted only to the floor, so ranking alone cuts it first. The ask node's `questions.must_surface` decides: `ranked` (the default) leaves it to its score, `first` asks must-surface findings before the rest within the budget, and `bypass` asks them first and spends none of the budget on them. Items recommended for a batch option are ranked and cut in a group of their own against the node's `questions.batch_budget`, so a list to acknowledge and the questions asked one by one do not crowd each other out.
 
@@ -721,6 +721,26 @@ Reconcile options are fixed in kind and configurable in label: `done`, `partly` 
 
 A batch block (`<prefix>b_...`, §12.3) holds several small tasks. When one has elapsed, each member still open gets its own reconcile question, with the options and operations of a task block; a member already closed is not asked. The members are the task ids the plan that placed the block named. A batch key is a digest of its members, so earlier runs' plans are read newest first until the key is found; failing that, the item ledger's placements of the block (§13.8) name them. A block whose members are found nowhere is not asked about. A member's question id is `r_` + the block key + `.` + a digest of its task id, its prompt is `decisions.templates.reconcile_batch_prompt` (default: `Did "{task.title}" happen in "{block.title}" (...)?`), and its details carry `batch_block` (the block's key, title and number of open members), so a driver can show the members of one block together. Like a task block, a member is asked once: the next run's window starts after it.
 
+**Covered.** A meeting that left no record cannot say what it covered, so an ask node can ask (FR-DEC-09). It lists `covered` in `questions.kinds` and says where the meetings come from:
+
+```yaml
+    read-meetings: { read: meetings }
+    decide:
+      ask: default
+      from: [review]
+      questions:
+        kinds: [reconcile, covered, finding]
+        covered: { meetings: read-meetings, to: agendas, suffix: "no record" }
+```
+
+`meetings` names the read node of the meetings source (§12.8), `to` the agenda destination, and `suffix` (default: `no record of the meeting`) the words the dated heading carries. A meeting is asked about when it happened (the roll's rule: a meeting read with a date, one a day per forum), its forum has an agenda in `to`, it left no record (its text is empty), it is newer than the agenda's latest dated section and is the latest such meeting of its forum, and the agenda section has entries. Then each entry is one question: "Did you cover this with Platform Sync on 2026-10-14?", with the entry's text and its sub-lines as evidence. The question's id is `c_` + a digest of the forum, the meeting's date and the entry's text: the same meeting and entry keep it, and a reworded entry gets a new one. The details carry `meeting` (id, date, title, forum, forum name and note path), so a driver shows one meeting's entries together.
+
+The options are fixed in kind and configurable in label (`decisions.covered.labels`; the prompt is `decisions.templates.covered_prompt`): `covered` (the entry moves under the meeting's date), `keep` (still to raise; it stays where it is), and `drop` (removed, not recorded). `covered` is recommended and is a batch option, so the operator ticks a list and answers the rest one by one.
+
+The plan node that takes these decisions turns the answers of one meeting into one `agenda.roll` on the agenda destination, which goes through approve and apply like any other operation. The covered entries, whole blocks with their sub-lines, become the body of a section headed with the meeting's date and the suffix. Covered and dropped entries leave the agenda section; kept ones stay. With nothing covered and something dropped, the roll only removes the dropped entries and writes no section. With everything kept there is no operation.
+
+A covered question is asked once. Once the roll is applied the agenda has that date's section, so the meeting is no longer newer than it. A kept entry becomes an outcome of the plan, and a durable seal records it as a `keep` disposition keyed by the question id (§13.7). The same meeting does not ask about it again; the forum's next meeting has new ids and does. A sandbox run records nothing.
+
 ### 10.5 Task verification
 
 Open tasks with references are resolved through sources (§6.10). A task whose reference is closed, or whose thread's last actor is the operator after the task date, produces a `verify` question ("Looks done: close it?") with `close`, `keep` and `update` options. The verification set is bounded by `decisions.verify.max_per_run`.
@@ -759,7 +779,7 @@ Sandbox twins are the real adapter with its I/O layer swapped: Markdown adapters
 | Adapter | Behavior |
 |---|---|
 | `markdown_tasks` | A task store in Markdown. A configurable line grammar (`text/grammar.py`) parses and renders lines: checkbox, text, inline fields (`key:: value` or bracketed), links and tags. Sections and tiers are configured headings. Planning, reconciliation and task verification read open tasks through this adapter and its grammar. No second task parser exists. Quality rules (§11.5) run on every rendered line. |
-| `markdown_agenda` | Agendas discovered by a path pattern or listed per forum. A configured section (for example `## Next`) with a capacity; dated history sections and unknown sections are preserved and tolerated. |
+| `markdown_agenda` | Agendas discovered by a path pattern or listed per forum. A configured section (for example `## Next`) with a capacity; dated history sections and unknown sections are preserved and tolerated. A `roll` writes a dated section under the agenda section and takes out the entries it covered (`remove`) and those dropped unrecorded (`drop`); a roll with no heading only drops (§12.8). |
 | `calendar_exec` | Speaks the exec protocol (§17.2) to a local bridge binary with verbs `list`, `busy`, `create`, `move`, `update`, `delete`, `rekey`, `mirror`. The reference workspace wraps its existing bridge this way. |
 | `calendar_file` | ICS read for availability; write to an ICS file for testing and for systems that import ICS. |
 | `calendar_mcp` | An MCP calendar server, read always, write where the server's tools support it (declared in the preset). |
@@ -887,8 +907,10 @@ The `recap` judge reads the agendas of the destination `tasks.recap.agendas` nam
 The `write: roll` node turns the meetings it works on into `agenda.roll` operations, through the preview of the agenda destination `to` names, and writes them. A roll needs no approval, so `to` must name a private destination (`config.capability_missing` otherwise). The node keeps its plan and diff beside its receipts:
 
 - A meeting with a recap gets a section of what was covered (and an action list), with `trailer` as its last line. The entries it settled leave the agenda; the rest stay.
-- A meeting with no record is rolled only when it is the forum's latest: the agenda as it then stands moves down whole under a heading that carries `no_record`. With nothing on the agenda, nothing is written.
+- A meeting with no record is rolled only when the node has `no_record` and the meeting is the forum's latest: the agenda as it then stands moves down whole under a heading that carries `no_record`, on the assumption that it was all covered. With nothing on the agenda, nothing is written. Without `no_record` the node leaves a meeting with no record alone.
 - Meetings are rolled oldest first, each operation waiting on the one before. A meeting on or before the agenda's latest dated section is not rolled, so the agenda file is its own record of what has been done.
+
+A workspace chooses, per meetings source, between assuming and asking. To assume, the roll node sets `no_record` (for example `no_record: "no record, agenda assumed covered"`). To ask, the roll node drops `no_record` and an ask node lists `covered` with `questions.covered` naming the same read node (§10.4); the plan of that ask node rolls the agenda through approve and apply. A roll node with `no_record` downstream of the same source as an ask node's covered meetings is refused with `config.conflicting_settings`, at the roll's `no_record`.
 
 With `commitments` naming a JSON-lines file, the node also appends what the operator agreed to do in the meetings recapped (the recap's actions whose `owner` is `me`), one record each and each once. A source can read the file, so a promise made in a meeting reaches triage like any other item. A sandbox run appends nothing.
 
@@ -938,7 +960,7 @@ The seal ends every run once every node is done. `docket seal` takes two steps, 
 
 ### 13.7 Dispositions
 
-The seal writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05).
+The seal writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05). A covered question answered `keep` (§10.4) is a `keep` disposition keyed by its question id; covered questions read it, and merge meets no item by that key.
 
 ### 13.8 The item ledger
 
@@ -1163,7 +1185,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 | FR-SRC-01..12 | §6 |
 | FR-SIG-01..09 | §7, §8 |
 | FR-TSK-01..07 | §9 |
-| FR-DEC-01..08 | §10 |
+| FR-DEC-01..09 | §10, §12.8 |
 | FR-ACT-01..07 | §11 |
 | FR-PLN-01..08 | §12 |
 | FR-APP-01..06 | §13 |

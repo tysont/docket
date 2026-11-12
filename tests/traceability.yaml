@@ -149,6 +149,13 @@ FR-DEC-07:
 FR-DEC-08:
   - tests/scenario/test_decisions_scenario.py::test_every_override_is_echoed_normalized_and_reaches_the_line
   - tests/scenario/test_decisions_scenario.py::test_structured_answers_that_forced_hand_edits_are_one_command_each
+FR-DEC-09:
+  - tests/scenario/test_covered_scenario.py::test_the_answers_of_one_meeting_become_one_roll_through_approve_and_apply
+  - tests/scenario/test_covered_scenario.py::test_all_kept_writes_nothing_and_is_not_asked_again_until_the_next_meeting
+  - tests/scenario/test_covered_scenario.py::test_a_meeting_with_a_record_is_not_asked_about
+  - tests/scenario/test_covered_scenario.py::test_a_sandbox_run_leaves_the_note_byte_identical
+  - tests/unit/decide/test_covered.py::test_covered_kept_and_dropped_entries_become_one_roll
+  - tests/unit/config/test_covered_config.py::test_assuming_and_asking_about_the_same_meetings_is_refused
 
 # --- destinations ----------------------------------------------------------------------------------
 FR-ACT-01:

@@ -86,8 +86,10 @@ class Operation(BaseModel):
     subject: str | None = None
     body: str | None = None
     # agenda roll: ``title`` is the dated heading, ``body`` what goes under it, and
-    # ``remove`` the entries (each with its sub-lines) that leave the anchor section
+    # ``remove`` the entries (each with its sub-lines) that leave the anchor section as
+    # covered; ``drop`` the entries that leave it unrecorded. A roll with no title only drops.
     remove: list[str] = []
+    drop: list[str] = []
     # provenance and ordering (not part of op_id)
     depends_on: list[str] = []
     question_id: str | None = None
@@ -99,7 +101,7 @@ class Operation(BaseModel):
 
     def dump(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude_none=True, exclude_defaults=False,
-                               exclude={k for k in ("to", "depends_on", "remove") if not getattr(self, k)})
+                               exclude={k for k in ("to", "depends_on", "remove", "drop") if not getattr(self, k)})
 
     def payload(self) -> dict[str, Any]:
         return {k: v for k, v in self.dump().items() if k not in PROVENANCE and k != "op_id"}

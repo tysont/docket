@@ -476,6 +476,8 @@ class AskNode(BaseNode):
                 "verify": qs.verify, "not_asked": qs.not_asked,
                 "merged": {k: v["merged_into"] for k, v in sorted(bound.items()) if v.get("merged_into")},
             }
+            if "covered" in self.cfg.questions.kinds:
+                out["covered"] = qs.covered
             return Eval(self.name, self.verb, "current", dg, None, out, digest(out), cfg, inputs, extra, self.how)
         return Eval(self.name, self.verb, "waiting", dg, "answers", None, None, cfg, inputs, extra, self.how)
 
@@ -526,7 +528,7 @@ def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why:
 # --- plan --------------------------------------------------------------------
 
 EMPTY_DECISIONS: dict[str, Any] = {"questions": [], "answers": {}, "findings": [], "reconcile": [], "verify": [],
-                                   "not_asked": [], "merged": {}}
+                                   "covered": [], "not_asked": [], "merged": {}}
 
 
 class PlanNode(BaseNode):
@@ -588,9 +590,12 @@ def op_line(o: dict[str, Any]) -> str:
     if o.get("verb") == "replace":
         return f"- {o['destination']} ({o['path']} under {o['anchor']}): change `{o.get('old_line', '')}` to `{o['line']}`"
     if o.get("verb") == "roll":
+        dropped = f", {len(o['drop'])} dropped" if o.get("drop") else ""
+        if not o.get("title"):
+            return f"- {o['destination']} ({o['path']}): drop {len(o.get('drop') or [])} entr(ies) from {o.get('anchor')}"
         n = len((o.get("body") or "").split("\n"))
         return (f"- {o['destination']} ({o['path']}): roll `{o.get('title', '')}`, {n} line(s); "
-                f"{len(o.get('remove') or [])} entr(ies) leave {o.get('anchor')}")
+                f"{len(o.get('remove') or [])} entr(ies) leave {o.get('anchor')}{dropped}")
     if o.get("verb") == "draft":
         return f"- {o['destination']}: draft `{o.get('subject', '')}` to {', '.join(o.get('to') or [])}"
     return f"- {o['destination']} ({o.get('path')} under {o.get('anchor')}): add `{o.get('line')}`"
