@@ -72,7 +72,7 @@ graphs:
 | `apply: <approve node>` | Writes the approved operations | Docket |
 | `write: <action>` | Writes operations that need no approval, to a private destination | Docket |
 
-`from` names the nodes whose output a node works on; `after` names nodes it must follow and that hand it nothing. A node is ready when every node it names is done. Every graph ends with a seal, which is not written in it: cursors advance, dispositions and the ledger are written, and the journal entry is made. `docket graph show daily` prints a graph's nodes and what each waits for.
+`from` names the nodes whose output a node works on; `after` names nodes it must follow and that hand it nothing. A node is ready when every node it names is done. Every graph ends with a seal, which is not written in it: cursors advance, dispositions and the ledger are written, and the journal entry is made. `docket graph show daily` draws a graph: each node, who does its work, and what it waits for; `--run` marks a run's progress on it.
 
 ## Safety Model
 

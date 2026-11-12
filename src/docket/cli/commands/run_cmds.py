@@ -148,9 +148,16 @@ def cmd_run_start(ctx: Any, ns: Any) -> Result:
                   f"started run {run_id}\n{steps_summary(steps)}", next=steps_next(steps))
 
 
-@command("run status", "Show a run's header, its nodes' statuses, its lease and the steps that are ready.", run=True,
-         args=[Arg("id", "Run id (default: --run, then the most recent unsealed run).", nargs="?")],
-         examples=["docket run status --json"])
+@command("run status", "Show a run's header, its nodes' statuses, its lease and the steps that are ready. With "
+                        "--graph, draw the run's graph with each node marked done, ready now, waiting or blocked.",
+         run=True,
+         args=[Arg("id", "Run id (default: --run, then the most recent unsealed run).", nargs="?"),
+               Arg("--graph", "Draw the graph with the run's state, as docket graph show --run does.",
+                   action="store_true"),
+               Arg("--ascii", "With --graph, draw with plain ASCII characters.", action="store_true"),
+               Arg("--width", "With --graph, wrap the drawing into bands this many characters wide (default 80).",
+                   metavar="N")],
+         examples=["docket run status --json", "docket run status --graph", "docket run status 2026-10-16-daily --graph"])
 def cmd_run_status(ctx: Any, ns: Any) -> Result:
     from docket.engine.next import compute_steps
     from docket.store import lease
@@ -162,6 +169,14 @@ def cmd_run_status(ctx: Any, ns: Any) -> Result:
             "lease": dict(row) if row else None, "steps": [s.model_dump() for s in steps]}
     text = "\n".join([f"run {rc.run.id} ({rc.run.header.status})"] +
                      [f"  {n['node']:<20} {n['state']}" + (f" ({n['reason']})" if n["reason"] else "") for n in nodes])
+    if ns.graph:
+        from docket.engine.drawing import layout, run_states
+        lay = layout(rc.graph)
+        states = run_states(nodes, lay)
+        for n in nodes:
+            p = lay.nodes[n["node"]]
+            n.update(column=p.column, row=p.row, mark=states[n["node"]]["mark"])
+        text = drawing(rc.graph_name(), rc.graph, lay, states, ns, rc)
     return Result(data, text, next=steps_next(steps))
 
 
@@ -237,24 +252,96 @@ def cmd_run_abandon(ctx: Any, ns: Any) -> Result:
     return Result({"run": rc.run.id, "status": "abandoned", "changed": True}, f"abandoned {rc.run.id}")
 
 
-@command("graph show", "A graph as its nodes: what each does, who does it, and what it waits for.",
-         args=[Arg("graph", "Graph name from docket.yaml.")], examples=["docket graph show morning --json"])
+def _width(ns: Any) -> int:
+    raw = getattr(ns, "width", None)
+    if raw is None:
+        return 80
+    try:
+        w = int(raw)
+    except ValueError:
+        w = 0
+    if w < 40:
+        raise InputError("input.bad_argument", f"--width must be a whole number of at least 40, not {raw!r}.",
+                         hint="docket graph show <graph> --width 100")
+    return w
+
+
+def drawing(name: str, graph: dict[str, Any], lay: Any, states: Any, ns: Any, rc: Any = None) -> str:
+    """The text drawing of a graph, with a run's state when ``rc`` is given, and the nodes'
+    descriptions under it."""
+    from docket.config.models import ordered
+    from docket.engine.drawing import draw
+    if rc is not None:
+        title = (f"run {rc.run.id} of graph {name} ({rc.run.header.status}"
+                 + (", sandbox" if rc.run.header.sandbox else "") + ")")
+    else:
+        title = f"graph {name}: {len(graph)} node(s) in {lay.columns - 1} column(s), then the seal"
+    text = draw(lay, width=_width(ns), ascii=bool(getattr(ns, "ascii", False)), states=states, title=title)
+    notes = [f"  {n}: {graph[n].description}" for n in ordered(graph) if graph[n].description]
+    return text + ("\n\ndescriptions:\n" + "\n".join(notes) if notes else "")
+
+
+@command("graph show", "Draw a graph: its nodes left to right by how much must happen before each, what each does "
+                       "and who does it (docket computes, an agent judges, the operator is asked). Solid lines hand "
+                       "on data; dotted lines only order. With --run, mark each node of that run done, ready now, "
+                       "waiting or blocked.",
+         args=[Arg("graph", "Graph name from docket.yaml (default with --run: the run's graph).", nargs="?"),
+               Arg("--run", "Overlay this run's state; with no id, the most recent unsealed run. Its graph must be "
+                            "the graph named.", nargs="?", const="", metavar="RUN"),
+               Arg("--list", "Print the flat list: each node, its verb, who does it and what it waits for.",
+                   action="store_true"),
+               Arg("--format", "text (the drawing, default) or mermaid (a Mermaid flowchart).",
+                   choices=["text", "mermaid"], default="text"),
+               Arg("--ascii", "Draw with plain ASCII characters.", action="store_true"),
+               Arg("--width", "Wrap the drawing into bands this many characters wide (default 80).",
+                   metavar="N")],
+         examples=["docket graph show morning", "docket graph show morning --run", "docket graph show morning --ascii",
+                   "docket graph show morning --format mermaid", "docket graph show morning --list",
+                   "docket graph show morning --json"])
 def cmd_graph_show(ctx: Any, ns: Any) -> Result:
     from docket.config.models import ordered
+    from docket.engine.drawing import SEAL, WHO, flat, layout, mermaid, run_states
     from docket.engine.nodes import KINDS
     ws = ctx.workspace()
-    if ns.graph not in ws.config.graphs:
-        raise InputError("input.unknown_graph", f"No graph {ns.graph!r}.", hint="docket config explain graphs",
+    rc = None
+    name = ns.graph
+    if ns.run is not None:
+        rc = ctx.run_context(ns.run or None)
+        if name is not None and name != rc.graph_name():
+            raise InputError("run.graph_mismatch", f"Run {rc.run.id} is a run of graph {rc.graph_name()!r}, "
+                             f"not {name!r}.", hint=f"docket graph show {rc.graph_name()} --run {rc.run.id}",
+                             details={"run": rc.run.id, "run_graph": rc.graph_name(), "graph": name})
+        name = rc.graph_name()
+    if name is None:
+        raise InputError("input.bad_argument", "Name a graph, or a run with --run.", hint="docket config explain graphs",
                          details={"graphs": sorted(ws.config.graphs)})
-    graph = ws.config.graphs[ns.graph]
+    if name not in ws.config.graphs:
+        raise InputError("input.unknown_graph", f"No graph {name!r}.", hint="docket config explain graphs",
+                         details={"graphs": sorted(ws.config.graphs)})
+    graph = ws.config.graphs[name]
+    lay = layout(graph)
+    states = run_states(rc.node_report(), lay) if rc is not None else None
     rows = []
-    for name in ordered(graph):
-        n = graph[name]
-        how = KINDS[n.verb].how
-        rows.append({"node": name, "verb": n.verb, "what": getattr(n, n.verb) if n.verb not in ("merge", "plan") else None,
-                     "by": {"computed": "docket", "judged": "agent", "asked": "operator"}[how],
-                     "from": n.inputs, "after": [a for a in n.after if a not in n.inputs],
-                     "description": n.description})
-    text = [f"{r['node']} ({r['verb']}, {r['by']})" + (f" <- {', '.join(r['from'] + r['after'])}" if r["from"] or r["after"] else "")
-            for r in rows]
-    return Result({"graph": ns.graph, "nodes": rows}, "\n".join(text))
+    for node in ordered(graph):
+        n, p = graph[node], lay.nodes[node]
+        row: dict[str, Any] = {
+            "node": p.name, "verb": n.verb, "what": getattr(n, n.verb) if n.verb not in ("merge", "plan") else None,
+            "by": WHO[KINDS[n.verb].how], "from": n.inputs, "after": [a for a in n.after if a not in n.inputs],
+            "description": n.description, "column": p.column, "row": p.row}
+        if n.verb == "ask" and n.questions.covered is not None:
+            row["meetings"] = n.questions.covered.meetings
+        if states is not None:
+            row.update(states[p.name])
+        rows.append(row)
+    seal = {"column": lay.nodes[SEAL].column, "row": lay.nodes[SEAL].row, "after": lay.nodes[SEAL].needs}
+    data: dict[str, Any] = {"graph": name, "nodes": rows, "seal": seal}
+    if rc is not None:
+        seal.update(states[SEAL])
+        data.update(run=rc.run.id, status=rc.run.header.status)
+    if ns.list:
+        text = flat(rows, states)
+    elif ns.format == "mermaid":
+        text = mermaid(lay, states)
+    else:
+        text = drawing(name, graph, lay, states, ns, rc)
+    return Result(data, text)

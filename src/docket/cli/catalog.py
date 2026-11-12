@@ -71,6 +71,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     # state
     "run.none_open": ("state", False, "No unsealed run exists in this workspace."),
     "run.not_found": ("state", False, "No run has this id."),
+    "run.graph_mismatch": ("input", False, "The run named is a run of another graph than the one given."),
     "run.sealed": ("state", False, "The run is sealed; it can be inspected but not changed."),
     "run.abandoned": ("state", False, "The run was abandoned."),
     "node.not_ready": ("state", True, "A node this one needs is not current yet."),
