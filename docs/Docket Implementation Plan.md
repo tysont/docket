@@ -105,7 +105,7 @@ Estimates are in focused working sessions (about three hours each, agent-assiste
 
 ### M9. Robustness and agent polish (3 sessions)
 
-**Build:** sandbox runs (`docket run start <graph> --sandbox`) end to end; `unexpected accept`; `docket doctor` complete, with `--graph` (TD §15.4); performance work to the TD §18 budgets; `help errors`; the static raise check (TP §5.1); `docket import cursors`.
+**Build:** sandbox runs (`docket run start <graph> --sandbox`) end to end; `unexpected accept`; `docket doctor` complete, with `--graph` (TD §15.4); performance work to the TD §18 budgets; `help errors`; the static raise check (TP §5.1); `docket cursor import`.
 
 **Exit:** both personas run a sandbox run to the seal in under 60 seconds with nothing written outside the run (TP §8.1); `docket next` answers in under 300 ms warm on the supported baseline environment; a fresh agent session with only `docket help --json` completes a fixture run.
 
@@ -127,7 +127,7 @@ Daily, a parity report (TP §11) compares findings, questions, routes and planne
 
 ### M12. Cutover (1 session)
 
-Docket becomes authoritative with live destinations. The predecessor's entry points are changed to point at Docket and then disabled, not deleted. Cursors are seeded from the predecessor's final watermarks with `docket import cursors`. The predecessor remains in the operator's private configuration repository for 30 days as a fallback, then is removed in one commit.
+Docket becomes authoritative with live destinations. The predecessor's entry points are changed to point at Docket and then disabled, not deleted. Cursors are seeded from the predecessor's final watermarks with `docket cursor import`. The predecessor remains in the operator's private configuration repository for 30 days as a fallback, then is removed in one commit.
 
 **Rollback:** re-enable the predecessor's entry points. Both systems read the same sources and write the same backlog grammar and calendar marker format (the reference workspace's templates match the predecessor's formats exactly), so either can take over from the other's state. The cursor export is the only manual step and is one command.
 

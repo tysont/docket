@@ -280,3 +280,125 @@ def write_import(db: sqlite3.Connection, rows: list[dict[str, Any]], marker: str
     for r in rows:
         db.execute("INSERT OR REPLACE INTO cursors (source, unit, position, coverage_end, updated_run) "
                    "VALUES (?,?,?,?,?)", (r["source"], r["unit"], r["position"], r["coverage_end"], marker))
+
+
+# --- standing and reset ---------------------------------------------------------------
+
+
+def parse_point(text: str, *, tz: str, now: datetime, token: bool = False) -> tuple[str, str]:
+    """Where a reset goes back to: ``("instant", iso)`` or ``("position", text)``.
+
+    An ISO instant is taken as given. A date (``2026-10-15``, ``today``) is the start of that
+    day in ``tz``, and a time with no offset is in ``tz``. A whole number is a position, and
+    so is any other text for a source that pages by token. An instant after ``now`` is refused:
+    a cursor there would skip records no run has read.
+    """
+    from zoneinfo import ZoneInfo
+
+    from docket.cli.errors import InputError
+    from docket.text.dates import parse_date
+    s = str(text).strip()
+    zone = ZoneInfo(tz)
+    at: datetime | None = None
+    if "T" in s or " " in s.strip():
+        try:
+            at = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            at = None
+        if at is not None and at.tzinfo is None:
+            at = at.replace(tzinfo=zone)
+    if at is None and _as_int(s) is None:
+        try:
+            day = parse_date(s, now.astimezone(zone).date())
+        except InputError:
+            day = None
+        if day is not None:
+            at = datetime(day.year, day.month, day.day, tzinfo=zone)
+    if at is None:
+        if _as_int(s) is not None or (token and s):
+            return "position", s
+        raise InputError("input.bad_date", f"Not a date, a time or a position: {text!r}.",
+                         hint="docket cursor reset <source> --to 2026-10-15 (or an ISO time, or a position)",
+                         details={"received": s})
+    if at > now:
+        raise InputError("input.bad_argument", f"--to {s} is in the future; a cursor there would skip records "
+                                               "no run has read.", hint="docket cursor reset <source> --to <a past date>")
+    return "instant", at.isoformat()
+
+
+def standing(db: sqlite3.Connection, source: str, unit: str | None = None) -> list[dict[str, Any]]:
+    """The durable cursors of a source, with each unit's name from the unit registry."""
+    sql = ("SELECT c.unit, u.name, c.position, c.coverage_end, c.updated_run FROM cursors c LEFT JOIN units u "
+           "ON u.source=c.source AND u.unit_id=c.unit WHERE c.source=?" + (" AND c.unit=?" if unit else "")
+           + " ORDER BY c.unit")
+    return [dict(r) for r in db.execute(sql, (source, unit) if unit else (source,))]
+
+
+def plan_reset(db: sqlite3.Connection, source: str, model: str, *, unit: str | None,
+               point: tuple[str, str] | None) -> dict[str, Any]:
+    """What a reset of ``source`` changes; writes nothing.
+
+    Without a point, every cursor (or the one of ``unit``) is removed, so the next read starts
+    from the source's lookback. An instant sets the coverage there with no position, so the
+    next read starts at it whatever the source's position looks like; a position sets the
+    position and clears the coverage. For a ``units`` source with no ``unit`` given, a point
+    also applies to units the registry knows that have no cursor yet. An ``id-scan`` source has
+    no cursor: its processed-id markers are forgotten, all of them, one id, or those recorded by
+    runs dated on or after the point.
+    """
+    out: dict[str, Any] = {"changes": [], "unchanged": [], "forgets": [], "kept": 0}
+    if model == "id-scan":
+        rows = db.execute("SELECT p.record_id, p.run_id, r.date FROM processed_ids p LEFT JOIN runs r "
+                          "ON r.run_id=p.run_id WHERE p.source=? ORDER BY p.record_id", (source,)).fetchall()
+        since = point[1][:10] if point else None
+        for r in rows:
+            hit = (unit is None or r["record_id"] == unit) and (since is None or (r["date"] or "") >= since)
+            if hit:
+                out["forgets"].append({"id": r["record_id"], "run": r["run_id"]})
+            else:
+                out["kept"] += 1
+        return out
+    current = {r["unit"]: r for r in standing(db, source, unit)}
+    targets = dict(current)
+    if point is not None:
+        if unit is not None:
+            targets.setdefault(unit, None)
+        elif model == "units":
+            for r in db.execute("SELECT unit_id, name FROM units WHERE source=? AND gone_at IS NULL", (source,)):
+                targets.setdefault(r["unit_id"], {"unit": r["unit_id"], "name": r["name"], "absent": True})
+        else:
+            targets.setdefault("*", None)
+    names = {r["unit_id"]: r["name"] for r in db.execute("SELECT unit_id, name FROM units WHERE source=?", (source,))}
+    for u in sorted(targets):
+        row = current.get(u)
+        before = {k: row[k] for k in ("position", "coverage_end", "updated_run")} if row else None
+        if point is None:
+            after = None
+        elif point[0] == "instant":
+            after = {"position": None, "coverage_end": point[1]}
+        else:
+            after = {"position": point[1], "coverage_end": None}
+        change = {"unit": u, "name": names.get(u), "before": before, "after": after}
+        same = (before is None and after is None) or (
+            before is not None and after is not None and
+            (before["position"], before["coverage_end"]) == (after["position"], after["coverage_end"]))
+        out["unchanged" if same else "changes"].append(change)
+    return out
+
+
+def write_reset(db: sqlite3.Connection, source: str, plan: dict[str, Any], marker: str) -> None:
+    """Apply a reset plan (the caller holds the transaction) and keep each change in the
+    ``cursor_resets`` ledger, since a reset is the one way a cursor moves back."""
+    for c in plan["changes"]:
+        if c["after"] is None:
+            db.execute("DELETE FROM cursors WHERE source=? AND unit=?", (source, c["unit"]))
+        else:
+            db.execute("INSERT OR REPLACE INTO cursors (source, unit, position, coverage_end, updated_run) "
+                       "VALUES (?,?,?,?,?)", (source, c["unit"], c["after"]["position"], c["after"]["coverage_end"],
+                                              marker))
+        db.execute("INSERT INTO ledgers (ledger, run_id, key, json) VALUES (?,?,?,?)",
+                   ("cursor_resets", marker, f"{source}/{c['unit']}", json.dumps(c, sort_keys=True)))
+    for f in plan["forgets"]:
+        db.execute("DELETE FROM processed_ids WHERE source=? AND record_id=?", (source, f["id"]))
+        db.execute("INSERT INTO ledgers (ledger, run_id, key, json) VALUES (?,?,?,?)",
+                   ("cursor_resets", marker, f"{source}/{f['id']}", json.dumps(f, sort_keys=True)))

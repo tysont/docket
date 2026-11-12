@@ -4,5 +4,5 @@ from docket.cli.commands import plan_cmds  # noqa: F401  (plan diff, explain, lo
 from docket.cli.commands import item_cmds  # noqa: F401  (item why, item list, config test)
 from docket.cli.commands import task_cmds  # noqa: F401  (task kinds, workspace task schemas)
 from docket.cli.commands import ask_cmds  # noqa: F401  (ask list, show, answer, undo, resolve)
-from docket.cli.commands import import_cmds  # noqa: F401  (import cursors)
+from docket.cli.commands import cursor_cmds  # noqa: F401  (cursor list, reset, import)
 from docket.cli.commands import doctor_cmds  # noqa: F401  (doctor)

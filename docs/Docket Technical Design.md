@@ -944,6 +944,10 @@ Before its first operation, the node pins every node upstream of it (§5.4). Its
 
 A read node writes a `cursor_proposal` for each source and unit with the contiguous coverage it proved, from the durable cursor forward. A proposal with a gap ends at the gap, and a unit that proved nothing has none, so its cursor holds. The seal applies the proposals in one transaction. Positions only move forward; a proposal behind the durable cursor is ignored and recorded in the `cursor_regressions` ledger (FR-APP-04). A run abandoned before its seal advances nothing, so the next run re-reads. A sandbox run never moves a cursor.
 
+`docket cursor list` shows where each source stands: its cursor per unit with the unit's name from the registry, the coverage it proved, and the run that last moved it. A source with many units is summarised by count and coverage span; `--units` lists them, up to `--limit`. An `id-scan` source shows how many ids it has processed.
+
+`docket cursor reset <source> [--unit U] [--to POINT]` is the one way a cursor moves back. Without `--to` it removes the cursor, so the next read starts from the source's lookback. A date or an ISO time sets the coverage there with no position, so the next read starts at that instant whatever the source's positions look like; a date is the start of that day in the profile's timezone, and a point in the future is refused. A whole number, or any text for a source that pages by token, sets the position. A `units` source reset to a point with no `--unit` also gives a cursor at the point to each registry unit that has none. An `id-scan` source has no cursor: its reads skip the ids in `processed_ids`, so its reset forgets those markers, all of them, one id, or those recorded by runs dated on or after the point. No other marker makes a read skip a record; dispositions and the item ledger are decisions on topics, and a reset leaves them alone. The result shows each change, before and after, and `--dry-run` writes nothing. Each change is kept in the `cursor_resets` ledger. A reset is refused with `cursor.read_in_open_run` while an open run that is not a sandbox run has already read the source, since that run's seal would move the cursor past the reset; it names the run, to be sealed or abandoned first. `docket cursor import --from <json>` seeds cursors once from a predecessor's watermarks (§19); it only moves them forward.
+
 ### 13.5 Journal and ledgers
 
 The journal is rendered from configured sections, each a template over a closed context: `run`, `sources` (outcomes and coverage), `findings`, `questions`, `answers`, `operations`, `not_asked`, `dropped` (with reasons), `coverage_notes`, `context` (context records), `unexpected`. Ledgers are generic rows (`ledger`, `run`, `key`, `json`) that templates can aggregate across runs, for example a carries ledger or a surfaced-items audit.
@@ -1041,10 +1045,11 @@ Every subprocess Docket starts (transports, auth checks, adapters, run nodes) ru
 | Config | `config explain`, `config test`, `config validate`, `init`, `presets list`, `presets show` |
 | Sources | `source list`, `source test` |
 | Health | `doctor [--graph <name>] [--probe]` |
-| Plugins and import | `import cursors`, `plugin check`, `plugin list` |
+| Cursors | `cursor import`, `cursor list`, `cursor reset` |
+| Plugins | `plugin check`, `plugin list` |
 | Self-description | `help`, `schema`, `schema list`, `version` |
 
-This table lists all 51 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
+This table lists all 53 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
 
 Every command takes `--json`, `--workspace` and `--run` where it applies. Every mutating command takes `--dry-run` and reports what it would do (AE-06).
 
@@ -1155,7 +1160,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 
 - **Chat over an MCP gateway's code-mode tool.** The `mcp/chat-codemode` preset ships the paging and projection script with no deployment-specific host or tool names; the workspace sets the server and tool names.
 - **The native calendar bridge.** Wrapped through `calendar_exec` (§11.3). The bridge's existing verbs map one to one onto the exec protocol; a small shim translates its argument shapes. The shim lives with the workspace.
-- **External state tools.** The predecessor kept watermarks in an external tool. Docket keeps cursors in its own database, and a one-time `docket import cursors --from <json>` seeds them so the first Docket run does not re-read weeks of history.
+- **External state tools.** The predecessor kept watermarks in an external tool. Docket keeps cursors in its own database, and a one-time `docket cursor import --from <json>` seeds them so the first Docket run does not re-read weeks of history.
 
 ## 20. Decisions and open questions
 

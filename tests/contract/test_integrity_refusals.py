@@ -261,7 +261,7 @@ def case_cursor_regression(persona: Any, cli: Any, tmp_path: Path, **_: Any) -> 
     db.close()
     f = tmp_path / "watermarks.json"
     f.write_text(json.dumps({"tickets": "2026-10-01T00:00:00Z"}))
-    return cli_refusal(*cli("import", "cursors", "--from", str(f), "--workspace", str(ws)))
+    return cli_refusal(*cli("cursor", "import", "--from", str(f), "--workspace", str(ws)))
 
 
 CASES: dict[str, tuple[Callable[..., Refused], str | None]] = {
