@@ -40,6 +40,12 @@ MERGE_TITLE = "{titles|join:; }"
 # --- adapter previews ------------------------------------------------------------------------
 
 
+def workdays(rc: "RunContext") -> frozenset[int]:
+    """The days work happens on, as weekday numbers (Monday 0)."""
+    from docket.plan.types import Policy
+    return Policy.from_config(rc.ws.config.planning, rc.ws.config.profile.workdays).workdays
+
+
 def preview(rc: "RunContext", kind: str, dest_id: str | None, fields: dict[str, Any], qid: str, *,
             target: str | None = None, key: str | None = None, item_id: str | None = None,
             option_id: str | None = None) -> list[dict[str, Any]]:
@@ -119,7 +125,7 @@ def finding_context(rc: "RunContext", qid: str, item: dict[str, Any], overrides:
         "when": overrides.get("when", ""), "note": overrides.get("note", ""),
         "area": overrides.get("area") or dflt.get("area") or "", "links": links,
         "forum": forum_row(rc, fid) or {} if fid else {},
-        "run": {"id": rc.run.id, "date": rc.run.header.clock.date},
+        "run": {"id": rc.run.id, "date": rc.run.header.clock.date, "workdays": sorted(workdays(rc))},
     })
     if merged_items:
         view["evidence"] = [e for it in [item, *merged_items] for e in (it.get("evidence") or [])]

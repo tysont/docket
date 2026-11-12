@@ -179,7 +179,9 @@ def derived_defaults(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
     if deadline:
         due, due_source = deadline, "deadline"
     else:
-        due, due_source = (run_day(rc) + timedelta(days=lead)).isoformat(), "lead_days"
+        from docket.decide.operations import workdays
+        from docket.text.dates import add_workdays
+        due, due_source = add_workdays(run_day(rc), lead, workdays(rc)).isoformat(), "lead_days"
     est = _est_of(it)
     est_source = "assessment"
     if est is None:

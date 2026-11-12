@@ -116,7 +116,12 @@ def select_asked(items: list[dict[str, Any]], floor: int, budget: int | None, mu
         decision = (it.get("assessment") or {}).get("decision")
         return int((floors or {}).get(decision, floor)) if decision else floor
 
-    kept = [it for it in items if it.get("keep") and int(it.get("score") or 0) >= own_floor(it)]
+    def reviewed(it: dict[str, Any]) -> bool:
+        # A reviewer who saw the item among the whole set and said to show it has the last word:
+        # changing its recommended decision must not put it under another decision's floor.
+        return it.get("verdict") in ("ask", "needs_verification")
+
+    kept = [it for it in items if it.get("keep") and (reviewed(it) or int(it.get("score") or 0) >= own_floor(it))]
     kept.sort(key=lambda it: (-int(it.get("score") or 0), it["id"]))
 
     def is_must(it: dict[str, Any]) -> bool:

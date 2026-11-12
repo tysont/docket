@@ -41,6 +41,7 @@ from docket.plan.taskstore import (
 )
 from docket.plan.types import DAY, Policy, Task, at, hhmm
 from docket.plan.windows import resolve_window
+from docket.text.dates import add_workdays
 from docket.text import templates
 
 if TYPE_CHECKING:
@@ -234,7 +235,7 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         if "due" in ov:
             fields["due"] = str(ov["due"])
         elif "due" not in fields and not ov.get("when"):  # a window governs when; no default due to be late against
-            fields["due"] = (inp.today + timedelta(days=inp.policy.default_lead_days)).isoformat()
+            fields["due"] = add_workdays(inp.today, inp.policy.default_lead_days, inp.policy.workdays).isoformat()
         if "est" in ov:
             fields["est"] = str(ov["est"])
         if ov.get("when"):

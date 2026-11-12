@@ -138,7 +138,11 @@ class BaseNode:
     def step(self, run: "RunContext") -> Any:
         ev = run.eval(self.name)
         return RunStep(node=self.name, command=Command.of(run.argv("do", self.name)), why=self._why(ev),
-                       expect=self.expect)
+                       expect=self.expect, timeout_s=self.timeout_s(run))
+
+    def timeout_s(self, run: "RunContext") -> int:
+        """How long the driver should let the node's command run before giving up on it."""
+        return 120
 
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
         return self.computed_eval(run, up)
@@ -252,6 +256,11 @@ class ReadNode(BaseNode):
                             command=Command.of(run.argv("do", self.name, "--again")))
         return super().step(run)
 
+    def timeout_s(self, run: "RunContext") -> int:
+        # A read ends by its own budget; with none it takes as long as the source has to say.
+        budget = run.ws.config.sources[self.source].budget.max_seconds
+        return int(budget) + 60 if budget else 1800
+
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
         from docket.sources.read import read_source
         assert self.cfg is not None
@@ -268,6 +277,10 @@ class RunNode(BaseNode):
 
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
         return self.computed_eval(run, up, extra={"sandbox": run.run.header.sandbox})
+
+    def timeout_s(self, run: "RunContext") -> int:
+        assert self.cfg is not None
+        return int(self.cfg.timeout_s) + 30
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
         assert self.cfg is not None

@@ -142,3 +142,15 @@ def test_items_recommended_for_a_batch_option_have_their_own_budget():
     assert [it["id"] for it in asked] == ["must", "a1", "a2", "n1", "n2", "n3"]
     asked, over = select_asked(items, 55, 2, must_surface="bypass")          # no batch options: as before
     assert [it["id"] for it in asked] == ["must", "a1", "n1"] and len(over) == 4
+
+
+def test_an_item_the_reviewer_said_to_show_is_asked_whatever_floor_its_new_decision_has():
+    """Merge kept an item at 52 under the floor of 45 its recommended decision carries. The
+    reviewer changed the decision to one with the general floor of 55 and said to ask. It is
+    asked; the same item nobody reviewed is held to the floor of its decision."""
+    from docket.decide.questions import select_asked
+    item = {"id": "a", "keep": True, "score": 52, "assessment": {"decision": "acknowledge"}}
+    floors = {"monitor": 45}
+    assert select_asked([item], 55, 5, floors=floors) == ([], [])
+    assert select_asked([{**item, "verdict": "ask"}], 55, 5, floors=floors)[0][0]["id"] == "a"
+    assert select_asked([{**item, "assessment": {"decision": "monitor"}}], 55, 5, floors=floors)[0][0]["id"] == "a"

@@ -116,3 +116,14 @@ def test_a_block_can_render_when_a_field_is_absent():
     assert render(tpl, {"topic": "", "ask": "Reply"}) == "Reply" and render(tpl, {"ask": "Reply"}) == "Reply"
     with pytest.raises(TemplateError):
         parse("{!topic}never closed")
+
+
+def test_a_lead_time_counts_working_days():
+    from datetime import date
+
+    from docket.text.dates import add_workdays
+    week = frozenset({0, 1, 2, 3, 4})
+    assert add_workdays(date(2026, 11, 11), 3, week) == date(2026, 11, 16)      # Wednesday -> Monday
+    assert add_workdays(date(2026, 11, 9), 3, week) == date(2026, 11, 12)       # Monday -> Thursday
+    assert add_workdays(date(2026, 11, 14), 0, week) == date(2026, 11, 16)      # a day off moves to the next working day
+    assert add_workdays(date(2026, 11, 11), 3, frozenset()) == date(2026, 11, 14)

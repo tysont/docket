@@ -90,6 +90,9 @@ def test_required_fields_take_answer_then_defaults_then_refuse_with_the_override
     assert op.line == "- [ ] Ship it [source:: chat] [due:: 2026-10-20] [est:: 30m] [link:: https://t.example/1]"
     d2 = tasks(tmp_path, quality={"require": ["due"], "defaults": {"due": "+3d"}})
     assert preview(d2, add("Ship it"))[0].line.endswith("[due:: 2026-10-18]")
+    # a lead time counts working days when the run names them: Thursday + 3 is Tuesday, not Sunday
+    week = add("Ship it", run={"date": "2026-10-15", "workdays": [0, 1, 2, 3, 4]})
+    assert preview(d2, week)[0].line.endswith("[due:: 2026-10-20]")
     d3 = tasks(tmp_path, quality={"require": ["due"]})
     fix = lambda flag, ph: f"docket ask answer q_1 task {flag} {ph}"  # noqa: E731
     with pytest.raises(IntegrityError) as e:

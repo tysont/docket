@@ -20,7 +20,7 @@ answer command with the override that fixes it, or the configuration path.
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, Callable
 
 from docket.cli.errors import IntegrityError
@@ -52,9 +52,11 @@ def _value(name: str, ctx: dict[str, Any], defaults: dict[str, str], duration: s
         return _duration(d, duration)
     if d:
         m = re.fullmatch(r"\+(\d+)d", d.strip())
-        run_date = ((ctx.get("run") or {}).get("date")) or None
-        if m and run_date:
-            return (date.fromisoformat(run_date) + timedelta(days=int(m.group(1)))).isoformat()
+        run = ctx.get("run") or {}
+        run_date = run.get("date") or None
+        if m and run_date:  # a lead time counts working days when the run names them
+            from docket.text.dates import add_workdays
+            return add_workdays(date.fromisoformat(run_date), int(m.group(1)), set(run.get("workdays") or ())).isoformat()
         if not m:
             return d
     if name == "area" and ctx.get("area"):

@@ -182,3 +182,16 @@ graphs:
     code, env = _call(ws, ["config", "validate"])
     assert code != 0 and env["error"]["code"] == "config.invalid"
     assert "'missing', which is not a node of the graph" in json.dumps(env["error"])
+
+
+def test_a_step_says_how_long_its_command_may_take(tmp_path: Path) -> None:
+    """The driver bounds each command by the step's ``timeout_s``. A read is bounded by its
+    source's own time budget, or generously when it has none; a run node by its own timeout."""
+    graph = GRAPH.replace('run: ["true"],', 'run: ["true"], timeout_s: 300,')
+    ws = _workspace(tmp_path, graph)
+    steps = {s["node"]: s for s in _ok(ws, ["run", "start", "daily", "--now", NOW])["data"]["steps"]}
+    assert steps["gather"]["timeout_s"] == 1800 and steps["touch"]["timeout_s"] == 330
+    (ws / "docket.yaml").write_text((BASE + graph).replace(
+        "    kind: files\n", "    kind: files\n    budget: { max_seconds: 240 }\n"), encoding="utf-8")
+    steps = {s["node"]: s for s in _ok(ws, ["run", "start", "daily", "--now", NOW, "--new"])["data"]["steps"]}
+    assert steps["gather"]["timeout_s"] == 300

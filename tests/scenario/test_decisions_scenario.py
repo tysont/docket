@@ -99,8 +99,9 @@ def test_guards_can_accept_and_label_templates(persona, cli):
     start(cli, ws)
     q = _forum_question(ask(ws))
     labels = {o["id"]: o["label"] for o in q["options"]}
-    # labels render the derived defaults: run date + 3 lead days, the default estimate, "this week"
-    assert labels["task"] == "Add a task (due Sun)" and labels["block"] == "Block 30m this week"
+    # labels render the derived defaults: three working days after the run date (a Thursday), so the
+    # weekend is not counted; the default estimate; "this week"
+    assert labels["task"] == "Add a task (due Tue)" and labels["block"] == "Block 30m this week"
     refused = {r["option"]: r["reason"] for r in q["details"]["refused"]}
     assert refused == {"agenda": "agendas: no agenda found for this item",
                        "draft": "no configured destination accepts message.draft"}

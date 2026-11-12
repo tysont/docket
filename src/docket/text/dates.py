@@ -52,6 +52,22 @@ def parse_date(text: str, ref: date) -> date:
     )
 
 
+def add_workdays(start: date, days: int, workdays: "frozenset[int] | set[int]") -> date:
+    """The day ``days`` working days after ``start`` (weekday numbers, Monday 0). With no
+    working day named, plain days. A lead time counts the days work can happen on, so a due
+    date derived from it never lands on a day off."""
+    if not workdays:
+        return start + timedelta(days=days)
+    d, left = start, days
+    while left > 0:
+        d += timedelta(days=1)
+        if d.weekday() in workdays:
+            left -= 1
+    while d.weekday() not in workdays:
+        d += timedelta(days=1)
+    return d
+
+
 def normalize_date(text: str, ref: date) -> str:
     return parse_date(text, ref).isoformat()
 
