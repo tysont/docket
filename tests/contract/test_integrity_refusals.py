@@ -202,7 +202,9 @@ def case_receipt_conflict(tmp_path: Path, **_: Any) -> Refused:
                "payload_digest, created_at) VALUES (?,?,?,?,?,?,?,?)",
                ("op_1", "r1", "backlog", "applied", None, "verified", receipts.payload_digest(op), "t"))
     try:
-        return expect(lambda: receipts.existing(db, {**op, "line": "- [ ] B"}))
+        from types import SimpleNamespace
+        live = SimpleNamespace(header=SimpleNamespace(sandbox=False), store=SimpleNamespace(db=db))   # a live run
+        return expect(lambda: receipts.existing(live, {**op, "line": "- [ ] B"}))
     finally:
         db.close()
 
