@@ -508,7 +508,8 @@ def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why:
                                   answer=Command.of(argv)))
         details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "counts",
                                                         "block_key", "task_id", "evidence", "refused", "notes",
-                                                        "previous", "requires", "defaults", "recommended")
+                                                        "previous", "requires", "defaults", "recommended", "batch_block",
+                                                        "meeting")
                    and v not in (None, [], {})}
         batch = [o["id"] for o in q["options"] if o.get("batch")]
         if batch:

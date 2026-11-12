@@ -74,6 +74,7 @@ SITES: dict[str, FieldSet] = {
 DECISION_TEMPLATE_SITES: dict[str, FieldSet] = {
     "finding_prompt": FINDING_PROMPT,
     "reconcile_prompt": RECONCILE,
+    "reconcile_batch_prompt": RECONCILE,
     "verify_prompt": VERIFY,
     "merge_title": MERGE_TITLE,
 }

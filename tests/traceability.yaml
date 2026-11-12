@@ -139,6 +139,7 @@ FR-DEC-05:
   - tests/scenario/test_decisions_scenario.py::test_reconcile_options_map_to_task_store_operations
   - tests/scenario/test_decisions_scenario.py::test_reconcile_at_the_carry_limit_offers_rescope_instead_of_another_carry
   - tests/scenario/test_calendar_ownership.py::test_blocks_applied_by_run_one_are_owned_by_run_two
+  - tests/scenario/test_reconcile_batch_scenario.py::test_an_elapsed_batch_block_asks_about_each_open_member
 FR-DEC-06:
   - tests/unit/decide/test_answers.py::test_bind_keeps_unchanged_answers_and_moves_changed_ones_to_previous
 FR-DEC-07:

@@ -1,11 +1,15 @@
 """Reconcile questions (TD §10.4, FR-DEC-05): did the planned work happen?
 
-Candidates are owned task blocks (ownership key ``<prefix>t_...``) that ended
-inside the reconcile window: from the later of ``run instant - lookback`` and
-the instant of the workspace's last sealed live run, up to the run instant. A
-block is asked about only when its task is still open in the task store, so a
-block is reconciled once: by the next run its window has moved on, and a
-closed task is never asked about again.
+Candidates are owned blocks that ended inside the reconcile window: from the
+later of ``run instant - lookback`` and the instant of the workspace's last
+sealed live run, up to the run instant. A task block (ownership key
+``<prefix>t_...``) is asked about when its task is still open in the task
+store. A batch block (``<prefix>b_...``) asks about each of its members that is
+still open, one question each; the members are the task ids the plan that
+placed the block named (a batch key is a digest of its members, so any plan
+that placed it names the same ones), else the items the item ledger tracks on
+the block. Either way a block is reconciled once: by the next run its window
+has moved on, and a closed task is never asked about again.
 
 Option kinds are fixed (``done``, ``partly``, ``not_done``, ``to_agenda``,
 ``drop``); labels come from ``decisions.reconcile.labels``. At
@@ -41,6 +45,8 @@ LABELS = {
 }
 PROMPT = "Did \"{block.title}\" happen ({block.day} {block.start}-{block.end})?{?carried} Carried {carried} time(s) " \
          "so far.{/carried}"
+BATCH_PROMPT = "Did \"{task.title}\" happen in \"{block.title}\" ({block.day} {block.start}-{block.end})?{?carried} " \
+               "Carried {carried} time(s) so far.{/carried}"
 ACTIONS = {"done": "reconcile.done", "partly": "reconcile.partly", "not_done": "reconcile.not_done",
            "rescope": "reconcile.rescope", "to_agenda": "reconcile.to_agenda", "drop": "reconcile.drop"}
 REQUIRES = {"partly": ["est"], "rescope": ["est|title|action|due"], "to_agenda": []}
@@ -71,8 +77,46 @@ def window(rc: "RunContext") -> tuple[datetime, datetime]:
     return lo, now
 
 
+def batch_members(rc: "RunContext", keys: set[str]) -> dict[str, list[str]]:
+    """The task ids each batch block in ``keys`` holds, as the engine placed them.
+
+    The scheduler names a batch by a digest of its members (``docket.plan.scheduler``), so
+    every plan that placed a batch key lists the same task ids beside it. Earlier runs'
+    plans are read newest first until every key is found; a key no plan names falls back
+    to the item ledger's placements (``items_of_block``). A key found nowhere has no
+    members, and is not asked about."""
+    found: dict[str, list[str]] = {}
+    if not keys:
+        return found
+    store = rc.run.store
+    runs = [r["run_id"] for r in store.db.execute("SELECT run_id FROM runs WHERE run_id<>? ORDER BY created_at DESC, "
+                                                  "run_id DESC", (rc.run.id,))]
+    for run_id in runs:
+        pdir = store.runs_dir / run_id / "plan"
+        if not pdir.is_dir():
+            continue
+        for path in sorted(pdir.glob("*/plan.json")):
+            try:
+                plan = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for b in [*(plan.get("schedule") or []), *(plan.get("operations") or [])]:
+                key = b.get("key") if isinstance(b, dict) else None
+                if key in keys and key not in found and b.get("task_ids"):
+                    found[key] = [str(t) for t in b["task_ids"]]
+        if len(found) == len(keys):
+            return found
+    from docket.items.ledger import items_of_block
+    for key in sorted(keys - set(found)):
+        rows = items_of_block(store.db, key)
+        if rows:
+            found[key] = [str(r["key"]) for r in rows]
+    return found
+
+
 def candidates(rc: "RunContext", tasks: list[StoreTask] | None = None) -> list[dict[str, Any]]:
-    """Elapsed owned blocks in the window whose task is open, oldest first."""
+    """Elapsed owned blocks in the window whose task is open, oldest first; a batch block
+    gives one row per open member."""
     from docket.plan.build import _provider
     cal = rc.ws.config.planning.calendar
     if cal is None:
@@ -82,31 +126,51 @@ def candidates(rc: "RunContext", tasks: list[StoreTask] | None = None) -> list[d
     prefix = rc.ws.config.planning.key_prefix
     tasks = open_tasks(rc) if tasks is None else tasks
     by_key = {block_key(prefix, t.id): t for t in tasks}
+    by_id = {t.id: t for t in tasks}
     for t in tasks:  # the parts of a split task (TD §12.3) are blocks of that task
         for n in range(1, MAX_PARTS + 1):
             by_key.setdefault(block_key(prefix, f"{t.id}#{n}"), t)
-    out = []
     from docket.shapes.unexpected import collecting
     with collecting():  # calendar shapes are recorded by the plan node, not by every evaluation
         events = _provider(rc, tz).list_events(lo, hi)
+    elapsed = []
     for ev in events:
         key = ev.owned_key or ""
-        if ev.cancelled or ev.all_day or not isinstance(ev.start, datetime) or not key.startswith(prefix + "t_"):
+        if ev.cancelled or ev.all_day or not isinstance(ev.start, datetime):
+            continue
+        if not (key.startswith(prefix + "t_") or key.startswith(prefix + "b_")):
             continue
         end = ev.end if isinstance(ev.end, datetime) else None
         if end is None or not (lo < end <= hi):
             continue
-        task = by_key.get(key)
-        if task is None:
-            continue
+        elapsed.append((ev, end))
+    members = batch_members(rc, {ev.owned_key for ev, _ in elapsed if ev.owned_key.startswith(prefix + "b_")})
+    out = []
+    for ev, end in elapsed:
+        key = ev.owned_key
         s, e = ev.start.astimezone(tz), end.astimezone(tz)
-        out.append({"block": {"key": key, "title": ev.title, "event_id": ev.id, "start": s.strftime("%H:%M"),
-                              "end": e.strftime("%H:%M"), "day": s.strftime("%a %Y-%m-%d"),
-                              "start_at": s.isoformat(), "end_at": e.isoformat(),
-                              "minutes": int((e - s).total_seconds() // 60)},
-                    "task": task.view()})
-    out.sort(key=lambda r: (r["block"]["start_at"], r["block"]["key"]))
+        block = {"key": key, "title": ev.title, "event_id": ev.id, "start": s.strftime("%H:%M"),
+                 "end": e.strftime("%H:%M"), "day": s.strftime("%a %Y-%m-%d"),
+                 "start_at": s.isoformat(), "end_at": e.isoformat(), "minutes": int((e - s).total_seconds() // 60)}
+        if key.startswith(prefix + "t_"):
+            task = by_key.get(key)
+            if task is not None:
+                out.append({"block": block, "task": task.view()})
+            continue
+        open_members = [by_id[t] for t in dict.fromkeys(members.get(key) or []) if t in by_id]
+        for task in open_members:
+            out.append({"block": {**block, "batch": len(open_members)}, "task": task.view()})
+    out.sort(key=lambda r: (r["block"]["start_at"], r["block"]["key"], r["task"]["id"]))
     return out
+
+
+def question_id(row: dict[str, Any]) -> str:
+    """``r_`` + the block key; a batch member adds a digest of its task id, so each member of
+    one block has its own stable question."""
+    b = row["block"]
+    if "batch" not in b:
+        return "r_" + b["key"]
+    return f"r_{b['key']}.{digest(['member', row['task']['id']])[:8]}"
 
 
 def subject_digest(row: dict[str, Any]) -> str:
@@ -141,13 +205,21 @@ def question(rc: "RunContext", row: dict[str, Any]) -> dict[str, Any]:
     if at_limit:
         notes.append(f"Carried {row['task']['carry']} times (limit {cfg.reconcile.carry_limit}): re-scope or drop "
                      f"it instead of carrying it again.")
-    prompt = templates.render(cfg.templates.get("reconcile_prompt", PROMPT), ctx)
-    return {"id": "r_" + row["block"]["key"], "kind": "reconcile", "block_key": row["block"]["key"],
-            "task_id": row["task"]["id"], "prompt": prompt,
-            "evidence": [f"Planned block {row['block']['day']} {row['block']['start']}-{row['block']['end']}",
-                         f"Task line: {row['task']['line'].strip()}"],
-            "options": opts, "refused": refused, "notes": notes, "requires": {k: v for k, v in REQUIRES.items() if v},
-            "subject": subject_digest(row)}
+    batch = "batch" in row["block"]
+    tpl = cfg.templates.get("reconcile_batch_prompt", BATCH_PROMPT) if batch \
+        else cfg.templates.get("reconcile_prompt", PROMPT)
+    prompt = templates.render(tpl, ctx)
+    evidence = [f"Planned block {row['block']['day']} {row['block']['start']}-{row['block']['end']}",
+                f"Task line: {row['task']['line'].strip()}"]
+    if batch:
+        evidence.insert(1, f"One of {row['block']['batch']} open task(s) in the batch block \"{row['block']['title']}\"")
+    q = {"id": question_id(row), "kind": "reconcile", "block_key": row["block"]["key"],
+         "task_id": row["task"]["id"], "prompt": prompt, "evidence": evidence,
+         "options": opts, "refused": refused, "notes": notes, "requires": {k: v for k, v in REQUIRES.items() if v},
+         "subject": subject_digest(row)}
+    if batch:
+        q["batch_block"] = {"key": row["block"]["key"], "title": row["block"]["title"], "members": row["block"]["batch"]}
+    return q
 
 
 def operations(rc: "RunContext", qid: str, row: dict[str, Any], answer: dict[str, Any]) -> tuple[
@@ -188,4 +260,4 @@ def operations(rc: "RunContext", qid: str, row: dict[str, Any], answer: dict[str
     return [], {}
 
 
-__all__ = ["candidates", "question", "operations", "window", "LABELS"]
+__all__ = ["candidates", "question", "question_id", "operations", "window", "batch_members", "LABELS"]

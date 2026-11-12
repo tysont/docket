@@ -58,7 +58,7 @@ def _row(ev: Any, q: dict[str, Any], a: dict[str, Any] | None) -> dict[str, Any]
                        for i, o in enumerate(q["options"], 1)],
            "answer": a}
     for k in ("evidence", "refused", "notes", "previous", "requires", "item_id", "block_key", "task_id",
-              "recommended"):
+              "recommended", "batch_block", "meeting"):
         if q.get(k):
             out[k] = q[k]
     return out
