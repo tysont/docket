@@ -33,6 +33,7 @@ class RunContext:
         self.order: list[str] = ordered(graph) + [SEAL]
         self.impls: dict[str, BaseNode] = {n: build(n, graph.get(n)) for n in self.order}
         self._evals: dict[str, Eval] | None = None
+        self._partial: dict[str, Eval] | None = None   # the nodes evaluated so far, during evaluate()
 
     # --- commands and config -------------------------------------------------
     def argv(self, *words: str) -> list[str]:
@@ -83,38 +84,48 @@ class RunContext:
             from docket.apply import boundary
             evs: dict[str, Eval] = {}
             pins = boundary.pins(self.run)
-            for name in self.order:
-                impl = self.impls[name]
-                waits = [n for n in self.needs(name) if evs[n].state != "current"]
-                if waits and name not in pins:
-                    evs[name] = Eval(name, impl.verb, "blocked", reason=f"waiting on {', '.join(waits)}",
-                                     extra={"needs": waits}, how=impl.how)
-                    continue
-                if name in pins:
-                    # TD §5.4: a node upstream of a write that has begun is read as it was then, whatever
-                    # it would compute now (the write itself may have changed what the node reads).
-                    pinned = boundary.pinned_eval(self, impl, pins[name])
-                    if pinned is not None:
-                        evs[name] = pinned
-                        continue
-                    if waits:
-                        evs[name] = Eval(name, impl.verb, "blocked", reason="post_apply_change", how=impl.how,
-                                         extra={"underlying": "blocked"})
-                        continue
-                    ev = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
-                    if ev.state != "current":
-                        ev.extra["underlying"] = ev.state
-                        ev.state, ev.reason = "blocked", "post_apply_change"
-                    evs[name] = ev
-                    continue
-                evs[name] = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
+            self._partial = evs  # a node may read what it waits for (its needs) while it is evaluated
+            try:
+                self._evaluate_into(evs, pins)
+            finally:
+                self._partial = None
             self._evals = evs
         return [self._evals[n] for n in self.order]
+
+    def _evaluate_into(self, evs: dict[str, Eval], pins: dict[str, Any]) -> None:
+        from docket.apply import boundary
+        for name in self.order:
+            impl = self.impls[name]
+            waits = [n for n in self.needs(name) if evs[n].state != "current"]
+            if waits and name not in pins:
+                evs[name] = Eval(name, impl.verb, "blocked", reason=f"waiting on {', '.join(waits)}",
+                                 extra={"needs": waits}, how=impl.how)
+                continue
+            if name in pins:
+                # TD §5.4: a node upstream of a write that has begun is read as it was then, whatever
+                # it would compute now (the write itself may have changed what the node reads).
+                pinned = boundary.pinned_eval(self, impl, pins[name])
+                if pinned is not None:
+                    evs[name] = pinned
+                    continue
+                if waits:
+                    evs[name] = Eval(name, impl.verb, "blocked", reason="post_apply_change", how=impl.how,
+                                     extra={"underlying": "blocked"})
+                    continue
+                ev = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
+                if ev.state != "current":
+                    ev.extra["underlying"] = ev.state
+                    ev.state, ev.reason = "blocked", "post_apply_change"
+                evs[name] = ev
+                continue
+            evs[name] = impl.evaluate(self, join([evs[n] for n in self.inputs(name)]))
 
     def invalidate(self) -> None:
         self._evals = None
 
     def eval(self, name: str) -> Eval:
+        if self._evals is None and self._partial is not None and name in self._partial:
+            return self._partial[name]  # read while evaluating a node that needs it
         self.evaluate()
         assert self._evals is not None
         if name not in self._evals:

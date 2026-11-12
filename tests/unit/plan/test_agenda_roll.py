@@ -115,6 +115,24 @@ def test_an_unrecorded_meeting_that_is_not_the_latest_is_passed_over(tmp_path):
     assert [o["title"] for o in ops] == ["## 2026-10-15"] and ops[0]["remove"] == ["- Budget"]
 
 
+def test_without_no_record_a_meeting_with_no_record_is_left_alone(tmp_path):
+    """A roll node with no ``no_record`` setting assumes nothing: a meeting with no record is
+    left for a covered question to ask about, and only the recorded ones are rolled."""
+    d = dest(tmp_path)
+    assert roll_operations(d, d.snapshot(), FORUMS, {"me@example.org"}, [meeting("m1", "2026-10-15")],
+                           no_record=None, trailer="") == []
+    ops = roll_operations(d, d.snapshot(), FORUMS, {"me@example.org"}, [
+        meeting("m1", "2026-10-08", recap={"covered": [{"text": "Budget approved", "next": "N3"}], "actions": []}),
+        meeting("m2", "2026-10-15"),
+    ], no_record=None, trailer="")
+    assert [o["title"] for o in ops] == ["## 2026-10-08"]
+
+
+def test_a_roll_node_has_no_no_record_unless_it_says_so():
+    from docket.config.models import Node
+    assert Node.model_validate({"write": "roll", "from": ["recap"], "to": "agendas"}).no_record is None
+
+
 def test_an_unrecorded_meeting_with_nothing_on_the_agenda_writes_nothing(tmp_path):
     d = dest(tmp_path, NOTE.replace("- Hiring plan\n  - two open roles\n- Launch date\n- Budget\n", ""))
     assert roll_operations(d, d.snapshot(), FORUMS, {"me@example.org"}, [meeting("m1", "2026-10-08")],

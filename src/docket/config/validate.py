@@ -20,7 +20,8 @@ from pydantic import BaseModel, ValidationError
 from docket.config import contexts
 from docket.config.loader import Issue, Loaded, Path_, closest, dotted, origin_for
 from docket.config.models import (
-    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, VERBS, WHEN_GUARDS, DocketConfig, Node, graph_problems,
+    ACTION_NEEDS_DESTINATION, ACTIONS, DESTINATION_ADAPTERS, VERBS, WHEN_GUARDS, DocketConfig, Node, graph_conflicts,
+    graph_problems,
 )
 from docket.text import templates
 
@@ -257,6 +258,7 @@ def pass_references(loaded: Loaded) -> list[Issue]:
             ref(node.get("judge"), task_kinds, base + ("judge",), "task kind")
             ref(node.get("ask"), option_sets, base + ("ask",), "option set", ("default",))
             ref(node.get("to"), dests, base + ("to",), "destination")
+            ref(_get(node, "questions", "covered", "to"), dests, base + ("questions", "covered", "to"), "destination")
     ref(_get(d, "tasks", "recap", "agendas"), dests, ("tasks", "recap", "agendas"), "destination")
 
     ref(_get(d, "planning", "tasks", "destination"), dests, ("planning", "tasks", "destination"), "destination")
@@ -391,11 +393,30 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
                 argv = node.get(key) if isinstance(node, dict) else None
                 for i, arg in enumerate(argv if isinstance(argv, list) else []):
                     _check_template(loaded, arg, contexts.RUN_COMMAND, ("graphs", gname, nname, key, i), out)
-    # --- M5 decisions: reconcile and verify label templates ---
-    for sect, site in (("reconcile", contexts.RECONCILE), ("verify", contexts.VERIFY)):
+    # --- M5 decisions: reconcile, verify and covered label templates ---
+    for sect, site in (("reconcile", contexts.RECONCILE), ("verify", contexts.VERIFY), ("covered", contexts.COVERED)):
         for oid, tpl in _items(_get(d, "decisions", sect, "labels")):
             _check_template(loaded, tpl, site, ("decisions", sect, "labels", oid), out)
+    out += conflict_issues(loaded)
+    return out
 
+
+def conflict_issues(loaded: Loaded) -> list[Issue]:
+    """Settings of one graph that ask for opposite things (``graph_conflicts``), one
+    ``config.conflicting_settings`` issue each, at the setting to drop."""
+    out: list[Issue] = []
+    for gname, raw in _items(_get(loaded.data, "graphs")):
+        if not isinstance(raw, dict):
+            continue
+        nodes: dict[str, Node] = {}
+        for nname, node in raw.items():
+            try:
+                nodes[str(nname)] = Node.model_validate(node)
+            except ValidationError:
+                pass
+        for nid, msg in graph_conflicts(nodes):
+            out.append(_issue(loaded, "config.conflicting_settings", f"graph {gname!r}: {msg}",
+                              ("graphs", gname, nid, "no_record"), 3))
     return out
 
 
@@ -429,6 +450,13 @@ def pass_capabilities(loaded: Loaded) -> list[Issue]:
         for nname, node in _items(nodes):
             if not isinstance(node, dict):
                 continue
+            cto = _get(node, "questions", "covered", "to")
+            if node.get("ask") is not None and isinstance(cto, str) and cto in dests \
+                    and _get(dests[cto], "adapter") != "markdown_agenda":
+                out.append(_issue(loaded, "config.capability_missing",
+                                  f"graph {gname!r}: node {nname}: {cto} is a {_get(dests[cto], 'adapter')} destination; "
+                                  f"covered questions roll an agenda (markdown_agenda)",
+                                  ("graphs", gname, nname, "questions", "covered", "to"), 4))
             to = node.get("to")
             if node.get("write") is not None and to in dests and _get(dests[to], "visibility", default="private") != "private":
                 out.append(_issue(loaded, "config.capability_missing",

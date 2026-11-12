@@ -58,7 +58,7 @@ def _row(ev: Any, q: dict[str, Any], a: dict[str, Any] | None) -> dict[str, Any]
                        for i, o in enumerate(q["options"], 1)],
            "answer": a}
     for k in ("evidence", "refused", "notes", "previous", "requires", "item_id", "block_key", "task_id",
-              "recommended"):
+              "recommended", "batch_block", "meeting"):
         if q.get(k):
             out[k] = q[k]
     return out
@@ -211,6 +211,14 @@ def _preview(s: Session, q: dict[str, Any], answer: dict[str, Any]) -> dict[str,
             out["operations"] = dops.finding_ops(rc, q["id"], item, opt, ov, [m for m in merged if m])
             if merged:
                 out["merged"] = {"questions": ov["merge_with"], "titles": [m.get("title") for m in merged if m]}
+    elif q["kind"] == "covered":
+        row = s.subject(q["id"])
+        if row is not None:
+            m = row["meeting"]
+            out["entry_effect"] = {
+                "covered": f"moves under {m['date']} in {m['path']} when the plan rolls the meeting",
+                "keep": f"stays in {m['path']} for the next meeting of {m['forum_name']}",
+                "drop": f"leaves {m['path']} without a record"}[answer["option"]]
     elif q["kind"] in ("reconcile", "verify"):
         row = s.subject(q["id"])
         if row is not None:

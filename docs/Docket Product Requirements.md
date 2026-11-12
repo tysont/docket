@@ -117,7 +117,7 @@ The full glossary is Appendix A. The concepts below appear throughout. Work move
 - **Signal rule.** A declarative rule that matches items and contributes features: importance, urgency, must-surface, routing hints, sensitivity, deadlines.
 - **Agent task.** A unit of judgment Docket issues to the agent: a self-contained input pack, a rendered prompt, and an output schema. Docket validates the result.
 - **Finding.** An item that survived scoring and review and needs the operator.
-- **Question.** A structured decision put to the operator, with options that are typed action proposals. Kinds: *reconcile* (did planned work happen), *finding* (what to do with this), *approve* (accept this plan).
+- **Question.** A structured decision put to the operator, with options that are typed action proposals. Kinds: *reconcile* (did planned work happen), *covered* (did a meeting with no record cover this agenda entry), *finding* (what to do with this), *verify* (this looks done: close it?), *approve* (accept this plan).
 - **Action.** A typed proposed effect: add a task, add an agenda line, place a calendar block, draft a message, do it now, watch, dismiss.
 - **Destination.** A configured place an action lands: a task store, an agenda, a calendar, a message channel, a journal.
 - **Plan.** The concrete set of operations a run proposes, including a schedule, with a digest.
@@ -208,10 +208,11 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-DEC-02 (Must).** An option is a typed action proposal: the destination, the effect, and its derived defaults (due date, estimate, area, forum). Option labels come from configurable templates.
 - **FR-DEC-03 (Must).** Docket offers only options it can carry out: an agenda that exists and has room, a task store that will accept the line, a calendar it can write. When it cannot offer one the item asked for, the question says why.
 - **FR-DEC-04 (Must).** An answer carries the option and any structured overrides the operator gave: due date (a date or a weekday name), estimate, scheduling window, title, action text, links, area, forum, merge-with-other-question, and a note. No user decision requires editing an artifact by hand.
-- **FR-DEC-05 (Must).** Reconcile questions ask whether planned work happened. Answers update the task store (done, partly with a new estimate, did not happen, move to an agenda, drop) and count carries. At a configurable carry count, the question asks to drop or re-scope instead of offering another carry.
+- **FR-DEC-05 (Must).** Reconcile questions ask whether planned work happened. Answers update the task store (done, partly with a new estimate, did not happen, move to an agenda, drop) and count carries. At a configurable carry count, the question asks to drop or re-scope instead of offering another carry. A block that held several small tasks asks about each of them that is still open.
 - **FR-DEC-06 (Must).** Answers bind to item identity, not position. When the questions are recomputed, an answer whose item is unchanged is kept; a changed item is asked again, showing the previous answer.
 - **FR-DEC-07 (Must).** All questions in a burst are answerable with no source reads in between.
 - **FR-DEC-08 (Should).** When the operator names a day, Docket reports how full that day already is.
+- **FR-DEC-09 (Should).** For a meeting that left no record, Docket can ask which agenda entries were covered instead of assuming all were: covered, still to raise, or drop. The answers of one meeting become one change to its agenda, approved like any other, and an entry kept for a meeting is not asked about again for that meeting.
 
 ### 7.5 Actions and destinations
 
@@ -363,7 +364,7 @@ Everything marked Must, the Should items not deferred by the implementation plan
 | Plan | The concrete operation set and schedule a run proposes, with a digest. |
 | Preset | A shipped configuration fragment with no user data. |
 | Profile | The operator's identity, people, groups, topics, protected entities, forums and calendar vocabulary. |
-| Question | A structured decision with typed options: reconcile, finding or approve. |
+| Question | A structured decision with typed options: reconcile, covered, finding, verify or approve. |
 | Receipt | Proof that an operation was applied, keyed by operation id. |
 | Record | An immutable raw read from a source. |
 | Run | One execution of a graph for a date. |

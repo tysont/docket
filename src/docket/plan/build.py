@@ -416,6 +416,11 @@ def diff_groups(plan: dict[str, Any], tz: ZoneInfo) -> list[dict[str, Any]]:
                 text = f"change `{op.get('old_line', '')}` to `{op.get('line')}` ({where})"
             elif op.get("verb") == "draft":
                 text = f"draft `{op.get('subject', '')}` to {', '.join(op.get('to') or [])}"
+            elif op.get("verb") == "roll" and op.get("title"):  # an agenda rolled after a meeting
+                text = (f"roll `{op['title']}` ({where}): {len(op.get('remove') or [])} entr(ies) leave, "
+                        f"{len(op.get('drop') or [])} dropped")
+            elif op.get("verb") == "roll":
+                text = f"drop {len(op.get('drop') or [])} entr(ies) ({where})"
             else:
                 text = f"add `{op.get('line')}` ({where})"
             groups.setdefault(("", op["destination"]), []).append(text)

@@ -11,7 +11,8 @@ Decisions:
 - ``dismiss``: suppressed until ``until`` (a date), or for good without one;
 - ``watch``: suppressed until the topic shows activity newer than the run;
 - ``routed``: written to a destination by operation ``op_id``; re-surfaces on new activity;
-- ``now``: handled during the session, with the recorded ``outcome``; re-surfaces on new activity.
+- ``now``: handled during the session, with the recorded ``outcome``; re-surfaces on new activity;
+- ``keep``: a covered question answered "not covered" (TD §10.4), keyed by the question id.
 
 Sources, in order: the plan's ``outcomes`` list (question, item, topic,
 decision, note, until) when the plan carries one; otherwise the ask node's
@@ -25,7 +26,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 # ack: acknowledged, nothing owed; like watch it holds only until something new happens.
-DECISIONS = ("done", "routed", "watch", "ack", "dismiss", "now")
+# keep: an agenda entry a meeting with no record did not cover (TD §10.4), keyed by its
+# question id; that meeting does not ask about it again. Merge reads no item by that key.
+DECISIONS = ("done", "routed", "watch", "ack", "dismiss", "now", "keep")
 OUTCOME_ACTIONS = ("done", "watch", "ack", "dismiss", "now")
 
 

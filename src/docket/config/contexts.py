@@ -23,6 +23,9 @@ RECONCILE = FieldSet(_BLOCK)
 _VERIFY = ["task.id", "task.title", "task.line", "ref", "state", "last_actor", "last_activity", "ref_title",
            "reason"]
 VERIFY = FieldSet(_VERIFY)
+# Covered questions (TD §10.4): a meeting with no record, its forum and one agenda entry.
+COVERED = FieldSet(["forum.id", "forum.name", "meeting.id", "meeting.date", "meeting.title", "entry.text",
+                    "entry.line"])
 MERGE_TITLE = FieldSet(["title", "titles[]", "count"])
 # A run node's argv (``run`` and ``dry_run``) sees run facts only (``docket.engine.nodes.RunNode``).
 RUN_COMMAND = FieldSet(["run.id", "run.date", "run.graph", "run.dir", "run.sandbox", "node", "workspace"])
@@ -74,6 +77,8 @@ SITES: dict[str, FieldSet] = {
 DECISION_TEMPLATE_SITES: dict[str, FieldSet] = {
     "finding_prompt": FINDING_PROMPT,
     "reconcile_prompt": RECONCILE,
+    "reconcile_batch_prompt": RECONCILE,
     "verify_prompt": VERIFY,
+    "covered_prompt": COVERED,
     "merge_title": MERGE_TITLE,
 }

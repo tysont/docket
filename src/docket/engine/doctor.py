@@ -88,6 +88,8 @@ def _destinations_of(ws: Any, nodes: dict[str, Any]) -> set[str]:
             for opts in chosen.values():
                 for o in opts:
                     add(o.action, o.destination)
+            if ask.questions.covered is not None:   # covered answers roll this agenda
+                out.add(ask.questions.covered.to)
             if {"reconcile", "verify"} & set(ask.questions.kinds):
                 pt = cfg.planning.tasks.destination
                 out.add(pt) if pt else add("task.add", None)

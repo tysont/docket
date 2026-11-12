@@ -153,8 +153,17 @@ OUTPUT: dict[str, str] = {"read": "items", "judge": "items", "merge": "items", "
                           "approve": "approval", "apply": "done", "write": "done", "run": "done"}
 
 
+class CoveredQuestions(Strict):
+    """Where covered questions come from (TD §10.4): the read node of the meetings, the agenda
+    destination the answers roll, and the suffix of the dated heading that says there was no record."""
+    meetings: str
+    to: str
+    suffix: str = "no record of the meeting"
+
+
 class Questions(Strict):
     kinds: list[str] = ["finding"]
+    covered: CoveredQuestions | None = None
     bursts: int = 1
     budget: int | None = None
     # A must-surface finding and the budget: left to its score, asked first within the
@@ -162,6 +171,23 @@ class Questions(Strict):
     must_surface: Literal["ranked", "first", "bypass"] = "ranked"
     # Items recommended for a batch option are ranked and cut in their own group.
     batch_budget: int | None = None
+
+    @field_validator("kinds")
+    @classmethod
+    def _known_kinds(cls, v: list[str]) -> list[str]:
+        for k in v:
+            if k not in QUESTION_KINDS:
+                raise ValueError(f"unknown question kind {k!r}; kinds are {list(QUESTION_KINDS)}")
+        return v
+
+    @model_validator(mode="after")
+    def _covered(self) -> "Questions":
+        if "covered" in self.kinds and self.covered is None:
+            raise ValueError("the covered kind needs questions.covered: the read node of the meetings (meetings) "
+                             "and the agenda destination (to)")
+        if self.covered is not None and "covered" not in self.kinds:
+            raise ValueError("questions.covered is read only when kinds lists covered")
+        return self
 
 
 class ReadSchedule(Strict):
@@ -218,7 +244,9 @@ class Node(Strict):
     schedule_tasks: bool = False     # also place open tasks on the calendar (TD §12)
     # write
     to: str | None = None            # the destination written
-    no_record: str = "no record of the meeting, agenda assumed covered"
+    # A meeting with no record: with no_record, assume its agenda was covered and roll it all
+    # under a heading that says this; without, leave it alone (a covered question may ask).
+    no_record: str | None = None
     trailer: str = ""
     commitments: str | None = None   # a JSON-lines file for what the operator agreed to do (TD §12.8)
 
@@ -254,7 +282,10 @@ class Node(Strict):
 
     @property
     def needs(self) -> list[str]:
-        return list(dict.fromkeys([*self.inputs, *self.after]))
+        """What the node waits for: its inputs, ``after``, and the read node its covered
+        questions take their meetings from."""
+        covered = [self.questions.covered.meetings] if self.verb == "ask" and self.questions.covered else []
+        return list(dict.fromkeys([*self.inputs, *self.after, *covered]))
 
 
 def graph_problems(nodes: dict[str, Node]) -> list[str]:
@@ -301,6 +332,44 @@ def graph_problems(nodes: dict[str, Node]) -> list[str]:
             out.append(f"node {nid} ({v}) needs a node to work on")
         if v == "plan" and sum(1 for o in n.inputs if nodes[o].verb == "ask") > 1:
             out.append(f"node {nid} (plan) takes the decisions of one ask node")
+        cov = n.questions.covered if v == "ask" else None
+        if cov is not None and nodes[cov.meetings].verb != "read":
+            out.append(f"node {nid} (ask) reads the meetings of {cov.meetings} ({nodes[cov.meetings].verb}); "
+                       f"questions.covered.meetings names a read node")
+    return out
+
+
+def graph_conflicts(nodes: dict[str, Node]) -> list[tuple[str, str]]:
+    """Settings of one graph that ask for opposite things, as ``(node, message)``: a roll that
+    assumes a meeting with no record covered its agenda (``no_record``) and an ask node that
+    asks about the same meetings (``covered``). The same meetings are those of one source."""
+    def sources_upstream(nid: str) -> set[str]:
+        seen: set[str] = set()
+        todo = [nid]
+        out: set[str] = set()
+        while todo:
+            x = todo.pop()
+            if x in seen or x not in nodes:
+                continue
+            seen.add(x)
+            if nodes[x].verb == "read":
+                out.add(str(nodes[x].read))
+            todo += nodes[x].inputs
+        return out
+
+    asked = {nid: str(nodes[n.questions.covered.meetings].read) for nid, n in nodes.items()
+             if n.verb == "ask" and n.questions.covered is not None and n.questions.covered.meetings in nodes
+             and nodes[n.questions.covered.meetings].verb == "read"}
+    out = []
+    for wid, w in nodes.items():
+        if w.verb != "write" or w.write != "roll" or w.no_record is None:
+            continue
+        mine = sources_upstream(wid)
+        for aid, source in sorted(asked.items()):
+            if source in mine:
+                out.append((wid, f"node {wid} assumes a meeting with no record covered its agenda (no_record), and "
+                                 f"node {aid} asks about the same meetings (covered); drop no_record to ask, or "
+                                 f"drop the covered kind to assume"))
     return out
 
 
@@ -337,7 +406,7 @@ class OptionConfig(Strict):
 
 
 # --- M5 decisions (TD §10) ---
-QUESTION_KINDS = ("reconcile", "finding", "verify")
+QUESTION_KINDS = ("reconcile", "covered", "finding", "verify")
 
 
 def _decision_duration(v: Any) -> Any:
@@ -353,6 +422,7 @@ def _decision_duration(v: Any) -> Any:
 
 RECONCILE_OPTIONS = ("done", "partly", "not_done", "rescope", "to_agenda", "drop")
 VERIFY_OPTIONS = ("close", "keep", "update")
+COVERED_OPTIONS = ("covered", "keep", "drop")
 
 
 class ReconcileConfig(Strict):
@@ -394,6 +464,19 @@ class VerifyConfig(Strict):
         return v
 
 
+class CoveredConfig(Strict):
+    """Covered questions (TD §10.4): option kinds are fixed, labels are templates."""
+    labels: dict[str, str] = {}
+
+    @field_validator("labels")
+    @classmethod
+    def _known(cls, v: dict[str, str]) -> dict[str, str]:
+        bad = sorted(set(v) - set(COVERED_OPTIONS))
+        if bad:
+            raise ValueError(f"unknown covered option(s) {bad}; options are {list(COVERED_OPTIONS)}")
+        return v
+
+
 class DecisionDefaults(Strict):
     """Derived option defaults (TD §10.2). Unset values fall back to the planning policy."""
     lead_days: int | None = Field(None, ge=0)
@@ -417,8 +500,9 @@ class Decisions(Strict):
     templates: dict[str, str] = {}
     reconcile: ReconcileConfig = ReconcileConfig()
     verify: VerifyConfig = VerifyConfig()
+    covered: CoveredConfig = CoveredConfig()
     defaults: DecisionDefaults = DecisionDefaults()
-    order: list[Literal["reconcile", "finding", "verify"]] = ["reconcile", "finding", "verify"]
+    order: list[Literal["reconcile", "covered", "finding", "verify"]] = ["reconcile", "covered", "finding", "verify"]
 
 
 class GrammarConfig(Strict):
