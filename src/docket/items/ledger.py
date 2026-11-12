@@ -315,3 +315,37 @@ def cover(db: sqlite3.Connection, rolls: list[dict[str, Any]], *, run_id: str, a
             moves.append({"key": row["key"], "title": row["title"], "was": "raised", "state": "done", "note": note})
             break
     return moves
+
+
+EDITABLE = ("state", "due", "est", "title", "area")
+
+
+def edit(db: sqlite3.Connection, key_or_topic: str, values: dict[str, Any], *, note: str | None, at: str,
+         write: bool = True) -> dict[str, Any] | None:
+    """Change an item by hand (the caller holds the transaction). ``values`` holds only the
+    attributes to change, already parsed (``due`` an ISO date or None, ``est`` minutes);
+    None clears ``due`` or ``area``. Returns the item's key and title, the attributes that
+    differ as ``changes`` (``{attribute: [before, after]}``), the row's attributes before and
+    after, and its placements, which are left as they were: the destinations still show what
+    was written there. None when the ledger has no such item. A change to nothing writes nothing;
+    otherwise the history gets an entry made by hand, with the note and the changes.
+    """
+    row = get(db, key_or_topic)
+    if row is None:
+        return None
+    before = {k: row[k] for k in EDITABLE}
+    after = dict(before)
+    after.update({k: v for k, v in values.items() if k in EDITABLE})
+    changes = {k: [before[k], after[k]] for k in EDITABLE if before[k] != after[k]}
+    out = {"key": row["key"], "title": row["title"], "changes": changes, "before": before, "after": after,
+           "placements": row["placements"]}
+    if not changes or not write:
+        return out
+    entry = {"at": at, "by": "hand", "decision": "edited", "state": after["state"], "changes": changes}
+    if note:
+        entry["note"] = note
+    history = row["history"] + [entry]
+    db.execute("UPDATE item_ledger SET state=?, state_at=?, due=?, est=?, title=?, area=?, history=? WHERE key=?",
+               (after["state"], at if "state" in changes else row["state_at"], after["due"], after["est"],
+                after["title"], after["area"], json.dumps(history, sort_keys=True), row["key"]))
+    return out

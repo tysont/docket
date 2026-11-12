@@ -259,3 +259,39 @@ def test_an_item_raised_in_a_meeting_is_done_when_the_meeting_covers_it(db):
     assert got["topic-c"]["state"] == "raised"                       # another agenda's roll says nothing of it
     with db:
         assert ledger.cover(db, [{"path": "meet/sam.md", "title": "## 2026-10-15", "remove": ["- x"]}], run_id="r3", at=T2) == []
+
+
+def test_an_item_is_edited_by_hand_and_only_what_is_given_changes(db):
+    """A hand edit changes the ledger row, not the destinations. Each edit is a history entry
+    that says it was made by hand, with the note and what changed."""
+    with db:
+        _backlog_item(db, "iaaaaaaaa", "Draft the plan")
+        ledger.place_blocks(db, [{"key": "dk_t_w", "task_ids": ["iaaaaaaaa"], "start": "s", "end": "e"}],
+                            destination="cal", adapter="calendar_exec", run_id="r2", at=T1)
+        res = ledger.edit(db, "iaaaaaaaa", {"state": "backlog", "due": "2026-10-23", "est": 90, "area": None},
+                          note="moved after the review", at=T2)
+    assert res["changes"] == {"state": ["scheduled", "backlog"], "due": [None, "2026-10-23"], "est": [None, 90]}
+    row = ledger.get(db, "iaaaaaaaa")
+    assert (row["state"], row["state_at"], row["due"], row["est"], row["title"]) == \
+        ("backlog", T2, "2026-10-23", 90, "Draft the plan")
+    assert row["history"][-1] == {"at": T2, "by": "hand", "decision": "edited", "state": "backlog",
+                                  "note": "moved after the review",
+                                  "changes": {"state": ["scheduled", "backlog"], "due": [None, "2026-10-23"],
+                                              "est": [None, 90]}}
+    assert row["placements"] == res["placements"] and len(row["placements"]) == 2      # untouched
+    with db:
+        res = ledger.edit(db, "iaaaaaaaa", {"title": "Draft the plan v2"}, note=None, at=T2)
+    assert res["changes"] == {"title": ["Draft the plan", "Draft the plan v2"]}
+    row = ledger.get(db, "iaaaaaaaa")
+    assert row["state_at"] == T2 and "note" not in row["history"][-1] and row["history"][-1]["state"] == "backlog"
+
+
+def test_an_edit_that_changes_nothing_writes_nothing(db):
+    with db:
+        _backlog_item(db, "iaaaaaaaa")
+        before = ledger.get(db, "iaaaaaaaa")
+        res = ledger.edit(db, "iaaaaaaaa", {"state": "backlog", "due": None}, note="x", at=T2)
+        dry = ledger.edit(db, "iaaaaaaaa", {"state": "done"}, note=None, at=T2, write=False)
+    assert res["changes"] == {} and ledger.get(db, "iaaaaaaaa") == before
+    assert dry["changes"] == {"state": ["backlog", "done"]} and ledger.get(db, "iaaaaaaaa") == before
+    assert ledger.edit(db, "inope", {"state": "done"}, note=None, at=T2) is None

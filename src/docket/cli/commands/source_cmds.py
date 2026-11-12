@@ -1,5 +1,5 @@
 """Source, unit and ledger commands: ``source list``, ``source test <id> [--unit] [--limit]``,
-``units list|preview|set|unset`` and ``ledger list|show|import|reconcile``. A source is read
+``units list|preview|set|unset`` and ``ledger list|show|import|reconcile|edit``. A source is read
 in a run by its read node (``docket do <node>``)."""
 from __future__ import annotations
 
@@ -314,3 +314,83 @@ def cmd_ledger_reconcile(ctx: Any, ns: Any) -> Result:
            [f"  could not read {d}" for d in unread]
     return Result({"moves": moves, "read": sorted(d for d, v in seen.items() if v is not None), "unread": unread,
                    "dry_run": dry}, "\n".join(text))
+
+
+def _placement_text(p: dict[str, Any]) -> str:
+    where = [p.get("path") or "", f"under {p['anchor']}" if p.get("anchor") else "",
+             f"block {p['key']}" if p.get("key") and p.get("start") else "",
+             f"{p['start']} to {p['end']}" if p.get("start") else ""]
+    return f"{p.get('destination')} ({p.get('adapter')})" + "".join(f", {w}" for w in where if w)
+
+
+@command("ledger edit", "Change one ledger item by hand. Only the attributes given change. The change is a "
+         "history entry made by hand, with the note. The item's placements (its task line, its calendar blocks) "
+         "are not changed; the result lists them.",
+         args=[Arg("key", "Item key or topic."),
+               Arg("--state", "New state: new, backlog, scheduled, raised, monitoring, acknowledged, done or ignored."),
+               Arg("--due", "Due date: YYYY-MM-DD, today, tomorrow or a weekday name.", metavar="DATE"),
+               Arg("--no-due", "Remove the due date.", action="store_true"),
+               Arg("--est", "Estimate: 45, 45m, 1h, 1.5h or 1h30m.", metavar="DURATION"),
+               Arg("--title", "New title.", metavar="TEXT"), Arg("--area", "New area; empty to clear.", metavar="TEXT"),
+               Arg("--note", "Why, kept in the history entry.", metavar="TEXT")],
+         mutating=True, effects=["writes one ledger row and a history entry; changes no destination"],
+         examples=["docket ledger edit i3k9q2ab --state done --note \"finished in the review\"",
+                   "docket ledger edit i3k9q2ab --due fri --est 1h30m --dry-run --json"])
+def cmd_ledger_edit(ctx: Any, ns: Any) -> Result:
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from docket.config.loader import closest
+    from docket.items import ledger
+    from docket.text.dates import normalize_date
+    from docket.text.durations import format_duration, parse_duration
+    ws = ctx.workspace()
+    hint = f"docket ledger edit {ns.key} --state <state>"
+    if ns.due is not None and ns.no_due:
+        raise InputError("input.bad_argument", "Give --due or --no-due, not both.", hint=hint)
+    values: dict[str, Any] = {}
+    if ns.state is not None:
+        if ns.state not in ledger.STATES:
+            raise InputError("input.bad_argument", f"Unknown state {ns.state!r}.", hint=hint,
+                             details={"states": list(ledger.STATES), "suggestion": closest(ns.state, list(ledger.STATES))})
+        values["state"] = ns.state
+    if ns.due is not None:
+        today = datetime.now(ZoneInfo(ws.config.profile.timezone)).date()
+        values["due"] = normalize_date(ns.due, today)
+    if ns.no_due:
+        values["due"] = None
+    if ns.est is not None:
+        values["est"] = parse_duration(ns.est)
+    if ns.title is not None:
+        if not ns.title.strip():
+            raise InputError("input.bad_argument", "--title cannot be empty.", hint=hint)
+        values["title"] = ns.title.strip()
+    if ns.area is not None:
+        values["area"] = ns.area.strip() or None
+    if not values:
+        raise InputError("ledger.no_change", "Nothing to change: give at least one of --state, --due, --no-due, --est, "
+                                             "--title and --area.", hint=hint)
+    dry = ctx.dry_run
+    db = ctx.store().db
+    with db:
+        res = ledger.edit(db, ns.key, values, note=ns.note, at=datetime.now(timezone.utc).isoformat(), write=not dry)
+    if res is None:
+        keys = [r[0] for r in db.execute("SELECT key FROM item_ledger")]
+        raise InputError("input.unknown_item", f"The ledger has no item {ns.key!r}.", hint="docket ledger list",
+                         details={"suggestion": closest(ns.key, keys)})
+    if not res["changes"]:
+        has = ", ".join(f"{k} {format_duration(v) if k == 'est' else v}" for k, v in values.items())
+        raise InputError("ledger.no_change", f"{res['key']} already has {has}; nothing to change.",
+                         hint="docket ledger show " + res["key"])
+    shown = lambda k, v: "-" if v is None else (format_duration(v) if k == "est" else str(v))   # noqa: E731
+    rows = [[f"  {k}", shown(k, a), "->", shown(k, b)] for k, (a, b) in res["changes"].items()]
+    widths = [max(len(r[i]) for r in rows) for i in range(3)]
+    text = [f"{'would edit' if dry else 'edited'} {res['key']}: {res['title'] or ''}".rstrip()]
+    text += ["  ".join(c.ljust(w) for c, w in zip(r[:3], widths)) + "  " + r[3] for r in rows]
+    if ns.note:
+        text.append(f"  note: {ns.note}")
+    text += [f"  not changed: {_placement_text(p)}" for p in res["placements"]]
+    if res["placements"]:
+        text.append("the placements show what was written there; change them in their destinations")
+    data = {**res, "note": ns.note, "placements_changed": False, "dry_run": dry}
+    return Result(data, "\n".join(text))

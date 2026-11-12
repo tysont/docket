@@ -978,6 +978,8 @@ Destinations are projections of the ledger. Templates can write the item's `key`
 
 The seal writes the ledger with the dispositions; a sandbox run leaves it as it was. `docket ledger list [--state S]` and `docket ledger show <key>` read it, and `docket ledger import <file>` enters items by hand from a JSON array or JSON lines, never overwriting a row. An imported item may carry the `key` already written where it lives and name that place (`destination`, `adapter`), so an item adopted from an existing list is followed there like any other.
 
+`docket ledger edit <key>` changes one item by hand: `--state`, `--due` or `--no-due`, `--est`, `--title` and `--area`, and only the attributes given. A state must be one of the ledger's states; dates and durations go through the parsers of §15.5. Each edit adds a history entry made by hand (`decision: edited`, `by: hand`) with the `--note` and every attribute's before and after. The ledger row is all that changes: the result lists the item's placements, its task line and calendar blocks, and says they were not changed, so the operator knows what now differs from the row. An unknown key is refused with the closest key, and an edit that changes nothing with `ledger.no_change`. `--dry-run` shows the same result and writes nothing.
+
 The operator works in the destination, not in Docket, so the ledger follows it. A destination that can report the status of the keys it holds does so (`key_status`: `open` or `done` per key; the Markdown task store reads its lines). After its own writes, every durable seal reads each destination back: an item whose line is closed moves to `done`, and so does one whose line is gone after having been seen there. A destination that cannot be read, or whose lines never carried the key, moves nothing: absence is evidence only where presence was observed. `docket ledger reconcile [--dry-run]` does the same on demand.
 
 Blocks are tracked back to their items. After a run that applies a plan, the blocks that stand (those kept and those written) are placements of the ledger items among their task ids: an item split into parts has several, each saying how many (`of`), and a batch block is a placement of each of its items, naming the others (`with`). An item's calendar placements are replaced by the present ones on every such run, so the record follows when blocks are consolidated, split up or released: an open item with a block is `scheduled`, and one whose blocks are gone returns to `backlog`. A scheduled item is still followed on its task line. `docket ledger show <block key>` gives the items a block is for.
@@ -1041,7 +1043,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, run nodes) ru
 | Nodes | `do`, `graph show`, `plan diff`, `plan explain`, `plan load` |
 | Tasks | `task issue`, `task kinds`, `task list`, `task show`, `task submit` |
 | Decisions | `ask answer`, `ask list`, `ask resolve`, `ask show`, `ask undo` |
-| Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import`, `ledger reconcile` |
+| Inspection | `item list`, `item why`, `unexpected`, `unexpected accept`, `units list`, `units preview`, `units set`, `units unset`, `ledger list`, `ledger show`, `ledger import`, `ledger reconcile`, `ledger edit` |
 | Config | `config explain`, `config test`, `config validate`, `init`, `presets list`, `presets show` |
 | Sources | `source list`, `source test` |
 | Health | `doctor [--graph <name>] [--probe]` |
@@ -1049,7 +1051,7 @@ Every subprocess Docket starts (transports, auth checks, adapters, run nodes) ru
 | Plugins | `plugin check`, `plugin list` |
 | Self-description | `help`, `schema`, `schema list`, `version` |
 
-This table lists all 53 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
+This table lists all 54 commands returned by `docket help --json`. `schema answers-file` is the self-described schema for `ask answer --file`; task kinds also add `<kind>-input` and `<kind>-output` schema names.
 
 Every command takes `--json`, `--workspace` and `--run` where it applies. Every mutating command takes `--dry-run` and reports what it would do (AE-06).
 

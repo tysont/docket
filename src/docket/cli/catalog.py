@@ -163,6 +163,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "input.bad_cursor_file": ("input", False, "A cursor import file has the wrong shape; details.problems names each row."),
     "cursor.read_in_open_run": ("state", False, "An open run that is not a sandbox run has already read the source; "
                                 "seal or abandon it before resetting the source's cursor."),
+    "ledger.no_change": ("input", False, "A ledger edit gives no attribute, or only values the item already has."),
     "doctor.failed": ("external", True, "One or more doctor checks failed; details.checks names each with its fix."),
     # internal
     "internal.bug": ("internal", False, "An unexpected internal error; details.traceback_path holds the traceback."),
