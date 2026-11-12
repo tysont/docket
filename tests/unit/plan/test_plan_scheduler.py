@@ -296,3 +296,13 @@ def test_a_batch_keeps_its_block_from_one_day_to_the_next():
     assert [(o["verb"], o["key"]) for o in res.ops] == [("keep", b["key"])]
     changed = schedule(list(small[:2]), calendar([moved], horizon=p.horizon_days), p, today=tomorrow, now=now, tz=TZ)
     assert sorted(o["verb"] for o in changed.ops) == ["create", "release"]      # other members: another batch
+
+
+def test_a_task_with_no_due_date_takes_the_earliest_slot_left_after_what_is_due_and_is_never_late():
+    """Any time will do for a task that names no date: what is due is placed first, the
+    undated task takes the next slot that fits, however far out, and is not marked late."""
+    p = policy(daily_cap=60)
+    res = run([task("reading", 60), task("due-soon", 60, due=d(1)), task("due-later", 60, due=d(2))], pol=p)
+    assert placed(res, "due-soon")[0] == TODAY and placed(res, "due-later")[0] == d(1)
+    assert placed(res, "reading")[0] == d(4)            # the next working day: the weekend is not one
+    assert not res.unit_for("reading").late

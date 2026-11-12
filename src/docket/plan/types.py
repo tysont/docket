@@ -150,7 +150,7 @@ class Policy:
     move_lock: int = 0
     ordering: tuple[str, ...] = ("imminent", "overdue", "due", "tier", "size")
     imminent_days: int = 2
-    default_lead_days: int = 3
+    default_lead_days: int | None = 3
     default_est: int = 30
     busy_kinds: frozenset[str] = frozenset({"meeting", "focus", "soft_hold", "out_of_office", "boundary",
                                             "mirrored", "owned"})

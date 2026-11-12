@@ -104,6 +104,8 @@ def check_line(quality: Any, grammar: Grammar, line: str, ctx: dict[str, Any], *
             if t.get(on_line) not in (None, ""):
                 continue
             val = _value(name, ctx, defaults, q.get("duration") or "compact")
+            if val is None and name in (q.get("optional") or []):
+                continue
             if val is None:
                 raise _refuse(dest_id, "require", f"required field {name!r} is missing", grammar.render(t), name, fix)
             t = t.with_field(on_line, val)

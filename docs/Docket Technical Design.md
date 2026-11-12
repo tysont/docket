@@ -783,7 +783,9 @@ destinations:
 
 The imperative check is a denylist plus a safe default (FR-ACT-07): a line opening with a denied word is rewritten with the default verb and recorded as an unexpected shape; any other opening word is accepted. A missing required field takes a configured default where one exists (`due` from policy, `est` from size, `area` from topic) and is otherwise filled from the answer; a line that still lacks a required field refuses at preview with a fix that names the answer override.
 
-A task list may name its fields its own way. The bracket grammar accepts a field with no key (`[:: 2026-10-16]`), `quality.fields` maps a required attribute to its name on the line (`due: ""`), and `quality.duration: minutes` writes an estimate as whole minutes. A finding's `action` is the operator's words when an answer gives them, else the ask the assess task wrote for the finding, else the item's title, so a line template that renders `{action}` starts with what to do and not with the first words of a message.
+A task list may name its fields its own way. The bracket grammar accepts a field with no key (`[:: 2026-10-16]`), `quality.fields` maps a required attribute to its name on the line (`due: ""`), and `quality.duration: minutes` writes an estimate as whole minutes. A finding's `action` is the operator's words when an answer gives them, else the ask the assess task wrote for the finding, else the item's title, so a line template that renders `{action}` starts with what to do and not with the first words of a message. `quality.optional` names required fields a task may lack: each is written in its place when the item has a value and left out when it has none.
+
+A task with no due date can wait. `planning.policy.default_lead_days` gives such a task a due date that many working days after the run; set to null, the task has none, is placed in the earliest slot left after what is due, and is never late.
 
 ## 12. Planning
 

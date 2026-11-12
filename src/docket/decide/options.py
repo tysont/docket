@@ -178,6 +178,8 @@ def derived_defaults(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any]:
     lead = d.lead_days if d.lead_days is not None else pol.default_lead_days
     if deadline:
         due, due_source = deadline, "deadline"
+    elif lead is None:
+        due, due_source = None, "none"       # no deadline and no lead time: any time will do
     else:
         from docket.decide.operations import workdays
         from docket.text.dates import add_workdays

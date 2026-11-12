@@ -234,7 +234,9 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
                 title = ov["title"]
         if "due" in ov:
             fields["due"] = str(ov["due"])
-        elif "due" not in fields and not ov.get("when"):  # a window governs when; no default due to be late against
+        elif "due" not in fields and not ov.get("when") and inp.policy.default_lead_days is not None:
+            # a window governs when, so it has no default due to be late against; nor has any task
+            # when the policy names no lead time
             fields["due"] = add_workdays(inp.today, inp.policy.default_lead_days, inp.policy.workdays).isoformat()
         if "est" in ov:
             fields["est"] = str(ov["est"])

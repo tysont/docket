@@ -440,6 +440,9 @@ class QualityConfig(Strict):
     imperative: ImperativeRule | None = None
     max_length: int | None = None
     require: list[str] = []
+    # Fields of ``require`` a task may lack: written in their place when the item has a value,
+    # left out when it has none (a due date for a task that can wait).
+    optional: list[str] = []
     defaults: dict[str, str] = {}
     evidence: Literal["required", "optional"] = "optional"
     fields: dict[str, str] = {}   # required attribute -> the field's name on the line ("" for a field with no key)
@@ -543,7 +546,9 @@ class PlanningPolicy(Strict):
     ordering: list[Literal["imminent", "overdue", "due", "tier", "size", "carry"]] = \
         ["imminent", "overdue", "due", "tier", "size"]
     imminent_days: int = Field(2, ge=0)
-    default_lead_days: int = Field(3, ge=0)
+    # Days from the run to the due date of a task that names none. None: such a task has no
+    # due date; it is placed in the earliest slot that fits, after what is due, and is never late.
+    default_lead_days: int | None = Field(3, ge=0)
     default_est: Duration = "30m"
     busy_kinds: list[CalendarKind] = ["meeting", "focus", "soft_hold", "out_of_office", "boundary", "mirrored",
                                       "owned"]
