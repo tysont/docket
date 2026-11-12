@@ -436,6 +436,8 @@ def pass_capabilities(loaded: Loaded) -> list[Issue]:
         if pol is True:
             out.append(_issue(loaded, "config.capability_missing", "sending is not in v1; destinations create drafts only",
                               ("destinations", dname, "policy", "send"), 4))
+        if _get(dest, "adopt") is True:
+            out += _adopt_issues(loaded, dname, dest)
 
     def accepts(action: str) -> list[str]:
         def ok(x: Any) -> bool:
@@ -479,6 +481,22 @@ def pass_capabilities(loaded: Loaded) -> list[Issue]:
                             + (f" {target!r}" if target else "") + " accepts it",
                             ("decisions", "option_sets", set_name, kind, i, "action"), 4))
     return out
+
+
+def _adopt_issues(loaded: Loaded, dname: str, dest: Any) -> list[Issue]:
+    """A destination that adopts task lines is a task store whose lines carry the item key."""
+    if _get(dest, "adapter") != "markdown_tasks":
+        return [_issue(loaded, "config.capability_missing",
+                       f"destination {dname!r} is a {_get(dest, 'adapter')} destination; only a markdown_tasks "
+                       f"destination adopts task lines", ("destinations", dname, "adopt"), 4)]
+    require = _get(dest, "quality", "require") or []
+    optional = _get(dest, "quality", "optional") or []
+    if not isinstance(require, list) or "key" not in require or (isinstance(optional, list) and "key" in optional):
+        return [_issue(loaded, "config.adopt_needs_key",
+                       f"destination {dname!r} adopts task lines, but its quality.require does not require key: "
+                       f"an adopted line would carry no item key. Add key to quality.require (and not to "
+                       f"quality.optional), or drop adopt", ("destinations", dname, "adopt"), 4)]
+    return []
 
 
 def validate(loaded: Loaded) -> tuple[DocketConfig | None, list[Issue]]:

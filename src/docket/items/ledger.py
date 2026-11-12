@@ -173,16 +173,18 @@ def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: st
     return {"imported": imported, "skipped": skipped, "problems": problems}
 
 
-def added(db: sqlite3.Connection, d: dict[str, Any], *, run_id: str, at: str, note: str | None) -> dict[str, Any]:
+def added(db: sqlite3.Connection, d: dict[str, Any], *, run_id: str, at: str, note: str | None,
+          decision: str = "added", by: str | None = "hand") -> dict[str, Any]:
     """The row an item added by hand becomes (``docket item add``); nothing is written.
 
     ``d`` has ``key``, ``topic``, ``source``, ``title``, ``url``, ``due``, ``est``, ``area``
     and the ``placement`` written. The item is in ``backlog``, and its history gets an entry
     made by hand (``decision: added``) with the note. A row the ledger has keeps its first
-    sighting, and its other placements and history.
+    sighting, and its other placements and history. An adopted task line (``decision:
+    adopted``, ``by`` None) enters the ledger the same way.
     """
     old = get(db, d["key"])
-    entry = {k: v for k, v in (("run", run_id), ("at", at), ("by", "hand"), ("decision", "added"),
+    entry = {k: v for k, v in (("run", run_id), ("at", at), ("by", by), ("decision", decision),
                                ("state", "backlog"), ("note", note)) if v is not None}
     placements = list(old["placements"]) if old else []
     if d.get("placement") and d["placement"] not in placements:

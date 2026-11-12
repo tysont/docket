@@ -294,7 +294,8 @@ def cmd_ledger_import(ctx: Any, ns: Any) -> Result:
 
 
 @command("ledger reconcile", "Follow what happened in the destinations: an item whose task line was closed or "
-         "removed there moves to done. Every durable seal does this; run it by hand to see or apply it sooner.",
+         "removed there moves to done. Every durable seal does this; run it by hand to see or apply it sooner. "
+         "It also lists the open task lines without a key that the next plan adopts, and writes none of them.",
          mutating=True, effects=["moves ledger items to done; reads destinations and writes none"],
          examples=["docket ledger reconcile --dry-run --json"])
 def cmd_ledger_reconcile(ctx: Any, ns: Any) -> Result:
@@ -309,11 +310,28 @@ def cmd_ledger_reconcile(ctx: Any, ns: Any) -> Result:
     moves = ledger.observe(db, seen, run_id="reconcile-" + at[:10], at=at, write=not dry)
     db.commit()
     unread = sorted(d for d, v in seen.items() if v is None)
+    # writing a key on a line is a plan's work (TD §11.5): these are only reported
+    adoptable = [{"destination": a.destination, "path": a.path, "section": a.anchor, "line": a.old_line,
+                  "key": a.key, "adopted": a.line, "ledger_state": a.was} for a in _adoptable(ctx, db)]
     text = [f"{'would move' if dry else 'moved'} {len(moves)} item(s)"] + \
            [f"  {m['key']} {m['was']} -> {m['state']}: {m['note']}  {(m['title'] or '')[:70]}" for m in moves] + \
            [f"  could not read {d}" for d in unread]
+    if adoptable:
+        text += [f"{len(adoptable)} task line(s) without a key; the next plan adopts them:"] + \
+                [f"  {a['key']} {a['destination']} under {a['section']}: {a['line'][:90]}"
+                 + (f" (ledger: {a['ledger_state']})" if a["ledger_state"] else "") for a in adoptable]
     return Result({"moves": moves, "read": sorted(d for d, v in seen.items() if v is not None), "unread": unread,
-                   "dry_run": dry}, "\n".join(text))
+                   "adoptable": adoptable, "dry_run": dry}, "\n".join(text))
+
+
+def _adoptable(ctx: Any, db: Any) -> list[Any]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from docket.items import adopt
+    ws = ctx.workspace()
+    today = datetime.now(ZoneInfo(ws.config.profile.timezone)).date().isoformat()
+    return adopt.pending(ws, db, today=today)
 
 
 def _placement_text(p: dict[str, Any]) -> str:

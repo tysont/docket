@@ -558,6 +558,8 @@ class Destination(Strict):
     grammar: GrammarConfig | None = None
     sections: dict[str, str] = {}
     carry_field: str | None = None
+    # a task store: give an open line in its own sections that carries no key its key (TD §11.5)
+    adopt: bool = False
     capacity: int | None = None
     new_note: str | None = None        # an agenda: the text of a forum's note that does not exist yet
     pattern: str | None = None

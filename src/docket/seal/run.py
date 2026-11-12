@@ -19,6 +19,7 @@ from docket.seal import cursors as seal_cursors
 from docket.seal import dispositions as disp_mod
 from docket.seal import journal as journal_mod
 from docket.seal import ledgers, receipts
+from docket.items import adopt as item_adopt
 from docket.items import ledger as item_ledger
 from docket.store.paths import write_atomic
 
@@ -124,6 +125,7 @@ def state_step(rc: Any) -> dict[str, Any]:
     observed: list[dict[str, Any]] = []
     planned: list[dict[str, Any]] = []
     covered: list[dict[str, Any]] = []
+    adopted: list[dict[str, Any]] = []
     labels_now = dict(rc.output("judge").get("labels") or {})
     label_texts = durable_texts(rc) if labels_now else {}
     with db:
@@ -131,6 +133,8 @@ def state_step(rc: Any) -> dict[str, Any]:
         if durable:
             disp_mod.write(db, rows)
             item_ledger.write(db, items)
+            # task lines adopted by this run enter the ledger before its blocks are tracked to them
+            adopted = item_adopt.enter(db, ops, recs, run_id=r.id, at=r.header.clock.instant)
             standing = _standing_blocks(rc, ops, recs)
             if standing is not None:
                 cal = rc.ws.config.planning.calendar
@@ -152,7 +156,7 @@ def state_step(rc: Any) -> dict[str, Any]:
             for name, key, row in entries:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
-                "items": len(items) if durable else 0, "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered),
+                "items": len(items) if durable else 0, "items_adopted": len(adopted), "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered),
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "seal:state", "ok", body)
     return {**body, "outcome": "ok"}

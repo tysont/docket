@@ -66,6 +66,13 @@ def _value(name: str, ctx: dict[str, Any], defaults: dict[str, str], duration: s
     return None
 
 
+def default_for(quality: Any, name: str, run: dict[str, Any]) -> str | None:
+    """The configured default of a required field, as a line carries it, or None. ``run`` has
+    the run's ``date`` and ``workdays``, for a lead time such as ``+2d``."""
+    q = quality if isinstance(quality, dict) else quality.model_dump()
+    return _value(name, {"run": run}, q.get("defaults") or {}, q.get("duration") or "compact")
+
+
 def _refuse(dest_id: str, rule: str, message: str, line: str, field: str | None, fix: Fix | None) -> IntegrityError:
     flag = OVERRIDE_FLAGS.get(field or "")
     fix_text = fix(flag, PLACEHOLDER[field or ""]) if flag and fix is not None else None

@@ -545,10 +545,13 @@ class PlanNode(BaseNode):
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
         from docket.apply.freshness import rebuild_token
         from docket.plan.build import input_digests, planning_active
+        from docket.items import adopt
         extra: Any = input_digests(run) if planning_active(run, self.name) else None
         token = rebuild_token(run)  # an approval refused for stale destinations stales the plan (TD §13.2)
         if token is not None:
             extra = {"planning": extra, "rebuild": token}
+        if adopt.node(run) == self.name:  # a keyless line added to the store stales the plan (TD §11.5)
+            extra = {"planning": extra, "adopt": digest([a.op() for a in adopt.for_plan(run, self.name)])}
         return self.computed_eval(run, up, extra=extra)
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
@@ -556,16 +559,21 @@ class PlanNode(BaseNode):
         from docket.apply import freshness
         from docket.decide.operations import plan_operations
         from docket.plan.build import extend_plan, planning_active, render_diff
+        from docket.items import adopt
         decide = self.decisions(up)
         mapped = plan_operations(run, decide)  # every answer kind (TD §10.3)
-        ops = sorted(mapped["operations"], key=lambda o: (o["destination"], o["op_id"]))
+        # keyless task lines get their key (TD §11.5); a line another operation changes waits a run
+        changed = {(o["destination"], o.get("old_line")) for o in mapped["operations"] if o.get("verb") == "replace"}
+        adoptions = [a for a in adopt.for_plan(run, self.name) if (a.destination, a.old_line) not in changed]
+        ops = sorted(mapped["operations"] + [a.op() for a in adoptions], key=lambda o: (o["destination"], o["op_id"]))
         plan = {
             "inputs": {"decisions": up.output_digest if up is not None else None, "config_digest": ev.config_digest},
             "operations": ops, "schedule": [], "unschedulable": [], "notes": list(mapped["notes"]),
             "outcomes": mapped["outcomes"],
         }
         scheduling = planning_active(run, self.name)
-        built = extend_plan(run, plan, decide, plan["inputs"]["decisions"]) if scheduling else None
+        adopted = {(a.destination, a.anchor, a.old_line): a.line for a in adoptions}
+        built = extend_plan(run, plan, decide, plan["inputs"]["decisions"], adopted) if scheduling else None
         snaps = freshness.attach(run, plan)  # inputs.destinations (TD §13.2)
         pd = digest(plan)
         pdir = run.run.paths.plan(pd)
@@ -587,6 +595,9 @@ class PlanNode(BaseNode):
 
 
 def op_line(o: dict[str, Any]) -> str:
+    if o.get("adopt"):
+        from docket.items.adopt import describe
+        return f"- {o['destination']}: {describe(o)}"
     if o.get("verb") == "replace":
         return f"- {o['destination']} ({o['path']} under {o['anchor']}): change `{o.get('old_line', '')}` to `{o['line']}`"
     if o.get("verb") == "roll":

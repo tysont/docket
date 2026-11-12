@@ -204,11 +204,14 @@ def _task_from_fields(tid: str, title: str, fields: dict[str, str], inp: Inputs,
                 want_parts=parts if parts and 1 <= parts <= 12 else None, solo=solo)
 
 
-def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instances: list[tuple[Any, str]]) -> list[Task]:
+def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instances: list[tuple[Any, str]],
+                 adopted: dict[tuple[str, str, str], str] | None = None) -> list[Task]:
     from docket.decide.operations import plan_operations, scheduling_inputs
+    from docket.plan.taskstore import as_adopted
     out: dict[str, Task] = {}
     adjust = plan_operations(rc, decide)["adjust"] if decide.get("reconcile") or decide.get("verify") else {}
-    for st in inp.store_tasks:
+    store = as_adopted(rc, inp.store_tasks, adopted) if adopted else inp.store_tasks
+    for st in store:
         adj = adjust.get(st.id) or {}
         if adj.get("closed"):  # M5: closed by a reconcile or verify answer; its blocks are released
             continue
@@ -301,7 +304,10 @@ class Built:
     notes: list[str]
 
 
-def run_planning(rc: "RunContext", decide: dict[str, Any]) -> Built:
+def run_planning(rc: "RunContext", decide: dict[str, Any],
+                 adopted: dict[tuple[str, str, str], str] | None = None) -> Built:
+    """Place the open tasks. ``adopted`` maps (destination, section, line) to the line the
+    plan's adoptions write, so a block is planned for a task as it will read (TD §11.5)."""
     cfg = rc.ws.config
     inp = gather(rc)
     cal = classify_calendar(inp.events, cfg.profile.calendar.classify, lo=inp.lo, hi=inp.hi, tz=inp.tz,
@@ -312,7 +318,7 @@ def run_planning(rc: "RunContext", decide: dict[str, Any]) -> Built:
             cal.days.setdefault(seg.day, []).append(seg)
     for segs in cal.days.values():
         segs.sort(key=lambda s: (s.start, s.end, s.event_id))
-    tasks = gather_tasks(rc, inp, decide, cal.instances)
+    tasks = gather_tasks(rc, inp, decide, cal.instances, adopted)
     by_id = {t.id: t for t in tasks}
     c = cfg.planning.calendar
     assert c is not None
@@ -362,8 +368,9 @@ def raise_window_errors(rc: "RunContext", built: Built) -> None:
                      details={"windows": errs})
 
 
-def extend_plan(rc: "RunContext", plan: dict[str, Any], decide: dict[str, Any], decide_digest: str | None) -> Built:
-    built = run_planning(rc, decide)
+def extend_plan(rc: "RunContext", plan: dict[str, Any], decide: dict[str, Any], decide_digest: str | None,
+                adopted: dict[tuple[str, str, str], str] | None = None) -> Built:
+    built = run_planning(rc, decide, adopted)
     raise_window_errors(rc, built)
     c = rc.ws.config.planning.calendar
     assert c is not None
@@ -412,7 +419,10 @@ def diff_groups(plan: dict[str, Any], tz: ZoneInfo) -> list[dict[str, Any]]:
     for op in plan["operations"]:
         if "start" not in op:
             where = f"{op.get('path', '')} under {op.get('anchor', '')}".strip()
-            if op.get("verb") == "replace":  # M5: reconcile and verify change existing lines
+            if op.get("adopt"):  # a task line that carried no key gets one (TD §11.5)
+                from docket.items.adopt import describe
+                text = describe(op)
+            elif op.get("verb") == "replace":  # M5: reconcile and verify change existing lines
                 text = f"change `{op.get('old_line', '')}` to `{op.get('line')}` ({where})"
             elif op.get("verb") == "draft":
                 text = f"draft `{op.get('subject', '')}` to {', '.join(op.get('to') or [])}"

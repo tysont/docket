@@ -63,7 +63,8 @@ def task_texts(rc: "RunContext", decide: dict[str, Any]) -> tuple[dict[str, str]
     add a task or place a block."""
     from docket.decide.operations import scheduling_inputs
     from docket.plan.build import planning_active, store_destination
-    from docket.plan.taskstore import parse_line, read_store
+    from docket.items import adopt
+    from docket.plan.taskstore import as_adopted, parse_line, read_store
     if not planning_active(rc):
         return {}, {}, ""
     did = store_destination(rc) or ""
@@ -71,6 +72,8 @@ def task_texts(rc: "RunContext", decide: dict[str, Any]) -> tuple[dict[str, str]
     areas: dict[str, str] = {}
     if did:
         rows, _ = read_store(rc, did, sections=rc.ws.config.planning.tasks.sections)
+        # a line the plan adopts is labelled under the id it has once adopted (TD §11.5)
+        rows = as_adopted(rc, rows, {(a.destination, a.anchor, a.old_line): a.line for a in adopt.for_plan(rc)})
         for r in rows:
             texts[r.id] = r.title
             if r.raw.get("area"):

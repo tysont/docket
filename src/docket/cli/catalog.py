@@ -55,6 +55,7 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "config.unknown_kind": ("config", False, "A source kind or destination adapter is not known."),
     "config.capability_missing": ("config", False, "No configured adapter supports an operation the graph needs."),
     "config.bad_graph": ("config", False, "A graph's shape is wrong: a bad node name, a node it names that does not exist, a cycle, or an input of the wrong kind."),
+    "config.adopt_needs_key": ("config", False, "A task store adopts task lines, but its quality rules do not require the item key, so an adopted line could not carry it."),
     "config.conflicting_settings": ("config", False, "Two settings of one graph ask for opposite things, such as a roll that assumes a meeting with no record covered its agenda and an ask node that asks about the same meetings."),
     "config.bad_merge_form": ("config", False, "An extend/remove form is malformed or used where no list exists."),
     "workspace.not_found": ("config", False, "No docket.yaml was found from the working directory, --workspace or DOCKET_WORKSPACE."),

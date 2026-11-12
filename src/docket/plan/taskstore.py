@@ -101,6 +101,20 @@ def parse_line(rc: "RunContext", did: str, line: str) -> StoreTask | None:
     return None if o is None else _store_task(o, did, names)
 
 
+def as_adopted(rc: "RunContext", tasks: list[StoreTask], lines: dict[tuple[str, str, str], str]) -> list[StoreTask]:
+    """The tasks as they read once the plan's adoptions are written (TD §11.5): ``lines`` maps
+    (destination, section, line) to the adopted line. An adopted task keeps its title, section
+    and tier, and takes the id and fields of its adopted line, so its block has the identity
+    the next run reads."""
+    from dataclasses import replace
+    out = []
+    for st in tasks:
+        new = lines.get((st.destination, st.section, st.line))
+        parsed = parse_line(rc, st.destination, new) if new else None
+        out.append(st if parsed is None else replace(st, id=parsed.id, fields=parsed.fields, raw=parsed.raw, line=new))
+    return out
+
+
 def parse_field_date(v: str, ref: date) -> date | None:
     from docket.cli.errors import InputError
     from docket.text.dates import parse_date
@@ -132,4 +146,4 @@ def parse_field_int(v: str, what: str) -> int | None:
         return None
 
 
-__all__: list[Any] = ["read_store", "parse_line", "StoreTask", "FIELD_NAMES"]
+__all__: list[Any] = ["read_store", "parse_line", "as_adopted", "StoreTask", "FIELD_NAMES"]

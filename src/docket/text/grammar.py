@@ -10,7 +10,8 @@ A task line is ``<indent><status marker><text><fields>``:
   (``[key:: value]``, where the key may be empty: ``[:: value]``), ``inline`` (``key:: value``) or ``delimited``
   (``<separator>key<assign>value``, for example `` | queue=tier1``);
 - links (Markdown ``[label](url)``, wiki ``[[target]]``, bare URLs, and field
-  values that are URLs) and tags (``#word``) are read from the text.
+  values that are URLs) and tags (``#word``) are read from the text. ``words`` is the
+  text without its links, the part of a line that names the task (TD §11.5).
 
 ``parse`` returns None for a line that is not a task under the grammar.
 ``render(parse(line)) == line`` for every line in canonical form (single
@@ -34,6 +35,7 @@ _WIKI = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 _URL = re.compile(r"(?<![(\w])https?://[^\s)\]>]+")
 _TAG = re.compile(r"(?:(?<=\s)|^)#([A-Za-z][\w/-]*)")
 _CHECKBOX = re.compile(r"^(- \[)(.)(\] )")
+_WIKI_WORDS = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
 _TITLE_LINK = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\([^)]+\)")
 
 
@@ -71,6 +73,14 @@ class TaskLine:
         """The text as a reader sees it: links shown by their label, whitespace collapsed."""
         t = _TITLE_LINK.sub(lambda m: m.group(2) or m.group(1) or m.group(3) or "", self.text)
         return " ".join(t.split())
+
+    @property
+    def words(self) -> str:
+        """The text without its links, whitespace collapsed: Markdown links and bare URLs are
+        taken out, and a wiki link reads as its label, as a word of the sentence."""
+        t = _MD_LINK.sub(" ", self.text)
+        t = _WIKI_WORDS.sub(lambda m: m.group(2) or m.group(1), t)
+        return " ".join(_URL.sub(" ", t).split())
 
     @property
     def tags(self) -> list[str]:
