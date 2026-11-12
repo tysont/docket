@@ -19,6 +19,7 @@ class Arg:
     default: Any = None
     choices: list[str] | None = None
     metavar: str | None = None
+    const: Any = None  # the value of an optional-valued flag (nargs="?") given with no value
 
     @property
     def positional(self) -> bool:
@@ -81,6 +82,8 @@ class Command:
                 kw["action"] = a.action
             if a.nargs:
                 kw["nargs"] = a.nargs
+            if a.const is not None:
+                kw["const"] = a.const
             if a.default is not None:
                 kw["default"] = a.default
             if a.choices:
