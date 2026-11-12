@@ -79,3 +79,34 @@ def test_state_root_from_env(tmp_path):
     assert workspace_slug(ws).startswith("my-workspace-")
     env["DOCKET_STATE_ROOT"] = str(tmp_path / "s")
     assert state_root(ws, env).parent == tmp_path / "s"
+
+
+def test_a_clock_says_whether_it_was_given_and_older_run_headers_read_as_given(monkeypatch):
+    """``run start --now`` gives the clock; without it the clock is taken from the wall. A
+    run.json written before the field existed reads as given, so it plans as it always did."""
+    from datetime import datetime
+    from docket.engine import clock
+    from docket.store.runs import RunHeader
+    monkeypatch.setattr(clock, "wall_now", lambda: datetime.fromisoformat("2026-10-15T14:00:00+00:00"))
+    taken = clock.pin("America/Chicago")
+    assert taken.given is False and taken.instant == "2026-10-15T09:00:00-05:00"
+    given = clock.pin("America/Chicago", now="2026-10-15T08:00:00-05:00")
+    assert given.given is True
+    old = RunHeader.model_validate({"run_id": "r", "graph": "g", "clock": {
+        "date": "2026-10-15", "timezone": "America/Chicago", "instant": "2026-10-15T08:00:00-05:00"}})
+    assert old.clock.given is True
+
+
+def test_the_live_now_is_the_later_of_the_pinned_instant_and_the_wall_only_for_a_wall_clock(monkeypatch):
+    from datetime import datetime
+    from docket.engine import clock
+    from docket.store.runs import Clock
+    wall = {"now": datetime.fromisoformat("2026-10-15T18:02:00+00:00")}
+    monkeypatch.setattr(clock, "wall_now", lambda: wall["now"])
+    taken = Clock(date="2026-10-15", timezone="America/Chicago", instant="2026-10-15T09:00:00-05:00", given=False)
+    assert clock.live_now(taken).isoformat() == "2026-10-15T13:02:00-05:00"
+    wall["now"] = datetime.fromisoformat("2026-10-15T12:00:00+00:00")      # a wall behind the run's instant
+    assert clock.live_now(taken).isoformat() == "2026-10-15T09:00:00-05:00"
+    given = taken.model_copy(update={"given": True})
+    wall["now"] = datetime.fromisoformat("2026-10-15T23:00:00+00:00")
+    assert clock.live_now(given).isoformat() == "2026-10-15T09:00:00-05:00"

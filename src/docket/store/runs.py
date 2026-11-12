@@ -24,6 +24,10 @@ class Clock(BaseModel):
     date: str
     timezone: str
     instant: str
+    # True when ``run start --now`` gave the instant; False when it was taken from the wall clock,
+    # and then a live plan places nothing before the moment it is built. A run.json written
+    # before the field existed reads as given, so it plans as it always did.
+    given: bool = True
 
 
 class RunHeader(BaseModel):

@@ -236,11 +236,12 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-PLN-06 (Must).** Existing owned blocks are kept, moved, updated or released explicitly. No block is left orphaned by a plan.
 - **FR-PLN-07 (Should).** Personal-calendar mirroring: opaque busy holds copied from one calendar to another, reconciled each run, honoring the operator's deletions.
 - **FR-PLN-08 (Must).** `docket plan diff` shows every change in human terms, and `docket plan explain <item>` says why an item landed where it did or why it could not be placed.
+- **FR-PLN-09 (Must).** A live plan never places work before the moment it is built: nothing is placed, moved to or kept movable before the later of the run's clock and the time the plan is built, and the plan says when it was built for. A run whose clock was given explicitly plans from that clock only.
 
 ### 7.7 Apply, seal and memory
 
 - **FR-APP-01 (Must).** Approval binds the exact plan digest. Approval is invalidated by any change to the plan's inputs.
-- **FR-APP-02 (Must).** Freshness is checked against state, not a clock: at approval, Docket compares the live calendar and task store with what the plan was built from, approves if unchanged, and refuses with a rebuild instruction if changed. A configurable note records any delay.
+- **FR-APP-02 (Must).** Freshness is checked against state, not a clock: at approval, Docket compares the live calendar and task store with what the plan was built from, approves if unchanged, and refuses with a rebuild instruction if changed. A configurable note records any delay. Time passing alone never refuses an approval; a planned block whose start has passed is reported to the operator.
 - **FR-APP-03 (Must).** Apply is idempotent and repeatable. Each operation writes a receipt. Repeating apply after a crash continues from the receipts and makes no duplicate effect.
 - **FR-APP-04 (Must).** The seal advances cursors only across proven, contiguous coverage, writes the journal from a configurable template and appends ledgers. A command the workspace runs after apply (for example a commit or a reindex) is a `run` node ordered with `after`, and it runs once per run.
 - **FR-APP-05 (Must).** A dispositions memory records every decision (done, watch, dismiss, routed) so the next run suppresses or re-surfaces correctly.
@@ -285,7 +286,7 @@ These requirements carry the same weight as the functional ones.
 
 - **NFR-01 Safety.** No external effect without an approval of the exact operation set. No send by default. No mutation of unowned objects. No credentials in output, logs or artifacts.
 - **NFR-02 Privacy.** Redaction for shared destinations is enforced by validation, not by convention. Protected entities and sensitive classes come from configuration.
-- **NFR-03 Determinism.** Given the same raw records, configuration, answers and clock, every derived artifact is byte-identical.
+- **NFR-03 Determinism.** Given the same raw records, configuration, answers and clock, every derived artifact is byte-identical. A run whose clock was given explicitly is reproducible end to end; a run whose clock was taken from the wall reads the wall clock only to keep a plan from placing work in the past (FR-PLN-09).
 - **NFR-04 Auditability.** Every item, question, decision and operation traces to the raw records and rules that produced it.
 - **NFR-05 Unattended operation.** No step blocks on a person. Failures are named and fast.
 - **NFR-06 Performance.** Reading is network-bound. Read nodes that do not depend on each other are ready together, so the agent runs them at once. Planning a 42-day horizon with 200 open tasks takes under 5 seconds. A full synthetic run in the test suite takes under 60 seconds.

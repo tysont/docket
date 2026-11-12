@@ -655,14 +655,33 @@ class ApproveNode(BaseNode):
         for op in up.output["operations"]:
             counts[op["destination"]] = counts.get(op["destination"], 0) + 1
         per = ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+        passed = self.passed(run, pd)
+        prompt = (f"Approve the plan ({n} operation(s){': ' + per if per else ''}; digest {pd[:12]})? "
+                  f"Show the operator {diff} first.")
+        if passed:
+            prompt += f" {len(passed)} planned block(s) start before now; tell the operator (details.passed)."
         return {
             "id": self.name, "kind": "approve", "digest": pd, "diff_path": diff, "operations": n,
-            "counts": dict(sorted(counts.items())),
-            "prompt": f"Approve the plan ({n} operation(s){': ' + per if per else ''}; digest {pd[:12]})? "
-                      f"Show the operator {diff} first.",
+            "counts": dict(sorted(counts.items())), "prompt": prompt,
             "options": [{"id": "yes", "label": "Approve", "action": "approve"},
                         {"id": "no", "label": "Reject", "action": "reject"}],
+            **({"passed": passed} if passed else {}),
         }
+
+    @staticmethod
+    def passed(run: "RunContext", plan_digest: str) -> list[dict[str, Any]]:
+        """The blocks the plan creates, moves or updates whose planned start has gone by: told to
+        the operator, never a reason to refuse (TD §13.1). A run whose clock was given never has any."""
+        from datetime import datetime
+        from docket.engine.clock import live_now
+        p = run.run.paths.plan(plan_digest) / "plan.json"
+        if not p.is_file():
+            return []
+        now = live_now(run.run.header.clock)
+        return [{"key": o.get("key"), "title": o.get("title") or "", "start": o["start"], "verb": o["verb"]}
+                for o in read_json(p).get("operations") or []
+                if o.get("verb") in ("create", "move", "update") and o.get("start")
+                and datetime.fromisoformat(o["start"]) < now]
 
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
         assert up is not None and up.output is not None

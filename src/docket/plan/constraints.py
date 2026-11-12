@@ -187,7 +187,7 @@ def check(block: Block, ctx: Ctx) -> list[Violation]:
     if day.weekday() not in p.workdays and not (w is not None and w.explicit_days and w.bounds(day)):
         out.append(Violation("workday", f"{day:%a} is not a workday"))
     if a < ctx.now_min(day):
-        out.append(Violation("past", "starts before the run's pinned now"))
+        out.append(Violation("past", "starts before the moment the plan is built for"))
     if block.earliest is not None and day < block.earliest:
         out.append(Violation("earliest", f"before the earliest start {block.earliest}"))
     if w is not None and not w.contains(day, a, b):

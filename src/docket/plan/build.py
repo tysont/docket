@@ -143,13 +143,16 @@ def write_ledger(rc: "RunContext", updates: list[tuple[str, str]], before: dict[
     return n
 
 
-def gather(rc: "RunContext") -> Inputs:
+def gather(rc: "RunContext", now: datetime | None = None) -> Inputs:
+    """What planning reads. ``now`` is the moment nothing may be placed before; by default the
+    run's pinned instant."""
+    from docket.engine.clock import pinned_now
     cfg = rc.ws.config
     clock = rc.run.header.clock
     tz = ZoneInfo(clock.timezone)
     policy = Policy.from_config(cfg.planning, list(cfg.profile.workdays))
     today = date.fromisoformat(clock.date)
-    now = datetime.fromisoformat(clock.instant).astimezone(tz)
+    now = (now or pinned_now(clock)).astimezone(tz)
     lo, hi = today, today + timedelta(days=policy.horizon_days)
     prov = _provider(rc, tz)
     events = prov.list_events(at(lo, 0, tz), at(hi, 0, tz))
@@ -307,11 +310,15 @@ class Built:
 
 
 def run_planning(rc: "RunContext", decide: dict[str, Any],
-                 adopted: dict[tuple[str, str, str], str] | None = None) -> Built:
+                 adopted: dict[tuple[str, str, str], str] | None = None, now: datetime | None = None) -> Built:
     """Place the open tasks. ``adopted`` maps (destination, section, line) to the line the
-    plan's adoptions write, so a block is planned for a task as it will read (TD §11.5)."""
+    plan's adoptions write, so a block is planned for a task as it will read (TD §11.5).
+
+    Nothing is placed, moved to or kept movable before ``now``: by default the later of the
+    run's instant and the wall clock, for a run whose clock was taken from the wall (TD §4.6)."""
+    from docket.engine.clock import live_now, pinned_now
     cfg = rc.ws.config
-    inp = gather(rc)
+    inp = gather(rc, now if now is not None else live_now(rc.run.header.clock))
     cal = classify_calendar(inp.events, cfg.profile.calendar.classify, lo=inp.lo, hi=inp.hi, tz=inp.tz,
                             key_prefix=inp.policy.key_prefix)
     mp = plan_mirrors(cfg.planning.mirrors, cal.instances, prefix=inp.policy.key_prefix, tz=inp.tz, ledger=inp.ledger)
@@ -338,6 +345,9 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
         ops.append(body)
     ops.sort(key=lambda o: (o["start"], o["key"], o["verb"]))
     notes = []
+    if inp.now > pinned_now(rc.run.header.clock):
+        when = f"{inp.now:%H:%M}" if inp.now.date() == inp.today else f"{inp.now:%Y-%m-%d %H:%M}"
+        notes.append(f"Planned at {when}; nothing is placed before then.")
     n_def = sum(1 for t in tasks if t.defaulted_est)
     if n_def:
         notes.append(f"{n_def} task(s) had no estimate and used the default of {inp.policy.default_est}m.")
@@ -390,6 +400,7 @@ def extend_plan(rc: "RunContext", plan: dict[str, Any], decide: dict[str, Any], 
         "answers_digest": digest(decide.get("answers") or {}), "config_digest": plan["inputs"].get("config_digest"),
         "mirror_ledger_digest": digest(sorted(built.mirrors.suppressed)),
     })
+    plan["planned_at"] = built.inputs.now.isoformat()  # the moment nothing is placed before (TD §12.6)
     plan["operations"] = list(plan["operations"]) + built.ops
     plan["schedule"] = built.result.schedule
     plan["unschedulable"] = built.result.unschedulable

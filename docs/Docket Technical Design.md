@@ -296,7 +296,9 @@ A read node reads its source once per run. Its digest covers the source's config
 
 ### 4.6 Clock
 
-A run pins its clock at creation: date, timezone and a reference instant. Nodes that need "now" (planning, freshness notes) read the pinned instant, or the instant `docket run start --now` pinned for tests. Nothing derived reads the wall clock, which makes NFR-03 testable.
+A run pins its clock at creation: date, timezone, a reference instant, and `given`, which says whether `docket run start --now` gave the instant (tests and replays) or it was taken from the wall clock. A `run.json` without `given` reads as given. Dates, windows and the run's day come from the pinned clock, so derived output is reproducible (NFR-03).
+
+One thing reads the wall clock: a plan node that places tasks. A plan may be built hours after its run started, so for a run whose clock was taken from the wall it plans from the later of the pinned instant and the wall clock at the moment it is built: nothing is placed, moved to or kept as movable before then (§12.3). A run whose clock was given plans from that clock only and stays deterministic. The approve question uses the same moment to name blocks whose start has passed (§13.1). `docket.engine.clock.wall_now` is the only read of real time; tests replace it rather than sleep.
 
 ## 5. Graphs and runs
 
@@ -378,7 +380,7 @@ A run is driven by one session at a time. A run lease is a row `(run_id, owner, 
 
 ### 5.6 Runs
 
-`docket run start <graph> [--date D] [--now T] [--sandbox] [--new]` creates a run of a graph and pins its clock (§4.6). The run id is the date and the graph name, `2026-10-16-morning`, with a number added for a second run of the day. Repeating the command for the same graph, date and sandbox mode returns the existing run unless `--new` is given. An unknown graph is `input.unknown_graph`, with the closest name.
+`docket run start <graph> [--date D] [--now T] [--sandbox] [--new]` creates a run of a graph and pins its clock (§4.6); with `--now` the clock is recorded as given. The run id is the date and the graph name, `2026-10-16-morning`, with a number added for a second run of the day. Repeating the command for the same graph, date and sandbox mode returns the existing run unless `--new` is given. An unknown graph is `input.unknown_graph`, with the closest name.
 
 `--sandbox` binds every destination to its sandbox twin under the run directory for the whole run, so its writes stay inside the run. A sandbox run may read live sources. Its seal moves no durable cursor and writes no dispositions or ledgers, and each `run` node uses its `dry_run` form or is skipped.
 
@@ -913,6 +915,8 @@ A plan node with `schedule_tasks: true` also places open tasks on the calendar, 
 6. Repair: if a higher-priority task is unschedulable and moving at most `move_cap` lower-priority unlocked blocks frees a slot, move them. Each move is an explicit `move` operation.
 7. Release owned blocks whose task is done, dropped or rescheduled, as explicit `release` operations. No owned block is left without an operation (FR-PLN-06).
 
+"Now" in these steps is the moment the plan is built for (§4.6): no slot before it is legal, and the move lock counts from it, so a block already under way or about to start stays locked where it is (FR-PLN-09).
+
 Planning 200 tasks over 42 days runs in well under 5 seconds because `free_intervals` is computed once per day and updated incrementally on each placement (NFR-06).
 
 **Batch identity.** A batch is its members: its id, and so its block's key, is the digest of its member ids. The same members planned on a later day are the same batch and keep their block; a batch whose members changed is another batch.
@@ -940,7 +944,7 @@ Each run lists source events in the horizon, compares them with owned mirror hol
 
 ### 12.6 Plan artifact, diff and explain
 
-A plan is `{inputs: {task_store_digest, calendar_digest, answers_digest, config_digest}, operations: [...], schedule: [...], unschedulable: [...], notes: [...]}` with digest `plan_digest`. `docket plan diff` renders operations in human terms grouped by day and destination ("Thu 13:00-14:00 new block: Draft pricing memo", "Backlog: close 'Review ingest SLO doc'"). `docket plan explain <item>` prints the task's ordering key, its candidate days and, for each rejected slot, the first violated constraint (FR-PLN-08).
+A plan is `{inputs: {task_store_digest, calendar_digest, answers_digest, config_digest}, planned_at, operations: [...], schedule: [...], unschedulable: [...], notes: [...]}` with digest `plan_digest`. `planned_at` is the instant the plan was built for (§4.6). When it is later than the run's instant the notes say so: "Planned at 13:02; nothing is placed before then." (with the date when it is another day). `docket plan explain` builds from the current plan's `planned_at`, so it explains the plan as it was built. `docket plan diff` renders operations in human terms grouped by day and destination ("Thu 13:00-14:00 new block: Draft pricing memo", "Backlog: close 'Review ingest SLO doc'"). `docket plan explain <item>` prints the task's ordering key, its candidate days and, for each rejected slot, the first violated constraint (FR-PLN-08).
 
 ### 12.7 Labels
 
@@ -991,11 +995,11 @@ At a durable seal, an item that was raised on an agenda (§13.8) is done when a 
 
 ### 13.1 Approval
 
-An approve node asks one question, whose id is the node's name. It shows the plan diff path, the counts and the digest. `docket ask answer approve yes --digest <plan_digest>` (for a node named `approve`) binds the approval to that digest. Any change to an input digest makes the plan stale (§4.4) and the approval with it (FR-APP-01). Wall-clock build and approval times are appended to the `approvals` ledger outside the run artifacts. This keeps digest-bound artifacts deterministic.
+An approve node asks one question, whose id is the node's name. It shows the plan diff path, the counts and the digest. When a block the plan creates, moves or updates has a planned start that has passed by the time the question is shown, its details carry `passed` (each block's key, title, start and verb, in the compact form too) and the prompt says how many, so a driver tells the operator. It never blocks the approval. `docket ask answer approve yes --digest <plan_digest>` (for a node named `approve`) binds the approval to that digest. Any change to an input digest makes the plan stale (§4.4) and the approval with it (FR-APP-01). Wall-clock build and approval times are appended to the `approvals` ledger outside the run artifacts. This keeps digest-bound artifacts deterministic.
 
 ### 13.2 Freshness
 
-At approval, Docket snapshots each destination the plan touches and compares the snapshot digest with the plan's input digest for that destination. Equal: approved. Different: the approval is refused with `apply.stale_inputs`, the per-destination change (for example "2 calendar events added since build"), and `docket do <plan node>` as the next command. No clock check exists; a delay of hours is fine if nothing changed. `journal.approval_delay_note` reads build and approval times from the `approvals` ledger (FR-APP-02).
+At approval, Docket snapshots each destination the plan touches and compares the snapshot digest with the plan's input digest for that destination. Equal: approved. Different: the approval is refused with `apply.stale_inputs`, the per-destination change (for example "2 calendar events added since build"), and `docket do <plan node>` as the next command. No clock check exists; a delay of hours is fine if nothing changed, and a block whose start passed in the meantime is reported in `passed`, not refused. `journal.approval_delay_note` reads build and approval times from the `approvals` ledger (FR-APP-02).
 
 ### 13.3 Executor
 
@@ -1271,7 +1275,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 | FR-TSK-01..07 | §9 |
 | FR-DEC-01..11 | §5.2, §10, §12.8 |
 | FR-ACT-01..07 | §11 |
-| FR-PLN-01..08 | §12 |
+| FR-PLN-01..09 | §4.6, §12 |
 | FR-APP-01..06 | §13 |
 | FR-ROB-01..06 | §5.4, §5.5, §14 |
 | AE-01..11 | §5.2, §9.3, §15 |

@@ -74,6 +74,19 @@ def _decisions(rc: Any, node: str) -> dict[str, Any]:
     return {**EMPTY_DECISIONS, **((up.output if up is not None else None) or {})}
 
 
+def _planned_at(rc: Any, node: str) -> Any:
+    """The moment the current plan was built for, so explain reproduces it (TD §12.6); None
+    when there is no current plan, and then explain plans from now as the plan node would."""
+    from datetime import datetime
+    from docket.store.paths import read_json
+    ev = rc.eval(node)
+    if ev.state != "current" or not ev.output:
+        return None
+    p = rc.run.paths.plan(ev.output["plan_digest"]) / "plan.json"
+    at = read_json(p).get("planned_at") if p.is_file() else None
+    return datetime.fromisoformat(at) if at else None
+
+
 @command("plan explain", "Explain where a task landed or why it could not be placed: its ordering key, "
                          "candidate days and the first violated constraint of each rejected slot.",
          run=True, args=[Arg("item", "Task id, question id, block key, or words of the task title."), NODE_ARG],
@@ -83,7 +96,7 @@ def cmd_plan_explain(ctx: Any, ns: Any) -> Result:
     rc = ctx.run_context()
     node = _plan_node(rc, ns.node, scheduling=True)
     _need_calendar(rc, node)
-    built = run_planning(rc, _decisions(rc, node))
+    built = run_planning(rc, _decisions(rc, node), now=_planned_at(rc, node))
     out = explain(built, ns.item)
     lines = [f"{out['title']} ({out['task_id']}), rank {out['rank']}", f"ordering: {out['ordering_key']}"]
     if "placed" in out:

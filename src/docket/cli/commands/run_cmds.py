@@ -109,7 +109,8 @@ def cmd_next(ctx: Any, ns: Any) -> Result:
          mutating=True,
          args=[Arg("graph", "Graph name from docket.yaml."),
                Arg("--date", "Run date: today, tomorrow, a weekday name or YYYY-MM-DD."),
-               Arg("--now", "Pin the clock to this ISO instant (tests)."),
+               Arg("--now", "Give the clock this ISO instant (tests, replays). The run then plans from it only; without "
+                           "it a plan places nothing before the moment it is built."),
                Arg("--sandbox", "Bind every destination to its sandbox twin for the whole run.", action="store_true"),
                Arg("--new", "Create a new run even if one exists for this graph and date.", action="store_true")],
          effects=["creates runs/<run-id>/ with run.json and a session token", "adds a runs row", "takes the run lease"],
