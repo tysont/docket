@@ -30,9 +30,9 @@ from docket.text.grammar import Grammar, TaskLine
 
 DEFAULT_VERB = "Follow up on"
 OVERRIDE_FLAGS = {"due": "--due", "est": "--est", "title": "--title", "note": "--note", "when": "--when",
-                  "link": "--link"}
+                  "link": "--link", "area": "--area"}
 PLACEHOLDER = {"due": "<date>", "est": "<duration>", "title": "<shorter imperative title>", "note": "<evidence>",
-               "when": "<window>", "link": "<url>"}
+               "when": "<window>", "link": "<url>", "area": "<area>"}
 Fix = Callable[[str, str], "str | None"]  # (flag, placeholder) -> command text, or None when no flag fixes it
 
 
@@ -99,6 +99,8 @@ def check_line(quality: Any, grammar: Grammar, line: str, ctx: dict[str, Any], *
                 if ctx.get("url"):
                     t = t.with_field("link", str(ctx["url"]))
                     continue
+                if "link" in (q.get("optional") or []) or ctx.get("by_hand"):
+                    continue  # an item added by hand has no record to link to
                 raise _refuse(dest_id, "require", "the task has no link and the item has no URL",
                               grammar.render(t), "link", fix)
             on_line = (q.get("fields") or {}).get(name, name)  # the task list's own name for it

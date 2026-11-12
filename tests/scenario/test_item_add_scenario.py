@@ -196,15 +196,25 @@ def test_an_unknown_tier_refuses_and_lists_the_tiers(tmp_path, cli):
     assert (ws / "tasks.md").read_text() == TASKS
 
 
-def test_a_missing_required_link_refuses_with_an_item_add_fix(tmp_path, cli):
+def test_a_required_link_is_not_demanded_of_an_item_added_by_hand(tmp_path, cli):
+    """A task list may require a link so that every triaged item leads back to its record. An
+    item added by hand has no record: its own words are the evidence, and it is written."""
     linked = CONFIG.replace("require: [due, est, key]", "require: [link, due, est, key]", 1)
     ws = workspace(tmp_path / "ws", linked)
+    code, env = add(cli, ws, "Call the dentist", "--est", "15m")
+    assert code == 0 and env["data"]["changed"] is True, env
+    assert "Call the dentist" in env["data"]["line"] and "](" not in env["data"]["line"]
+
+
+def test_a_quality_refusal_gives_a_fix_that_is_an_item_add_command(tmp_path, cli):
+    strict = CONFIG.replace("require: [due, est, key]", "require: [due, est, area, key]", 1)
+    ws = workspace(tmp_path / "ws", strict)
     code, env = add(cli, ws, "Watch the storage talk", "--est", "45m")
     assert code == 4 and env["error"]["code"] == "dest.quality", env
     hint = env["error"]["hint"]
     assert hint == env["error"]["details"]["fix"]
     assert hint.startswith("docket item add 'Watch the storage talk' --est 45m --workspace ") and \
-        hint.endswith(" --link '<url>'"), hint
+        hint.endswith(" --area '<area>'"), hint
     assert "ask answer" not in hint
     assert (ws / "tasks.md").read_text() == TASKS and ledger_rows(ws) == []
 

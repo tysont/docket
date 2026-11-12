@@ -76,7 +76,8 @@ def action_fields(ws: Any, *, text: str, links: list[str], label: str, due: str 
     extra = sorted(tasks.assess.extra) if tasks is not None else []
     ctx: dict[str, Any] = {
         "source_label": label, "key": key, "item_id": key, "source": SOURCE, "unit": "", "title": text,
-        "text": "", "from": "", "at": "", "url": links[0] if links else "", "score": "", "fields": {}, "forum": {},
+        # The operator's own words are the item: they are its evidence when it has no link and no note.
+        "text": text, "by_hand": True, "from": "", "at": "", "url": links[0] if links else "", "score": "", "fields": {}, "forum": {},
         "area": area or "", "topic": topic, "ask": "", "owner": "", "kind": "", "deadline": "", "quote": "",
         "extra": {k: "" for k in extra},
         "question_id": "", "action": text, "due": due or "", "est": est if est is not None else "", "when": "",

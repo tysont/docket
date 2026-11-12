@@ -140,7 +140,7 @@ def cmd_item_add(ctx: Any, ns: Any) -> Result:
     def fix(flag: str, placeholder: str) -> str | None:
         if flag == "--title":
             return shlex.join(_add_argv(ns, root, placeholder))
-        if flag in ("--due", "--est", "--note", "--link"):
+        if flag in ("--due", "--est", "--note", "--link", "--area"):
             return shlex.join(_add_argv(ns, root) + [flag, placeholder])
         return None
 

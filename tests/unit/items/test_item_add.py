@@ -57,7 +57,8 @@ def test_the_action_carries_the_fields_a_triaged_items_action_carries(tmp_path):
     assert (ctx["due"], ctx["est"], ctx["area"], ctx["tier"]) == ("2026-10-20", 45, "Learning", "priority")
     assert ctx["note"] == "recommended in the team sync" and ctx["key"] == "iabcdefgh" and ctx["topic"] == "hand:x"
     assert ctx["run"]["date"] == "2026-10-15" and ctx["run"]["workdays"] == [0, 1, 2, 3, 4]
-    assert ctx["from"] == "" and ctx["quote"] == "" and ctx["text"] == ""      # no sender, no quote
+    assert ctx["from"] == "" and ctx["quote"] == ""                           # no sender, no quote
+    assert ctx["text"] == "Watch the storage talk"                             # the operator's own words are the evidence
     # every field a task line template may name is there, so any valid template renders
     roots = {n.split(".")[0].split("[")[0] for n in TASK_LINE.paths}
     assert roots <= set(ctx), sorted(roots - set(ctx))
