@@ -234,8 +234,9 @@ class PlanWindow:
 
 @dataclass(frozen=True)
 class Task:
-    """One schedulable unit. ``kind`` is None for a plain task (deep or shallow by length)
-    or ``batch`` for a daily batch whose ``members`` are task ids."""
+    """One schedulable unit. ``kind`` is None for a plain task (deep or shallow by length),
+    ``batch`` for a daily batch whose ``members`` are task ids, or ``standing`` for a standing
+    block of one day (``planning.standing``)."""
     id: str
     title: str
     est: int
@@ -262,6 +263,7 @@ class Task:
     part_of: str | None = None          # a part of a split task: the task's id
     part: int = 0                       # which part, from 1
     parts: int = 0                      # of how many
+    notes: str = ""                     # a standing block's own notes (``planning.standing``)
 
     def with_flags(self, today: date, imminent_days: int) -> "Task":
         overdue = self.due is not None and self.due < today
@@ -273,6 +275,8 @@ def task_key(task: Task, prefix: str) -> str:
     """The ownership key of a task's block: stable across runs for the same task id."""
     if task.kind == "batch":
         return f"{prefix}b_{digest(['batch', task.id])[:12]}"
+    if task.kind == "standing":  # "<entry id>@<day>": one key per entry and day
+        return f"{prefix}s_{digest(['standing', task.id])[:12]}"
     # a part's id is "<task id>#<n>", so each part has its own stable key
     return f"{prefix}t_{digest(['task', task.id])[:12]}"
 

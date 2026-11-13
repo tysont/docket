@@ -122,7 +122,7 @@ Top-level keys, each a Pydantic model with `extra="forbid"`:
 | `tasks` | Agent task kinds and their overrides (§9) |
 | `decisions` | Option sets, label templates, reconcile and covered policy, the order of question kinds (§10) |
 | `destinations` | Destination instances keyed by id (§11) |
-| `planning` | Scheduling policy, mirrors (§12) |
+| `planning` | Scheduling policy, mirrors, standing blocks (§12) |
 | `journal` | Journal sections, ledgers (§13.5) |
 | `shapes` | Reviewable accepted unexpected shapes (§14.2) |
 
@@ -996,6 +996,30 @@ A workspace chooses, per meetings source, between assuming and asking. To assume
 With `commitments` naming a JSON-lines file, the node also appends what the operator agreed to do in the meetings recapped (the recap's actions whose `owner` is `me`), one record each and each once. A source can read the file, so a promise made in a meeting reaches triage like any other item. A sandbox run appends nothing.
 
 At a durable seal, an item that was raised on an agenda (§13.8) is done when a roll took its entry off the agenda. The entry is recognised by its line as written, or by the item's link when the operator reworded the line.
+
+### 12.9 Standing blocks
+
+A standing block is one a workspace wants on the calendar every working day, such as its own planning session. `planning.standing` lists them:
+
+```yaml
+planning:
+  standing:
+    - { id: plan-day, title: Plan the day, est: 30m, on: next_workday, notes: "Agenda first." }
+```
+
+| Key | Meaning |
+|---|---|
+| `id` | Lower-case words (`[a-z0-9][a-z0-9-]*`, at most 40 characters), unique in the list |
+| `title` | The block's title, as written |
+| `est` | The block's length, a duration above zero, rounded up to the grid and to at least `min_block` |
+| `on` | The block's day: `next_workday` (default), the first workday after the run's date, or `today` |
+| `notes` | The block's notes, as written (default empty) |
+
+A plan node with `schedule_tasks` places each entry's block on its day only, in the earliest legal slot. It ignores `prefer_window` and `daily_target` and keeps every rule: workdays, the day window, lunch, meetings and their buffers, the daily cap, the moment the plan is built. Standing blocks are kept or placed after locked blocks and before any task, so tasks plan around them and repair never displaces them. A block whose day has no legal slot is not placed, and the plan notes say so.
+
+A block's key is `<prefix>s_` and a digest of the entry's id and the day, so each day has its own. The entry has a unit for its day and one for each day from the run's date up to it whose block is already on the calendar. So the next run keeps today's block, placed by the run before, and places one for the following working day. A block whose entry was removed, or whose day the entry no longer covers, is released.
+
+A standing block is no task's: it carries no `task_ids`, it is never batched or split, reconcile never asks about it (reconcile reads task and batch keys only), and the item ledger never names it. Its title and notes pass the same shared-destination redaction and checks as a task block's (§11.4); no label task is involved.
 
 ## 13. Approve, apply and seal
 

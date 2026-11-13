@@ -249,6 +249,15 @@ FR-PLN-10:
   - tests/unit/plan/test_plan_carry.py::test_a_later_part_moves_after_an_earlier_part_placed_again
   - tests/scenario/test_carry_scenario.py::test_a_carried_task_moves_its_elapsed_block_and_apply_succeeds
   - tests/scenario/test_carry_scenario.py::test_a_batch_whose_members_changed_leaves_the_elapsed_block_as_history
+FR-PLN-11:
+  - tests/unit/plan/test_plan_standing.py::test_the_next_workday_skips_the_weekend
+  - tests/unit/plan/test_plan_standing.py::test_a_standing_block_takes_the_earliest_legal_slot_of_its_day_before_tasks_are_placed
+  - tests/unit/plan/test_plan_standing.py::test_tomorrows_run_keeps_todays_block_and_plans_the_next_one
+  - tests/unit/plan/test_plan_standing.py::test_a_standing_block_is_never_batched_split_or_late
+  - tests/unit/plan/test_plan_standing.py::test_a_standing_block_whose_entry_was_removed_is_released
+  - tests/unit/plan/test_plan_standing.py::test_standing_entries_are_checked
+  - tests/scenario/test_standing_scenario.py::test_a_standing_block_is_placed_first_kept_the_next_day_and_never_reconciled
+  - tests/scenario/test_standing_scenario.py::test_removing_the_entry_releases_its_blocks
 
 # --- approve, apply, seal -----------------------------------------------------------------------------
 FR-APP-01:

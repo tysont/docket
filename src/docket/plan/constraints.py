@@ -242,7 +242,9 @@ def block_for(task: Task, ctx: Ctx, day: date, start: int, *, key: str | None = 
 
 
 def candidate_days(task: Task, ctx: Ctx) -> tuple[list[date], list[date]]:
-    """(on-time days, late days) the search walks, in order."""
+    """(on-time days, late days) the search walks, in order. A standing block has its one day."""
+    if task.kind == "standing":
+        return [d for d in (task.earliest,) if d is not None and ctx.today <= d < ctx.horizon_end], []
     if task.window is not None:
         days = [d for d in task.window.days() if ctx.today <= d < ctx.horizon_end]
     else:
@@ -295,7 +297,8 @@ def _choose(task: Task, ctx: Ctx, days: list[date], n: int, *, plain: bool = Fal
     time, so they never make a task late; a task that is already late (``plain``) takes the
     earliest slot."""
     p = ctx.policy
-    if plain or task.window is not None or (p.prefer_window is None and p.daily_target is None):
+    if plain or task.window is not None or task.kind == "standing" or (p.prefer_window is None
+                                                                       and p.daily_target is None):
         return next((b for b in (_first(task, ctx, d, n) for d in days) if b is not None), None)
     key = task_key(task, p.key_prefix)
     load = {d: ctx.minutes(d, excluding=key) for d in days}

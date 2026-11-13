@@ -238,6 +238,7 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-PLN-08 (Must).** `docket plan diff` shows every change in human terms, and `docket plan explain <item>` says why an item landed where it did or why it could not be placed.
 - **FR-PLN-09 (Must).** A live plan never places work before the moment it is built: nothing is placed, moved to or kept movable before the later of the run's clock and the time the plan is built, and the plan says when it was built for. A run whose clock was given explicitly plans from that clock only.
 - **FR-PLN-10 (Must).** A task placed again after its block elapsed moves that block to its new slot, with its words updated, and never asks the calendar for a second block under the same identity. This holds for a block of an earlier day, for the parts of a split task, and for a batch whose members are unchanged. A batch whose members changed leaves its elapsed block as it stands.
+- **FR-PLN-11 (Should).** A workspace can name standing blocks, such as its own planning session: a title, a length and a day (the next working day, or today). Each is placed before tasks, in the earliest legal slot of its day, with its own title and notes. The next run keeps the block it placed and places one for the following day. A standing block is never reconciled, batched, split or recorded in the item ledger, and removing it from the configuration releases its blocks. A day with no legal slot is noted in the plan.
 
 ### 7.7 Apply, seal and memory
 

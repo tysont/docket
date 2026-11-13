@@ -35,7 +35,7 @@ from docket.plan.constraints import Ctx, block_for, candidate_days, check, slot_
 from docket.plan.mirrors import LEDGER, MirrorPlan, plan_mirrors
 from docket.plan import labels as plan_labels
 from docket.plan.providers import JsonFileProvider
-from docket.plan.scheduler import ScheduleResult, describe_key, schedule, validate
+from docket.plan.scheduler import ScheduleResult, Standing, describe_key, schedule, validate
 from docket.plan.taskstore import (
     parse_field_date, parse_field_int, parse_field_minutes, parse_line, read_store,
 )
@@ -329,6 +329,8 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
         return t.said or t.title
 
     def f(task: Task) -> tuple[str, str]:
+        if task.kind == "standing":  # the entry's own words; no task and no label is involved
+            return task.title, task.notes
         members = [by_id[m] for m in task.members if m in by_id]
         # ``label`` is the words the label task wrote for the task (TD §12.7); ``id`` is the
         # task's own id, from which a template can build a link back to its line.
@@ -387,7 +389,7 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
     c = cfg.planning.calendar
     assert c is not None
     res = schedule(tasks, cal, inp.policy, today=inp.today, now=inp.now, tz=inp.tz, calendar=c.calendar,
-                   earlier=inp.earlier, redo=carried_blocks(decide),
+                   earlier=inp.earlier, redo=carried_blocks(decide), standing=standing_entries(rc),
                    titler=_titler(rc, by_id, plan_labels.for_run(rc, decide), plan_labels.open_for_run(rc, decide)))
     problems = validate(res)
     if problems:
@@ -419,7 +421,15 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
                      f"{m['kept']} keep, {m['suppressed']} not recreated after deletion, {m['released']} release.")
     if res.moves_used:
         notes.append(f"Repair displaced {res.moves_used} block(s) (move cap {inp.policy.move_cap}).")
+    notes += res.notes
     return Built(inp, cal, tasks, res, mp, ops, notes)
+
+
+def standing_entries(rc: "RunContext") -> list[Standing]:
+    """``planning.standing``, with each duration in minutes (TD §12.9)."""
+    from docket.text.durations import parse_duration
+    return [Standing(id=s.id, title=s.title, est=parse_duration(s.est), on=s.on, notes=s.notes)
+            for s in rc.ws.config.planning.standing]
 
 
 CARRIED = ("not_done", "partly", "rescope")   # reconcile answers that place the task again

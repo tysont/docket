@@ -724,13 +724,43 @@ class PlanningTitles(Strict):
         return v
 
 
+class PlanningStanding(Strict):
+    """A block a workspace wants on the calendar every working day, such as its own planning
+    session (TD §12.9). It is placed before tasks, in the earliest legal slot of its day: the
+    first workday after the run (``next_workday``) or the run's own day (``today``)."""
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,39}$")
+    title: str = Field(min_length=1)
+    est: Duration
+    on: Literal["next_workday", "today"] = "next_workday"
+    notes: str = ""
+
+    @field_validator("est")
+    @classmethod
+    def _est(cls, v: Any) -> Any:
+        _check_duration(v)
+        from docket.text.durations import parse_duration
+        if parse_duration(v) <= 0:
+            raise ValueError(f"a standing block needs a duration above zero, not {v!r}")
+        return v
+
+
 class Planning(Strict):
     policy: PlanningPolicy = PlanningPolicy()
     calendar: PlanningCalendar | None = None
     tasks: PlanningTasks = PlanningTasks()
     mirrors: list[PlanningMirror] = []
     titles: PlanningTitles = PlanningTitles()
+    standing: list[PlanningStanding] = []
     key_prefix: str = "dk_"
+
+    @field_validator("standing")
+    @classmethod
+    def _unique_standing(cls, v: list[PlanningStanding]) -> list[PlanningStanding]:
+        ids = [s.id for s in v]
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        if dup:
+            raise ValueError(f"standing block ids must be unique; repeated: {dup}")
+        return v
 
 
 # --- shapes (TD §14.2) ------------------------------------------------------

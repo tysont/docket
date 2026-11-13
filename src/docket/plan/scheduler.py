@@ -203,11 +203,12 @@ def _as_existing(events: list[Event], tz: ZoneInfo, mirror_prefix: str) -> list[
 
 def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, now: datetime, tz: ZoneInfo,
              calendar: str = "work", titler: Titler | None = None, earlier: list[Event] | None = None,
-             redo: frozenset[str] = frozenset()) -> ScheduleResult:
+             redo: frozenset[str] = frozenset(), standing: list[Standing] | None = None) -> ScheduleResult:
     """Place ``tasks``. ``earlier`` are owned blocks of the days before ``today``, and ``redo``
     the keys of elapsed blocks whose work did not happen (a reconcile answer carried the task).
     A unit whose block is one of those is placed again and its block moves to the new slot:
-    its key derives from the task, so a second block under the same key is never created."""
+    its key derives from the task, so a second block under the same key is never created.
+    ``standing`` blocks are placed first, each in the earliest legal slot of its day."""
     ctx = Ctx(policy, cal, today, now, tz)
     prefix = policy.key_prefix
     tasks = prepare(tasks, today, policy)
@@ -219,18 +220,21 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             uniq.append(t)
     batches, rest = make_batches(uniq, ctx, titler)
     all_units = sorted(batches + split_long(rest, policy), key=lambda t: ordering_key(t, policy))
+    existing = _existing(cal, tz, prefix, prefix + "m_")
+    stand, notes = standing_units(list(standing or []), today, ctx, {x.key for x in existing})
+    all_units = stand + all_units   # first in rank: placed before tasks, never displaced by them
     if titler is not None:
         all_units = [replace(t, title=titler(t)[0]) for t in all_units]
     units = [Unit(t, task_key(t, prefix), i) for i, t in enumerate(all_units)]
     by_key = {u.key: u for u in units}
 
-    existing = _existing(cal, tz, prefix, prefix + "m_")
     owned_keys = [x.key for x in existing]
     releases: list[tuple[Existing, str]] = []
     for x in existing:
         u = by_key.get(x.key)
         if u is None:
-            releases.append((x, "no open task for this block"))
+            releases.append((x, "no standing entry for this block" if x.key.startswith(prefix + "s_")
+                             else "no open task for this block"))
         elif u.existing is not None:
             releases.append((x, "duplicate block for the same task"))
         else:
@@ -263,7 +267,9 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
     seq = 0
 
     def notes_of(t: Task) -> str:
-        return titler(t)[1] if titler is not None else ""
+        if titler is not None:
+            return titler(t)[1]
+        return t.notes if t.kind == "standing" else ""
 
     def place(u: Unit, blk: Block, late: bool = False) -> None:
         nonlocal seq
@@ -285,9 +291,21 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
         if x is not None and not again(u) and at(x.day, x.start, tz) < lock_until:
             u.locked = True
             place(u, replace(existing_block(u), locked=True))
+    pending: list[Unit] = []
+    # standing blocks before any other block is kept or placed, so tasks plan around them
+    for u in (u for u in units if u.task.kind == "standing" and u.block is None):
+        x = u.existing
+        if x is not None and x.minutes == policy.length_for(u.task) and not check(existing_block(u), ctx):
+            place(u, existing_block(u))
+            continue
+        res = search(u.task, ctx)
+        if isinstance(res, Placement):
+            place(u, res.block, False)
+        else:
+            pending.append(u)
     for u in units:
         x = u.existing
-        if x is None or u.block is not None or again(u):
+        if x is None or u.block is not None or again(u) or u.task.kind == "standing":
             continue
         blk = existing_block(u)
         if x.minutes == policy.length_for(u.task) and not check(blk, ctx):
@@ -319,10 +337,9 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
                 u.task = replace(t, earliest=first)
 
     # 4. place, with 5. repair for a task that would otherwise be late or unschedulable
-    pending: list[Unit] = []
     moves_used = 0
     for u in units:
-        if u.block is not None or u.window_error is not None:
+        if u.block is not None or u.window_error is not None or u.task.kind == "standing":
             continue
         after_siblings(u)
         res = search(u.task, ctx)
@@ -354,6 +371,9 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
         res = search(u.task, ctx)
         assert isinstance(res, Unschedulable)
         u.reason = res
+        if u.task.kind == "standing":
+            notes.append(f"No legal slot on {u.task.earliest} for the standing block {u.task.id.split('@')[0]} "
+                         f"({res.reason}); nothing was placed.")
 
     # 7. operations
     ops: list[dict[str, Any]] = []
@@ -364,7 +384,9 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
     def base_op(verb: str, key: str, u: Unit | None, title: str, notes: str) -> dict[str, Any]:
         op = {"verb": verb, "calendar": calendar, "key": key, "title": title, "notes": notes,
               "kind": (u.block.kind if u and u.block else (u.task.kind or "task") if u else "task"),
-              "task_ids": list(u.task.members or (u.task.part_of or u.task.id,)) if u else []}
+              "task_ids": task_ids(u) if u else []}
+        if u is not None and u.task.kind == "standing":
+            op["standing"] = u.task.id.split("@")[0]
         return op
 
     for u in units:
@@ -402,7 +424,7 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
         u = by_key.get(x.key)
         op = base_op("release", x.key, None, x.event.title, x.event.notes or "")
         if u is not None:
-            op["task_ids"] = list(u.task.members or (u.task.part_of or u.task.id,))
+            op["task_ids"] = task_ids(u)
         op.update({"start": st, "end": en, "reason": reason, "event_id": x.event.id})
         ops.append(op)
     ops.sort(key=lambda o: (o["start"], o["key"], o["verb"], o.get("event_id", "")))
@@ -413,14 +435,60 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
         st, en = span(b.day, b.start, b.end)
         status = ("locked" if u.locked else "created" if u.existing is None else
                   "kept" if (u.existing.day, u.existing.start, u.existing.end) == (b.day, b.start, b.end) else "moved")
-        sched.append({"key": u.key, "task_ids": list(u.task.members or (u.task.part_of or u.task.id,)), "title": b.title,
+        sched.append({"key": u.key, "task_ids": task_ids(u), "title": b.title,
                       "kind": b.kind, "date": b.day.isoformat(), "start": st, "end": en, "minutes": b.minutes,
                       "status": status, "late": u.late, "seq": u.seq})
     unsched = [{"task_id": u.task.id, "title": u.task.title, "question_id": u.task.question_id,
                 "members": list(u.task.members), "reason": u.reason.reason, "detail": u.reason.detail}
-               for u in units if u.reason is not None]
+               for u in units if u.reason is not None and u.task.kind != "standing"]
     werr = [u.window_error for u in units if u.window_error is not None]
-    return ScheduleResult(units, ops, sched, unsched, werr, ctx, owned_keys, moves_used)
+    return ScheduleResult(units, ops, sched, unsched, werr, ctx, owned_keys, moves_used, notes)
+
+
+def task_ids(u: Unit) -> list[str]:
+    """The tasks a unit's block is for: a batch's members, a part's task, or none for a
+    standing block, which is no task's (it is never reconciled and never in the ledger)."""
+    if u.task.kind == "standing":
+        return []
+    return list(u.task.members or (u.task.part_of or u.task.id,))
+
+
+@dataclass(frozen=True)
+class Standing:
+    """One ``planning.standing`` entry, resolved: ``est`` in minutes."""
+    id: str
+    title: str
+    est: int
+    on: str = "next_workday"
+    notes: str = ""
+
+
+def standing_day(on: str, today: date, workdays: frozenset[int]) -> date | None:
+    """The day a standing entry places its block on: ``today``, or the first workday after it."""
+    if on == "today":
+        return today
+    return next((today + timedelta(days=i) for i in range(1, 8) if (today + timedelta(days=i)).weekday() in workdays),
+                None)
+
+
+def standing_units(entries: list[Standing], today: date, ctx: Ctx, owned: set[str]) -> tuple[list[Task], list[str]]:
+    """The units of the standing entries, and notes. Each entry has one unit for its day, and
+    one for each day from today up to it whose block is already on the calendar, so a block
+    an earlier run placed for today is kept."""
+    units: list[Task] = []
+    notes: list[str] = []
+    for s in entries:
+        day = standing_day(s.on, today, ctx.policy.workdays)
+        if day is None or day >= ctx.horizon_end:
+            notes.append(f"The standing block {s.id} has no day inside the horizon; nothing was placed.")
+            continue
+        for i in range((day - today).days + 1):
+            d = today + timedelta(days=i)
+            t = Task(id=f"{s.id}@{d.isoformat()}", title=s.title, est=s.est, due=d, earliest=d, kind="standing",
+                     source="standing", notes=s.notes)
+            if d == day or task_key(t, ctx.policy.key_prefix) in owned:
+                units.append(t)
+    return units, notes
 
 
 def _repair(u: Unit, units: list[Unit], ctx: Ctx, policy: Policy, cap: int,
