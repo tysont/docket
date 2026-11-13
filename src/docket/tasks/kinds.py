@@ -434,7 +434,9 @@ For each task write one short `label`:
 - It tells {me.name} what the time is for: the kind of work and its subject, in a few words, starting with a verb.
 - It tells a reader nothing they should not learn from it. Whether a word is safe is a judgment about the matter, not about the word: the same name can be ordinary in one task and private in another.
 - When a task cannot be described at all without saying something private, write the workspace's label for private work and nothing else.
-- Write a label for every task. Never copy a quote, a link or an id into it."""
+- Write a label for every task. Never copy a quote, a link or an id into it.
+
+Then say whether the task is `open`. An open task's own first sentence and link are shown under the label as they are written, so a reader sees exactly what the work is. Say true only when that sentence and where its link leads would tell a reader nothing they should not learn. If the label had to leave something out, the task is not open. When unsure, false."""
 
 REVIEW_INSTRUCTIONS = """\
 You review candidate items before they are put to {me.name}, the operator. An earlier assessment kept each candidate; the pack shows its proposal (kind, owner, ask, evidence and, where the workspace names decisions, the decision recommended) without its score. You see the whole set at once, which the assessment did not. Form your own view.
@@ -581,7 +583,10 @@ def _review(cfg: TasksConfig) -> TaskKind:
 def _label(cfg: TasksConfig) -> TaskKind:
     lb = cfg.label
     fields = (FieldSpec("label", "str", "The words that stand for this task where others can read them.",
-                        required=True, max_length=60, example="Review a plan", extend="tasks.label"),)
+                        required=True, max_length=60, example="Review a plan", extend="tasks.label"),
+              FieldSpec("open", "bool", "true when the task's own first sentence and its link could be shown as they "
+                        "are to anyone who reads the label; false when they say anything the label had to leave out, "
+                        "and whenever you are unsure. Left out, it is false.", extend="tasks.label"))
     return TaskKind("label", "label", True, "Write the words that stand for each task where others can read them.",
                     LABEL_INSTRUCTIONS, lb.guidance, fields, (), lb.max_items, lb.max_bytes, "item",
                     context_items=0, examples=_examples(lb.examples))

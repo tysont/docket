@@ -41,6 +41,16 @@ def known(db: sqlite3.Connection, texts: dict[str, str]) -> dict[str, str]:
     return out
 
 
+def known_open(db: sqlite3.Connection, texts: dict[str, str]) -> set[str]:
+    """The tasks remembered as open: their own words and link may be shown as they are."""
+    out = set()
+    for tid, text in texts.items():
+        row = db.execute("SELECT text_digest, open FROM task_labels WHERE task_id=?", (tid,)).fetchone()
+        if row is not None and row[0] == digest(text) and row[1]:
+            out.add(tid)
+    return out
+
+
 def pending(db: sqlite3.Connection, tasks: Iterable[tuple[str, str]], destination: str,
             areas: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """Candidates for the tasks that have no remembered label for their present text."""
@@ -49,12 +59,14 @@ def pending(db: sqlite3.Connection, tasks: Iterable[tuple[str, str]], destinatio
     return [candidate(tid, text, destination, area=(areas or {}).get(tid)) for tid, text in tasks if tid not in have]
 
 
-def remember(db: sqlite3.Connection, labels: dict[str, str], texts: dict[str, str], *, run_id: str) -> None:
-    """Keep a run's labels (the caller holds the transaction)."""
+def remember(db: sqlite3.Connection, labels: dict[str, str], texts: dict[str, str], *, run_id: str,
+             open_ids: Iterable[str] = ()) -> None:
+    """Keep a run's labels, and which tasks it judged open (the caller holds the transaction)."""
+    opened = set(open_ids)
     for tid, label in labels.items():
         if tid in texts and label:
-            db.execute("INSERT OR REPLACE INTO task_labels (task_id, text_digest, label, run_id) VALUES (?,?,?,?)",
-                       (tid, digest(texts[tid]), label, run_id))
+            db.execute("INSERT OR REPLACE INTO task_labels (task_id, text_digest, label, open, run_id) "
+                       "VALUES (?,?,?,?,?)", (tid, digest(texts[tid]), label, 1 if tid in opened else 0, run_id))
 
 
 def task_texts(rc: "RunContext", decide: dict[str, Any]) -> tuple[dict[str, str], dict[str, str], str]:
@@ -100,3 +112,11 @@ def for_run(rc: "RunContext", decide: dict[str, Any]) -> dict[str, str]:
     out = known(rc.run.store.db, texts)
     out.update({k: v for k, v in (decide.get("labels") or {}).items() if v})
     return out
+
+
+def open_for_run(rc: "RunContext", decide: dict[str, Any]) -> set[str]:
+    """The tasks whose own words and link a block may show: judged open by this run's ``label``
+    nodes, or remembered so for a line this run did not label again."""
+    texts, _, _ = task_texts(rc, decide)
+    judged = set((decide.get("labels") or {}))
+    return (known_open(rc.run.store.db, texts) - judged) | set(decide.get("open") or [])

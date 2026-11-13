@@ -705,6 +705,9 @@ class PlanningTitles(Strict):
     batch: str = "{count} small tasks"
     notes: str = ""
     batch_notes: str = "{#members}- {title}\n{/members}"
+    # The hosts whose links the note templates may show (``{url}``, ``{links}``). A shared
+    # calendar is read by others and a URL can spell out a page's title. None: every web link.
+    link_hosts: list[str] | None = None
 
     @field_validator("task", "batch", "notes", "batch_notes")
     @classmethod

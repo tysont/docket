@@ -54,6 +54,9 @@ def test_a_pack_shows_the_task_line_and_a_label_is_accepted_or_refused():
     ok = submit.validate(kind, pack, {"items": [{"id": "t_1", "label": "Review a product plan"}]},
                          raw_text=raw_from_lines(pack), rerun=RERUN)
     assert ok.body["items"][0]["label"] == "Review a product plan"
+    opened = submit.validate(kind, pack, {"items": [{"id": "t_1", "label": "Review a product plan", "open": True}]},
+                             raw_text=raw_from_lines(pack), rerun=RERUN)
+    assert opened.body["items"][0]["open"] is True and not ok.body["items"][0].get("open")   # left out, it is false
     from docket.cli.errors import DocketError
     with pytest.raises(DocketError):
         submit.validate(kind, pack, {"items": [{"id": "t_1"}]}, raw_text=raw_from_lines(pack), rerun=RERUN)

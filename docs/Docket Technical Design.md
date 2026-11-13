@@ -963,6 +963,8 @@ The node's candidates are the tasks planning may place: the open lines of the ta
 
 A label is written once per line. A durable seal remembers each label against the digest of its line's words (`task_labels`); a later run reuses it and labels only lines that are new or changed, so titles do not drift from run to run. A sandbox run remembers nothing. The destination's exact-list redaction (§11.4) still runs over the rendered title as a backstop.
 
+The label task also says whether a task is `open`: whether its own first sentence and its link could be shown as they are to anyone who reads the label. It is false when left out. The note templates read it: `{open}`, `{words}` (the task as its line says it, whatever title the block was given), and `{url}` and `{links}` (the web links the line carries). `planning.titles.link_hosts` limits those links to the hosts a workspace names, since a URL can spell out a page's title; unset, every web link is shown. A batch's members carry the same fields. The label and whether the task is open are remembered together against the line's text.
+
 ### 12.8 Rolling agendas
 
 A forum that meets again and again keeps one agenda: what is next, then a dated section for each meeting held. After a meeting the agenda is rolled, so that what lands in it afterwards is for the meeting to come.

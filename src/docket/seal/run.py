@@ -149,7 +149,8 @@ def state_step(rc: Any) -> dict[str, Any]:
                 covered = item_ledger.cover(db, rolled, run_id=r.id, at=r.header.clock.instant)
             if labels_now:
                 from docket.plan import labels as plan_labels
-                plan_labels.remember(db, labels_now, label_texts, run_id=r.id)
+                plan_labels.remember(db, labels_now, label_texts, run_id=r.id,
+                                     open_ids=rc.output("judge").get("open") or [])
             # after the run's own writes: follow what the operator did in the destinations
             observed = item_ledger.observe(db, item_ledger.read_back(rc.ws, run=r, env=rc.env), run_id=r.id,
                                            at=r.header.clock.instant)

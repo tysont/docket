@@ -43,6 +43,7 @@ from docket.plan.types import DAY, Policy, Task, at, hhmm
 from docket.plan.windows import resolve_window
 from docket.text.dates import add_workdays
 from docket.text import templates
+from docket.text.grammar import web_links
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
@@ -222,6 +223,7 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         if adj.get("est"):
             fields["est"] = str(adj["est"])
         task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances)
+        task = replace(task, links=tuple(web_links([st.line]).get("links") or ()))
         if task.window is not None and task.window.days() and max(task.window.days()) < inp.today:
             # every day of the stored window is behind the run: it cannot be met, and it says
             # nothing about when to do the work now. Place the task like any other.
@@ -250,12 +252,16 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
             fields["when"] = str(ov["when"])
         if ov.get("parts"):
             fields["parts"] = str(ov["parts"])
-        out[tid] = _task_from_fields(tid, title, fields, inp, tier=0, source="answer", instances=instances, qid=qid)
+        out[tid] = replace(_task_from_fields(tid, title, fields, inp, tier=0, source="answer", instances=instances,
+                                             qid=qid),
+                           links=tuple(web_links([op["line"]]).get("links") or ()) if op is not None else ())
     return [out[k] for k in sorted(out)]
 
 
-def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | None = None):
+def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | None = None,
+            opened: set[str] | None = None):
     labels = labels or {}
+    opened = opened or set()
     t = rc.ws.config.planning.titles
     tpl = {k: templates.parse(getattr(t, k)) for k in ("task", "batch", "notes", "batch_notes")}
     # A planned block is written to the calendar destination like any other operation. When
@@ -278,16 +284,28 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
     def g(task: Task) -> tuple[str, str]:
         return shared(f(task))
 
+    hosts = None if t.link_hosts is None else {h.lower() for h in t.link_hosts}
+
+    def shown(links: tuple[str, ...]) -> list[str]:
+        """The links a note may show: web links, to a host the workspace names when it names any."""
+        from urllib.parse import urlsplit
+        return [u for u in links if hosts is None or (urlsplit(u).hostname or "").lower() in hosts]
+
     def f(task: Task) -> tuple[str, str]:
         members = [by_id[m] for m in task.members if m in by_id]
         # ``label`` is the words the label task wrote for the task (TD §12.7); ``id`` is the
         # task's own id, from which a template can build a link back to its line.
         # A part of a split task carries its task's label and id, and which part it is.
         own = task.part_of or task.id
-        ctx = {"title": task.title, "count": len(members), "est": task.est, "id": own,
-               "label": labels.get(own, ""), "part": task.part or "", "parts": task.parts or "",
+        # ``words`` is the task as its line says it, whatever title the block has been given.
+        ctx = {"title": task.title, "words": (by_id.get(own) or task).title, "count": len(members), "est": task.est,
+               "id": own,
+               "label": labels.get(own, ""), "open": own in opened, "part": task.part or "", "parts": task.parts or "",
                "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
-               "members": [{"title": m.title, "est": m.est, "id": m.id, "label": labels.get(m.id, "")}
+               "links": (own_links := shown((by_id.get(own) or task).links)), "url": own_links[0] if own_links else "",
+               "members": [{"title": m.title, "words": m.title, "est": m.est, "id": m.id, "label": labels.get(m.id, ""),
+                            "open": m.id in opened,
+                            "links": (ml := shown(m.links)), "url": ml[0] if ml else ""}
                            for m in members]}
         if task.kind == "batch":
             return templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()
@@ -332,7 +350,7 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
     c = cfg.planning.calendar
     assert c is not None
     res = schedule(tasks, cal, inp.policy, today=inp.today, now=inp.now, tz=inp.tz, calendar=c.calendar,
-                   titler=_titler(rc, by_id, plan_labels.for_run(rc, decide)))
+                   titler=_titler(rc, by_id, plan_labels.for_run(rc, decide), plan_labels.open_for_run(rc, decide)))
     problems = validate(res)
     if problems:
         raise IntegrityError("plan.invalid", "The built plan failed its own validation; this is a defect.",

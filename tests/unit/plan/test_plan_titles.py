@@ -90,3 +90,52 @@ def test_an_elapsed_part_is_recognised_as_a_block_of_its_task():
     from docket.plan.types import Policy, task_key
     (p1, p2) = split_long([task("ia", "Review the plans", est=120)], Policy(split_over=90))
     assert task_key(p1, "dk_") == block_key("dk_", "ia#1") and task_key(p2, "dk_") == block_key("dk_", "ia#2")
+
+
+def test_a_blocks_notes_can_carry_the_links_of_its_task_limited_to_hosts_the_workspace_trusts():
+    """A link in a block's notes must open from any calendar client, so it is a web link:
+    the one the task's line carries, to the record the task came from. A shared calendar is
+    read by others and a URL can spell out a page's title, so the workspace names the hosts
+    whose links may be shown; the rest are left out. A batch lists each member's link."""
+    from dataclasses import replace
+    r = rc("shared")
+    r.ws.config.planning = Planning.model_validate({
+        "calendar": {"provider": "destination", "destination": "cal"},
+        "titles": {"task": "{label|default:Task}", "batch": "Small tasks ({count})",
+                   "notes": "{?url}Source: {url}\n{/url}Find: notes://find?q={id}",
+                   "batch_notes": "{#members}- {label|default:Task}{?url}: {url}{/url}\n{/members}",
+                   "link_hosts": ["chat.example.org"]}})
+    a = replace(task("ia", "Reply to the thread"), links=("https://chat.example.org/t/1", "https://wiki.example.org/Pay+review+for+Lee"))
+    b = replace(task("ib", "Read the page"), links=("https://wiki.example.org/Pay+review+for+Lee",))
+    title_of = _titler(r, {"ia": a, "ib": b}, {"ia": "Reply on a thread", "ib": "Read a page"})
+    assert title_of(a) == ("Reply on a thread", "Source: https://chat.example.org/t/1\nFind: notes://find?q=ia")
+    assert title_of(b) == ("Read a page", "Find: notes://find?q=ib")                 # its only link is not to a trusted host
+    _, notes = title_of(task("g", "", kind="batch", members=("ia", "ib")))
+    assert notes == "- Reply on a thread: https://chat.example.org/t/1\n- Read a page"
+    # with no hosts named, every web link is shown
+    r.ws.config.planning.titles.link_hosts = None
+    assert _titler(r, {"ib": b}, {"ib": "Read a page"})(b)[1].startswith("Source: https://wiki.example.org/")
+
+
+def test_a_block_says_what_the_work_is_and_links_to_it_when_the_label_task_judged_it_open():
+    """The label task also says whether a task's own words and link may be shown as they
+    are (``open``). The note templates read that: an open task's block carries its first
+    sentence and its link; any other carries only what the workspace's template says for it."""
+    from dataclasses import replace
+    r = rc("shared")
+    r.ws.config.planning = Planning.model_validate({
+        "calendar": {"provider": "destination", "destination": "cal"},
+        "titles": {"task": "{label|default:Task}", "batch": "Small tasks ({count})",
+                   "notes": "{?open}{words|sentence}\n{?url}{url}\n{/url}{/open}Find: notes://find?q={id}",
+                   "batch_notes": "{#members}- {?open}{words|sentence}{?url} {url}{/url}{/open}{!open}{label|default:Task}{/open}\n{/members}"}})
+    a = replace(task("ia", "Review the Q4 roadmaps and send comments. They were posted last month."),
+                links=("https://wiki.example.org/q4",))
+    b = replace(task("ib", "Decide what to do about a report. It is about their conduct."), links=("https://docs.example.org/x",))
+    title_of = _titler(r, {"ia": a, "ib": b}, {"ia": "Review Q4 roadmaps", "ib": "Private work"}, {"ia"})
+    assert title_of(a) == ("Review Q4 roadmaps", "Review the Q4 roadmaps and send comments\nhttps://wiki.example.org/q4\nFind: notes://find?q=ia")
+    assert title_of(b) == ("Private work", "Find: notes://find?q=ib")
+    # the scheduler gives a block its title before it asks for the notes: the words are still the line's
+    assert title_of(replace(a, title="Review Q4 roadmaps (1/2)", part_of="ia", part=1, parts=2))[1].startswith(
+        "Review the Q4 roadmaps and send comments\n")
+    _, notes = title_of(task("g", "", kind="batch", members=("ia", "ib")))
+    assert notes == "- Review the Q4 roadmaps and send comments https://wiki.example.org/q4\n- Private work"

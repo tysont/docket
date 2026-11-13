@@ -383,7 +383,8 @@ class JudgeNode(BaseNode):
         data = (up.output if up is not None else None) or {}
         if kind.family == "label":
             rows = runner.rows(plan)
-            return {"labels": {tid: str(row.get("label") or "") for tid, (_, row) in sorted(rows.items())}}
+            return {"labels": {tid: str(row.get("label") or "") for tid, (_, row) in sorted(rows.items())},
+                    "open": sorted(tid for tid, (_, row) in rows.items() if row.get("open") is True)}
         items = list(data.get("items") or [])
         rest = {k: v for k, v in data.items() if k != "items"}
         if kind.family == "review":

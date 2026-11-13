@@ -257,6 +257,7 @@ class Task:
     elapsed_window: str | None = None   # the stored window, when every day of it was behind the run
     want_parts: int | None = None       # the line's own say: this many parts (1 keeps it whole)
     solo: bool = False                  # the line's own say: never in the daily batch
+    links: tuple[str, ...] = ()         # the web links the task's line carries, in order
     part_of: str | None = None          # a part of a split task: the task's id
     part: int = 0                       # which part, from 1
     parts: int = 0                      # of how many

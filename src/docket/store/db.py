@@ -11,7 +11,7 @@ from pathlib import Path
 
 from docket.cli.errors import StateError
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 SCHEMA = """
 CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -45,7 +45,8 @@ CREATE TABLE task_results (
   result TEXT NOT NULL, accepted_at TEXT NOT NULL
 );
 CREATE TABLE task_labels (
-  task_id TEXT PRIMARY KEY, text_digest TEXT NOT NULL, label TEXT NOT NULL, run_id TEXT
+  task_id TEXT PRIMARY KEY, text_digest TEXT NOT NULL, label TEXT NOT NULL, open INTEGER NOT NULL DEFAULT 0,
+  run_id TEXT
 );
 CREATE TABLE receipts (
   op_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, destination TEXT NOT NULL, outcome TEXT NOT NULL,
