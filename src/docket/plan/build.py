@@ -223,7 +223,7 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         if adj.get("est"):
             fields["est"] = str(adj["est"])
         task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances)
-        task = replace(task, links=tuple(web_links([st.line]).get("links") or ()))
+        task = replace(task, links=tuple(web_links([st.line]).get("links") or ()), said=_said(rc, st.destination, st.line))
         if task.window is not None and task.window.days() and max(task.window.days()) < inp.today:
             # every day of the stored window is behind the run: it cannot be met, and it says
             # nothing about when to do the work now. Place the task like any other.
@@ -254,8 +254,20 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
             fields["parts"] = str(ov["parts"])
         out[tid] = replace(_task_from_fields(tid, title, fields, inp, tier=0, source="answer", instances=instances,
                                              qid=qid),
-                           links=tuple(web_links([op["line"]]).get("links") or ()) if op is not None else ())
+                           links=tuple(web_links([op["line"]]).get("links") or ()) if op is not None else (),
+                           said=_said(rc, op["destination"], op["line"]) if op is not None else "")
     return [out[k] for k in sorted(out)]
+
+
+def _said(rc: "RunContext", did: str, line: str) -> str:
+    """The words of a task line: its text without the checkbox, the fields and the links."""
+    from docket.text.grammar import Grammar
+    cfg = rc.ws.config.destinations.get(did)
+    g = Grammar.from_config(cfg.grammar) if cfg is not None and cfg.grammar is not None else Grammar()
+    try:
+        return g.parse(line).words
+    except Exception:  # noqa: BLE001 - a line the grammar cannot read keeps the task's title
+        return ""
 
 
 def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | None = None,
@@ -291,6 +303,10 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
         from urllib.parse import urlsplit
         return [u for u in links if hosts is None or (urlsplit(u).hostname or "").lower() in hosts]
 
+    def said(t: Task) -> str:
+        """The task as its line says it, without its links (a link's label is not a sentence)."""
+        return t.said or t.title
+
     def f(task: Task) -> tuple[str, str]:
         members = [by_id[m] for m in task.members if m in by_id]
         # ``label`` is the words the label task wrote for the task (TD §12.7); ``id`` is the
@@ -298,12 +314,12 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
         # A part of a split task carries its task's label and id, and which part it is.
         own = task.part_of or task.id
         # ``words`` is the task as its line says it, whatever title the block has been given.
-        ctx = {"title": task.title, "words": (by_id.get(own) or task).title, "count": len(members), "est": task.est,
+        ctx = {"title": task.title, "words": said(by_id.get(own) or task), "count": len(members), "est": task.est,
                "id": own,
                "label": labels.get(own, ""), "open": own in opened, "part": task.part or "", "parts": task.parts or "",
                "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
                "links": (own_links := shown((by_id.get(own) or task).links)), "url": own_links[0] if own_links else "",
-               "members": [{"title": m.title, "words": m.title, "est": m.est, "id": m.id, "label": labels.get(m.id, ""),
+               "members": [{"title": m.title, "words": said(m), "est": m.est, "id": m.id, "label": labels.get(m.id, ""),
                             "open": m.id in opened,
                             "links": (ml := shown(m.links)), "url": ml[0] if ml else ""}
                            for m in members]}

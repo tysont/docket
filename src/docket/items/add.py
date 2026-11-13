@@ -80,7 +80,7 @@ def action_fields(ws: Any, *, text: str, links: list[str], label: str, due: str 
         "text": text, "by_hand": True, "from": "", "at": "", "url": links[0] if links else "", "score": "", "fields": {}, "forum": {},
         "area": area or "", "topic": topic, "ask": "", "owner": "", "kind": "", "deadline": "", "quote": "",
         "extra": {k: "" for k in extra},
-        "question_id": "", "action": text, "due": due or "", "est": est if est is not None else "", "when": "",
+        "question_id": "", "action": text, "due": due or "", "est": est if est is not None else "", "when": "", "parts": "",
         "note": note or "", "links": list(links),
         "run": {"id": f"add-{today}", "date": today, "workdays": sorted(workdays)},
     }

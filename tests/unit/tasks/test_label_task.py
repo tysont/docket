@@ -75,3 +75,12 @@ def test_a_label_is_written_once_per_line_and_again_when_the_line_changes(db):
     assert labels.known(db, dict(changed)) == {}                              # the old words may no longer fit
     assert [c["id"] for c in labels.pending(db, changed, "backlog")] == ["t_1", "t_2"]
     assert digest("Review the plan") != digest("Review the plan and the budget")
+
+
+def test_a_candidate_carries_where_the_lines_link_leads():
+    """Whether a line may be shown as it is depends on where its link leads, so the label
+    task is given the link."""
+    from docket.plan.labels import candidate
+    c = candidate("ia", "Review the plan and send comments", "backlog", area="R2", link="https://docs.example.org/plan")
+    assert c["url"] == "https://docs.example.org/plan" and c["fields"] == {"area": "R2", "link": "https://docs.example.org/plan"}
+    assert candidate("ib", "Call the dentist", "backlog")["fields"] == {}

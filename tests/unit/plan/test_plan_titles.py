@@ -128,8 +128,8 @@ def test_a_block_says_what_the_work_is_and_links_to_it_when_the_label_task_judge
         "titles": {"task": "{label|default:Task}", "batch": "Small tasks ({count})",
                    "notes": "{?open}{words|sentence}\n{?url}{url}\n{/url}{/open}Find: notes://find?q={id}",
                    "batch_notes": "{#members}- {?open}{words|sentence}{?url} {url}{/url}{/open}{!open}{label|default:Task}{/open}\n{/members}"}})
-    a = replace(task("ia", "Review the Q4 roadmaps and send comments. They were posted last month."),
-                links=("https://wiki.example.org/q4",))
+    a = replace(task("ia", "Review the Q4 roadmaps and send comments. They were posted last month. wiki page"),
+                links=("https://wiki.example.org/q4",), said="Review the Q4 roadmaps and send comments. They were posted last month.")
     b = replace(task("ib", "Decide what to do about a report. It is about their conduct."), links=("https://docs.example.org/x",))
     title_of = _titler(r, {"ia": a, "ib": b}, {"ia": "Review Q4 roadmaps", "ib": "Private work"}, {"ia"})
     assert title_of(a) == ("Review Q4 roadmaps", "Review the Q4 roadmaps and send comments\nhttps://wiki.example.org/q4\nFind: notes://find?q=ia")

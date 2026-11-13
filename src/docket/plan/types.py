@@ -258,6 +258,7 @@ class Task:
     want_parts: int | None = None       # the line's own say: this many parts (1 keeps it whole)
     solo: bool = False                  # the line's own say: never in the daily batch
     links: tuple[str, ...] = ()         # the web links the task's line carries, in order
+    said: str = ""                      # the task as its line says it, without links or fields
     part_of: str | None = None          # a part of a split task: the task's id
     part: int = 0                       # which part, from 1
     parts: int = 0                      # of how many

@@ -24,11 +24,14 @@ def answer_task_id(question_id: str) -> str:
     return "t_" + digest(["answer", question_id])[:16]
 
 
-def candidate(task_id: str, text: str, destination: str, *, area: str | None = None) -> dict[str, Any]:
-    """A task line as an item the ``label`` task can read."""
+def candidate(task_id: str, text: str, destination: str, *, area: str | None = None,
+              link: str | None = None) -> dict[str, Any]:
+    """A task line as an item the ``label`` task can read: its words, its area, and where its
+    link leads, which the task needs to judge whether the line may be shown as it is."""
     title = text.strip().splitlines()[0] if text.strip() else ""
+    fields = {k: v for k, v in (("area", area), ("link", link)) if v}
     return {"id": task_id, "source": SOURCE, "unit": destination, "title": title[:200], "text": text,
-            "fields": {"area": area} if area else {}}
+            "url": link or "", "fields": fields}
 
 
 def known(db: sqlite3.Connection, texts: dict[str, str]) -> dict[str, str]:
@@ -52,11 +55,12 @@ def known_open(db: sqlite3.Connection, texts: dict[str, str]) -> set[str]:
 
 
 def pending(db: sqlite3.Connection, tasks: Iterable[tuple[str, str]], destination: str,
-            areas: dict[str, str] | None = None) -> list[dict[str, Any]]:
+            areas: dict[str, str] | None = None, links: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """Candidates for the tasks that have no remembered label for their present text."""
     tasks = list(tasks)
     have = known(db, dict(tasks))
-    return [candidate(tid, text, destination, area=(areas or {}).get(tid)) for tid, text in tasks if tid not in have]
+    return [candidate(tid, text, destination, area=(areas or {}).get(tid), link=(links or {}).get(tid))
+            for tid, text in tasks if tid not in have]
 
 
 def remember(db: sqlite3.Connection, labels: dict[str, str], texts: dict[str, str], *, run_id: str,
@@ -67,6 +71,32 @@ def remember(db: sqlite3.Connection, labels: dict[str, str], texts: dict[str, st
         if tid in texts and label:
             db.execute("INSERT OR REPLACE INTO task_labels (task_id, text_digest, label, open, run_id) "
                        "VALUES (?,?,?,?,?)", (tid, digest(texts[tid]), label, 1 if tid in opened else 0, run_id))
+
+
+def task_links(rc: "RunContext", decide: dict[str, Any]) -> dict[str, str]:
+    """id -> the first web link of each task's line, for the tasks planning may place."""
+    from docket.decide.operations import scheduling_inputs
+    from docket.plan.build import planning_active, store_destination
+    from docket.plan.taskstore import parse_line, read_store
+    from docket.text.grammar import web_links
+    out: dict[str, str] = {}
+    if not planning_active(rc):
+        return out
+    did = store_destination(rc) or ""
+    if did:
+        rows, _ = read_store(rc, did, sections=rc.ws.config.planning.tasks.sections)
+        for r in rows:
+            url = web_links([r.line]).get("url")
+            if url:
+                out[r.id] = url
+    for row in scheduling_inputs(rc, decide):
+        op = row.get("op")
+        if op is not None:
+            parsed = parse_line(rc, op["destination"], op["line"])
+            url = web_links([op["line"]]).get("url")
+            if parsed is not None and url:
+                out.setdefault(parsed.id, url)
+    return out
 
 
 def task_texts(rc: "RunContext", decide: dict[str, Any]) -> tuple[dict[str, str], dict[str, str], str]:
@@ -103,7 +133,7 @@ def task_texts(rc: "RunContext", decide: dict[str, Any]) -> tuple[dict[str, str]
 
 def candidates(rc: "RunContext", decide: dict[str, Any]) -> list[dict[str, Any]]:
     texts, areas, did = task_texts(rc, decide)
-    return pending(rc.run.store.db, sorted(texts.items()), did or SOURCE, areas)
+    return pending(rc.run.store.db, sorted(texts.items()), did or SOURCE, areas, task_links(rc, decide))
 
 
 def for_run(rc: "RunContext", decide: dict[str, Any]) -> dict[str, str]:

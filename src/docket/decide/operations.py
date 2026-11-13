@@ -123,7 +123,7 @@ def finding_context(rc: "RunContext", qid: str, item: dict[str, Any], overrides:
         # An estimate the assess task gave is the finding's own; the configured default is left
         # to the destination's quality rules.
         "est": overrides.get("est", "") or (dflt["est"] if dflt.get("est_source") == "assessment" else ""),
-        "when": overrides.get("when", ""), "note": overrides.get("note", ""),
+        "when": overrides.get("when", ""), "parts": overrides.get("parts", ""), "note": overrides.get("note", ""),
         "area": overrides.get("area") or dflt.get("area") or "", "links": links,
         "forum": forum_row(rc, fid) or {} if fid else {},
         "run": {"id": rc.run.id, "date": rc.run.header.clock.date, "workdays": sorted(workdays(rc))},
