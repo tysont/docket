@@ -272,6 +272,14 @@ FR-APP-05:
 FR-APP-06:
   - tests/scenario/test_seal_scenarios.py::test_a_seal_repeated_after_a_crash_repeats_no_step
   - tests/scenario/test_seal_scenarios.py::test_a_failing_run_node_stops_there_and_repeating_it_runs_only_that_node
+FR-APP-07:
+  - tests/unit/engine/test_apply_partial.py::test_refused_failed_and_blocked_operations_are_incomplete_with_their_errors
+  - tests/unit/engine/test_apply_partial.py::test_a_node_holds_until_exactly_its_incomplete_operations_are_accepted
+  - tests/unit/seal/test_seal_units.py::test_the_journal_always_records_operations_left_unwritten
+  - tests/scenario/test_apply_partial_scenario.py::test_a_refused_operation_holds_the_apply_until_repeated_or_accepted
+  - tests/scenario/test_apply_partial_scenario.py::test_repeating_after_the_cause_is_fixed_completes_the_apply
+  - tests/scenario/test_apply_partial_scenario.py::test_accept_failures_applies_only_to_a_writing_node_that_holds
+  - tests/scenario/test_apply_destinations.py::test_external_failure_waits_with_apply_partial_and_retries
 
 # --- robustness -------------------------------------------------------------------------------------------
 FR-ROB-01:

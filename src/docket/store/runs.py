@@ -41,6 +41,9 @@ class RunHeader(BaseModel):
     # node that has started writing -> {plan: its plan's digest, pinned: {upstream node: digest}} (TD §5.4)
     applied: dict[str, dict[str, Any]] = {}
     drift_ack: str | None = None    # digest of the upstream drift the operator chose to finish on
+    # writing node -> {plan, digest, operations}: the operations it left unwritten and the
+    # operator or driver accepted (docket do <node> --accept-failures; TD §13.3)
+    unwritten: dict[str, dict[str, Any]] = {}
 
 
 class Store:

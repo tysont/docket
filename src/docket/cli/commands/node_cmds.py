@@ -62,10 +62,58 @@ def _brief(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def advance(ctx: Any, node: str, *, again: bool = False) -> Result:
+def _writes_held(rc: Any) -> list[Any]:
+    """The writing nodes that hold on operations not written."""
+    return [ev for ev in rc.evaluate() if ev.reason == "apply_partial"]
+
+
+def _seal_refused(rc: Any, held: list[Any]) -> StateError:
+    from docket.engine.nodes import held_rows
+    rows = [dict(r, node=ev.name) for ev in held for r in held_rows(rc, ev.name, ev.output)]
+    name = held[0].name
+    again, accept = rc.argv("do", name, "--again"), rc.argv("do", name, "--accept-failures")
+    return StateError("seal.writes_incomplete",
+                      f"{len(rows)} operation(s) of {', '.join(ev.name for ev in held)} are not written; the run "
+                      f"cannot be sealed until they are repeated or accepted as unwritten.",
+                      hint=f"{' '.join(again)} repeats them; {' '.join(accept)} leaves them unwritten",
+                      next_command=again, details={"nodes": [ev.name for ev in held], "operations": rows})
+
+
+def _accept(ctx: Any, rc: Any, node: str, ev: Any) -> Result:
+    """Record that the operations a writing node did not complete stay unwritten, so the node
+    reads as done and the seal reports them."""
+    from docket.engine.nodes import held_rows, unwritten_digest
+    if rc.graph[node].verb not in ("apply", "write"):
+        raise InputError("input.bad_argument", f"--accept-failures accepts the unwritten operations of an apply or "
+                                               f"write node; {node} is a {rc.graph[node].verb} node.",
+                         hint=" ".join(rc.argv("next")))
+    if ev.reason != "apply_partial":
+        raise _not_ready(rc, ctx, ev)
+    rows = held_rows(rc, node, ev.output)
+    if ctx.dry_run:
+        return Result({"dry_run": True, "node": node, "would_accept": rows},
+                      f"would leave {len(rows)} operation(s) of {node} unwritten")
+    ctx.acquire(rc)
+    hdr = rc.run.header
+    hdr.unwritten[node] = {"plan": (ev.output or {}).get("plan_digest"), "digest": unwritten_digest(rows),
+                           "operations": rows}
+    rc.run.save_header()
+    rc.invalidate()
+    steps = _steps(ctx, rc)
+    return Result({"node": node, "status": "current", "changed": True, "accepted": len(rows), "unwritten": rows,
+                   "steps": _dump(steps)},
+                  f"{node}: {len(rows)} operation(s) left unwritten, as accepted\n{steps_summary(steps)}",
+                  next=steps_next(steps))
+
+
+def advance(ctx: Any, node: str, *, again: bool = False, accept: bool = False) -> Result:
     """Do the work of computed node ``node``. ``again`` repeats a node that is held on a
-    failure that may pass (a source that was unavailable, operations that failed)."""
+    failure that may pass (a source that was unavailable, operations that did not complete);
+    ``accept`` leaves a writing node's incomplete operations unwritten and lets it read as done."""
     from docket.engine.nodes import SEAL
+    if again and accept:
+        raise InputError("input.bad_argument", "--again and --accept-failures ask for opposite things; give one.",
+                         hint=f"docket do {node} --again")
     rc = ctx.run_context()
     if node not in rc.impls:
         raise StateError("node.not_in_graph", f"Graph {rc.graph_name()!r} has no node {node!r}.",
@@ -83,6 +131,10 @@ def advance(ctx: Any, node: str, *, again: bool = False) -> Result:
         return Result({"node": node, "status": "current", "changed": False, "digest": ev.digest, "steps": _dump(steps)},
                       f"{node} is current; nothing to do\n{steps_summary(steps)}", next=steps_next(steps))
     _guard_mutable(rc)
+    if accept:
+        return _accept(ctx, rc, node, ev)
+    if node == SEAL and ev.state == "blocked" and _writes_held(rc):
+        raise _seal_refused(rc, _writes_held(rc))
     held = ev.state == "waiting" and ev.reason in ("source_unavailable", "apply_partial")
     if ev.state == "blocked" or (ev.state == "waiting" and not (held and again)):
         raise _not_ready(rc, ctx, ev)
@@ -126,16 +178,21 @@ def _seal(ctx: Any, rc: Any) -> None:
 @command("do", "Do the work of a node that Docket computes: read a source, run a command, merge, plan, apply "
          "or write.", run=True, mutating=True,
          args=[Arg("node", "Node name from the run's graph."),
-               Arg("--again", "Repeat a node held on a failure that may pass: an unavailable source, failed "
-                              "operations.", action="store_true")],
+               Arg("--again", "Repeat a node held on a failure that may pass: an unavailable source, operations "
+                              "that did not complete.", action="store_true"),
+               Arg("--accept-failures", "Leave the operations an apply or write node did not complete unwritten, "
+                                        "and let the node read as done; the run records them and the seal "
+                                        "reports them.", action="store_true")],
          effects=["does the node's work (reads its source, writes to destinations: sandbox twins in a --sandbox run)",
-                  "writes the node's artifact"],
-         examples=["docket do gather-mail --json", "docket do apply-writes --dry-run --json"])
+                  "writes the node's artifact",
+                  "with --accept-failures: records in run.json the operations left unwritten"],
+         examples=["docket do gather-mail --json", "docket do apply-writes --dry-run --json",
+                   "docket do apply-writes --accept-failures --json"])
 def cmd_do(ctx: Any, ns: Any) -> Result:
     from docket.engine.nodes import SEAL
     if ns.node == SEAL:
         raise InputError("input.bad_argument", "The seal is not a node of the graph.", hint="docket seal")
-    return advance(ctx, ns.node, again=bool(ns.again))
+    return advance(ctx, ns.node, again=bool(ns.again), accept=bool(ns.accept_failures))
 
 
 @command("seal", "Seal the run once every node is done: advance cursors, write the ledger and the journal.",

@@ -66,7 +66,8 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "apply.receipt_conflict": ("integrity", False, "A receipt exists for this operation id with a different payload."),
     # external
     "source.unavailable": ("external", True, "A source could not be read."),
-    "dest.apply_failed": ("external", True, "A destination refused or failed an operation."),
+    "dest.apply_failed": ("external", True, "A destination refused or failed an operation; the node holds until it "
+                          "is repeated (--again) or accepted as unwritten (--accept-failures)."),
     # lease
     "lease.held": ("lease", True, "Another live session holds the run lease."),
     # state
@@ -79,6 +80,8 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
     "node.not_in_graph": ("state", False, "The run's graph has no such node, or no node of the verb the command needs."),
     "node.not_computed": ("state", False, "The node is judged or asked, not done by a command: submit its tasks or "
                           "answer its questions."),
+    "seal.writes_incomplete": ("state", False, "A writing node left operations unwritten; repeat them or accept "
+                               "them before the run is sealed."),
     "node.post_apply_change": ("state", False, "Upstream changed after a node wrote receipts; the run cannot go "
                                "backward."),
     "state.too_old": ("state", False, "The workspace database is older than this Docket; the state must be "

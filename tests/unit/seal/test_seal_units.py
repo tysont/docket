@@ -120,6 +120,21 @@ def test_journal_render_sections_levels_and_skip_empty():
     assert render(cfg, ctx, level=3, title=False) == "### Sources\n- chat: read\n"
 
 
+def test_the_journal_always_records_operations_left_unwritten():
+    """Operations a writing node left unwritten, as accepted, are on the record whatever
+    sections a workspace chose; a workspace that places them itself keeps its own words."""
+    cfg = JournalConfig.model_validate({"title": "Log", "sections": [
+        {"heading": "Sources", "template": "{#sources}- {id}\n{/sources}"}]})
+    row = {"destination": "cal", "line": "Draft the memo", "outcome": "refused", "error_code": "dest.state_changed"}
+    ctx = {"run": {}, "sources": [{"id": "chat"}], "unwritten": [row], "approval": {"delay": ""}}
+    assert render(cfg, ctx) == ("# Log\n\n## Sources\n- chat\n\n## Unwritten\n"
+                                "- cal: Draft the memo [refused: dest.state_changed]\n")
+    assert render(cfg, {**ctx, "unwritten": []}) == "# Log\n\n## Sources\n- chat\n"
+    own = JournalConfig.model_validate({"title": "Log", "sections": [
+        {"heading": "Not written", "template": "{#unwritten}* {line}\n{/unwritten}"}]})
+    assert render(own, ctx) == "# Log\n\n## Not written\n* Draft the memo\n"
+
+
 def _issues(tmp_path: Path, extra: str) -> list:
     from docket.config.loader import load
     from docket.config.validate import validate

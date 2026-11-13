@@ -715,25 +715,74 @@ class ApproveNode(BaseNode):
 # --- apply -------------------------------------------------------------------
 
 
+COMPLETE = ("applied", "already_present")   # the outcomes of an operation that is written
+
+
+def incomplete(rows: list[dict[str, Any]], ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The operations of a writing node that did not complete (``refused``, ``failed`` or
+    ``blocked``), each with what it would have written and its error."""
+    by_id = {o.get("op_id"): o for o in ops}
+    out = []
+    for r in rows:
+        if r.get("outcome") in COMPLETE:
+            continue
+        op = by_id.get(r.get("op_id")) or {}
+        err = r.get("error") or {}
+        if r.get("outcome") == "blocked":
+            err = {"code": None, "message": "waits on " + ", ".join(r.get("blocked_by") or []), "retryable": True}
+        out.append({"op_id": r.get("op_id"), "destination": r.get("destination"), "verb": op.get("verb"),
+                    "what": op.get("title") or op.get("line") or op.get("subject") or "", "outcome": r.get("outcome"),
+                    "code": err.get("code"), "message": err.get("message") or "",
+                    "retryable": bool(err.get("retryable"))})
+    return out
+
+
+def unwritten_digest(rows: list[dict[str, Any]]) -> str:
+    return digest(sorted((r["op_id"], r["outcome"]) for r in rows))
+
+
+def held_rows(run: "RunContext", name: str, data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """What holds a writing node: its operations that did not complete, unless the operator or
+    driver accepted exactly those (``docket do <node> --accept-failures``)."""
+    data = data or {}
+    rows = data.get("incomplete")
+    if rows is None:
+        rows = incomplete(data.get("receipts") or [], data.get("operations") or [])
+    if not rows:
+        return []
+    ok = (run.run.header.unwritten.get(name) or {}).get("digest")
+    return [] if ok == unwritten_digest(rows) else rows
+
+
 def _failed(run: "RunContext", node: BaseNode, ev: Eval, data: dict[str, Any], rows: list[dict[str, Any]]) -> None:
-    failed = [r for r in rows if r["outcome"] == "failed"]
-    if not failed:
+    """Keep what completed and fail the command when anything did not: ``docket next`` then
+    waits with ``apply_partial`` until it is repeated or accepted."""
+    bad = data["incomplete"]
+    if not bad:
         return
-    node.finish(run, ev, data)  # keep what completed; docket next now waits with apply_partial
-    first = failed[0].get("error") or {}
-    again = run.argv("do", node.name, "--again")
+    node.finish(run, ev, data)
+    again, accept = run.argv("do", node.name, "--again"), run.argv("do", node.name, "--accept-failures")
+    retry = any(r["retryable"] for r in bad)
+    first = bad[0]
     raise ExternalError("dest.apply_failed",
-                        f"{len(failed)} operation(s) failed; first: {first.get('message', 'unknown error')}",
-                        hint=" ".join(again), retryable=True, next_command=again,
-                        details={"failed": failed, "receipts": len(rows)})
+                        f"{len(bad)} operation(s) did not complete; first: {first['outcome']}: "
+                        f"{first['message'] or 'unknown error'}",
+                        hint=f"{' '.join(again)} repeats them; {' '.join(accept)} leaves them unwritten",
+                        retryable=retry, next_command=again if retry else accept,
+                        details={"incomplete": bad, "failed": [r for r in rows if r["outcome"] == "failed"],
+                                 "receipts": len(rows)})
 
 
 def _partial_step(run: "RunContext", name: str, ev: Eval) -> WaitStep:
-    rows = [r for r in ev.output["receipts"] if r.get("outcome") in ("failed", "blocked")]
+    rows = held_rows(run, name, ev.output)
+    again, accept = run.argv("do", name, "--again"), run.argv("do", name, "--accept-failures")
     return WaitStep(node=name, reason="apply_partial",
-                    instructions=f"{len(rows)} operation(s) failed or are blocked by a failed operation; completed "
-                                 f"operations will not repeat. Fix the cause and run the retry command.",
-                    command=Command.of(run.argv("do", name, "--again")))
+                    instructions=f"{len(rows)} operation(s) did not complete (refused, failed, or blocked by one that "
+                                 f"did not); completed operations will not repeat. Ask the operator: fix the cause and "
+                                 f"repeat them with the first command, or leave them unwritten with the second, which "
+                                 f"the run records and the seal reports.",
+                    ready_when="every operation is written, or the operator accepts the ones that are not",
+                    command=Command.of(again), commands=[Command.of(again), Command.of(accept)], operations=rows)
 
 
 class ApplyNode(BaseNode):
@@ -744,8 +793,8 @@ class ApplyNode(BaseNode):
 
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
         ev = self.computed_eval(run, up, extra={"sandbox": run.run.header.sandbox})
-        if ev.state == "current" and any(r.get("outcome") == "failed" for r in (ev.output or {}).get("receipts", [])):
-            # an external failure can succeed on retry: hold the node (TD §13.3). A refusal is final.
+        if ev.state == "current" and held_rows(run, self.name, ev.output):
+            # an operation that is not written holds the node until it is repeated or accepted (TD §13.3)
             ev.state, ev.reason = "waiting", "apply_partial"
         return ev
 
@@ -758,7 +807,8 @@ class ApplyNode(BaseNode):
         assert up is not None and up.output is not None
         boundary.pin(run, self.name, up.output["plan_digest"])  # TD §5.4: from here the run never goes backward
         rows = executor.execute(run, up.output["operations"])
-        data = {"plan_digest": up.output["plan_digest"], "sandbox": run.run.header.sandbox, "receipts": rows}
+        data = {"plan_digest": up.output["plan_digest"], "sandbox": run.run.header.sandbox, "receipts": rows,
+                "incomplete": incomplete(rows, up.output["operations"])}
         _failed(run, self, ev, data, rows)
         return data
 
@@ -779,7 +829,7 @@ class WriteNode(BaseNode):
 
     def evaluate(self, run: "RunContext", up: Eval | None) -> Eval:
         ev = self.computed_eval(run, up, extra={"sandbox": run.run.header.sandbox})
-        if ev.state == "current" and any(r.get("outcome") == "failed" for r in (ev.output or {}).get("receipts", [])):
+        if ev.state == "current" and held_rows(run, self.name, ev.output):
             ev.state, ev.reason = "waiting", "apply_partial"
         return ev
 
@@ -805,7 +855,7 @@ class WriteNode(BaseNode):
         boundary.pin(run, self.name, pd)
         rows = executor.execute(run, ops)
         data = {"plan_digest": pd, "sandbox": run.run.header.sandbox, "operations": ops, "receipts": rows,
-                "commitments": 0}
+                "incomplete": incomplete(rows, ops), "commitments": 0}
         _failed(run, self, ev, data, rows)
         if promised and self.cfg.commitments and not run.run.header.sandbox:
             from pathlib import Path

@@ -205,6 +205,7 @@ def entry_through_destination(rc: Any, dest_id: str, cfg: Any, ctx: dict[str, An
 
 
 def execute_seal(rc: Any) -> dict[str, Any]:
+    from docket.engine.next import unwritten as accepted_unwritten
     state = state_step(rc)
     jr = journal_step(rc, state)
     cur = state.get("cursors") or {}
@@ -212,7 +213,7 @@ def execute_seal(rc: Any) -> dict[str, Any]:
             "cursor_regressions": cur.get("regressions", []), "cursors_skipped": cur.get("skipped"),
             "dispositions": len(state.get("dispositions") or []), "ledgers": state.get("ledgers") or {},
             "journal": jr.get("path", "journal.md"), "journal_destination": jr.get("destination"),
-            "journal_write": jr.get("write"),
+            "journal_write": jr.get("write"), "unwritten": accepted_unwritten(rc),
             "sealed": True, "sandbox": rc.run.header.sandbox}
 
 

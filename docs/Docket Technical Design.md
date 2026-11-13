@@ -352,17 +352,17 @@ Where several nodes hand on to one, their outputs are joined: items by id (a lat
 | `run` | Run this command: `docket do <node>`, `docket task issue`, `docket ask resolve` or `docket seal` | `command` (argv array and shell string), `why`, `expect` (what the command will produce), `timeout_s` |
 | `dispatch` | These agent tasks need results | `tasks[]`, each with `task_id`, `kind`, `pack_path`, `prompt_path`, `result_path`, `result_schema` and `submit` (exact argv); `concurrency`, `why` |
 | `ask` | Put these questions to the operator and record each answer | `questions[]`, one `docket ask answer {question} {option} ...` template, one `show` template, `burst`, `why`, and for an ask node `not_asked` (§10.1): its `count`, and with `--full` one row per item in `items` |
-| `wait` | Nothing can be done for this node until something outside changes | `reason` (code), `instructions`, `ready_when`, and the command to run then |
+| `wait` | Nothing can be done for this node until something outside changes | `reason` (code), `instructions`, `ready_when`, and the command to run then; for `apply_partial` also `operations` and `commands` |
 
-`wait` reasons are `source_unavailable` (a required source could not be read; §6.8), `apply_partial` (operations failed; `docket do <node> --again` repeats the ones that did not complete), `plan_rejected` (the operator rejected the plan), `post_apply_change` (§5.4) and `lease_held` (§5.5).
+`wait` reasons are `source_unavailable` (a required source could not be read; §6.8), `apply_partial` (operations of an `apply` or `write` node did not complete, §13.3), `plan_rejected` (the operator rejected the plan), `post_apply_change` (§5.4) and `lease_held` (§5.5).
 
-The driver does the ready steps together and asks again. The loop is the same whatever the graph: the agent needs no knowledge of the graph, only of the four kinds of step. Beside the steps, `nodes` gives each node's verb, how its work is done, its state (`current`, `stale`, `pending`, `waiting` or `blocked`), the reason and the nodes it needs. When the run is sealed, `done` is true and `summary` describes the run. With no run open, `done` is true, `steps` is empty and `start` carries the command that starts one.
+The driver does the ready steps together and asks again. The loop is the same whatever the graph: the agent needs no knowledge of the graph, only of the four kinds of step. Beside the steps, `nodes` gives each node's verb, how its work is done, its state (`current`, `stale`, `pending`, `waiting` or `blocked`), the reason and the nodes it needs. When the run is sealed, `done` is true and `summary` describes the run; a run that wrote anything lists in `unwritten` the operations it left unwritten, as accepted (§13.3). With no run open, `done` is true, `steps` is empty and `start` carries the command that starts one.
 
 Every command in a step is concrete except the compact ask step's documented `{question}` and `{option}` answer template (AE-07). `docket next --full --json` expands ask details and gives each option its exact answer command. Dispatch steps always carry real run ids, task ids and paths. `docket next --json` output for a dispatch of 40 tasks stays small because prompts and packs are paths, not contents (AE-08).
 
 ### 5.3 Commands that do a node's work
 
-Docket does a computed node's work only when the agent runs its command, so the agent's transcript shows each effect. `docket do <node>` does the work of a `read`, `run`, `merge`, `plan`, `apply` or `write` node and returns the steps that are ready next. It refuses a node that is not ready with `node.not_ready`, naming the nodes it waits for, and a judged or asked node with `node.not_computed`. `--again` repeats a node held on a failure that may pass: a required source that was unavailable, or operations that failed.
+Docket does a computed node's work only when the agent runs its command, so the agent's transcript shows each effect. `docket do <node>` does the work of a `read`, `run`, `merge`, `plan`, `apply` or `write` node and returns the steps that are ready next. It refuses a node that is not ready with `node.not_ready`, naming the nodes it waits for, and a judged or asked node with `node.not_computed`. `--again` repeats a node held on a failure that may pass: a required source that was unavailable, or operations that did not complete. `--accept-failures` lets an `apply` or `write` node held on operations that did not complete read as done, and leaves them unwritten (§13.3). The two flags together are `input.bad_argument`.
 
 `docket task issue` writes the pack and prompt of each task a ready `judge` node needs; `docket do` and `docket task submit` also write them for any judge node they make ready. Until they exist, `docket next` returns a `run` step for `docket task issue`; then it returns the `dispatch` step that points at those files. `docket task submit` gives a judged node a result, `docket ask answer` gives an asked node an answer, and `docket seal` seals the run. Every command that moves a run returns the steps ready next in `data.steps`. A command for a node that is already current is a no-op that reports `current` (AE-06).
 
@@ -1015,7 +1015,14 @@ An `apply` node writes the operations its approve node approved, and a `write` n
 2. `apply(op)` writes and returns a receipt with the external id. The receipt is committed before the next operation starts.
 3. `verify(op, receipt)` reads back and records the result.
 
-After a crash, repeating the command continues from the receipts and repeats no completed operation (FR-APP-03). An integrity refusal (`dest.*`) is recorded as `refused` and is final. An external failure is recorded as `failed` with its raw error. Later operations that do not depend on it continue, and its dependants are `blocked`. The node then waits: `docket next` returns `wait` with reason `apply_partial` and `docket do <node> --again`. Dependencies are explicit in the operation (a calendar block for a new task depends on that task's line).
+After a crash, repeating the command continues from the receipts and repeats no completed operation (FR-APP-03). An integrity refusal (`dest.*`) is recorded as `refused` with its code and details. An external failure is recorded as `failed` with its raw error. Later operations that do not depend on it continue, and its dependants are `blocked`. Dependencies are explicit in the operation (a calendar block for a new task depends on that task's line).
+
+A writing node is done only when every operation's outcome is `applied` or `already_present` (FR-APP-07). Otherwise the command fails with `dest.apply_failed`, which is retryable when any of those operations is, and the node waits. `docket next` returns `wait` with reason `apply_partial`. Its `operations` name each operation that did not complete: `op_id`, `destination`, `verb`, `what` (the title or line), `outcome`, the error's `code` and `message`, and `retryable`. Its `commands` are the two the driver has, and the choice is the operator's:
+
+- `docket do <node> --again` repeats what did not complete. A refusal repeats the same way until its cause is fixed: the calendar event that holds the key, or the line that changed.
+- `docket do <node> --accept-failures` leaves them unwritten. The run records them in `run.json` under `unwritten.<node>` (`plan`, `digest` of the operation ids and outcomes, `operations`), and the node reads as done while its outcomes stay those. The seal's result, the run summary (`unwritten`) and the journal show them.
+
+The seal refuses while a writing node holds, with `seal.writes_incomplete`, naming the nodes, the operations and both commands.
 
 Before its first operation, the node pins every node upstream of it (§5.4). Its own writes to a task store, an agenda or a calendar that an upstream node read cannot then make the run go back.
 
@@ -1029,7 +1036,7 @@ A read node writes a `cursor_proposal` for each source and unit with the contigu
 
 ### 13.5 Journal and ledgers
 
-The journal is rendered from configured sections, each a template over a closed context: `run`, `sources` (outcomes and coverage), `findings`, `questions`, `answers`, `operations`, `not_asked`, `dropped` (with reasons), `coverage_notes`, `context` (context records), `unexpected`. Ledgers are generic rows (`ledger`, `run`, `key`, `json`) that templates can aggregate across runs, for example a carries ledger or a surfaced-items audit.
+The journal is rendered from configured sections, each a template over a closed context: `run`, `sources` (outcomes and coverage), `findings`, `questions`, `answers`, `operations`, `unwritten` (operations a writing node left unwritten, as accepted, §13.3), `not_asked`, `dropped` (with reasons), `coverage_notes`, `context` (context records), `unexpected`. When operations were left unwritten and no configured section names `unwritten`, the journal adds an `Unwritten` section, so they are always on the record. Ledgers are generic rows (`ledger`, `run`, `key`, `json`) that templates can aggregate across runs, for example a carries ledger or a surfaced-items audit.
 
 ### 13.6 Run nodes and the seal
 
@@ -1041,7 +1048,7 @@ A `run` node runs a command once. A command that follows the writes, such as a c
 
 Its argv templates may use `{run.id}`, `{run.date}`, `{run.graph}`, `{run.dir}`, `{run.sandbox}`, `{node}` and `{workspace}`; any other field is refused with `config.bad_template`. The command runs in the workspace directory with stdin closed, in a new session, and with a scrubbed environment: `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR` and `TZ`, the variables the node lists in `env`, and `DOCKET_NONINTERACTIVE=1`, `DOCKET_RUN_ID`, `DOCKET_RUN_DIR`, `DOCKET_NODE` and `DOCKET_WORKSPACE`. Its output goes to `logs/run/<node>.log` in the run directory. A non-zero exit, a command that cannot start, or one that outlives `timeout_s` (default 120 seconds) fails with `node.command_failed`, which is retryable and names the log. The nodes that name it wait, and `docket do <node>` runs it again. A node that succeeded is current, so repeating a command never runs it twice (FR-APP-04, FR-APP-06). A sandbox run runs the node's `dry_run` form, or skips the node when it has none (§14.3).
 
-The seal ends every run once every node is done. `docket seal` takes two steps, each with a receipt: `seal:state` applies the cursor proposals (§13.4), writes the dispositions (§13.7) and the item ledger (§13.8) and appends the configured ledgers, in one transaction; `seal:journal` renders the journal (§13.5) to `journal.md` and, when `journal.destination` names a destination, writes the entry through it. A seal that stops anywhere starts again at the first step without a receipt and repeats no completed step (FR-APP-06). `docket seal --dry-run` shows what sealing would do.
+The seal ends every run once every node is done. While a writing node holds on operations that did not complete, `docket seal` refuses with `seal.writes_incomplete` (§13.3). `docket seal` takes two steps, each with a receipt: `seal:state` applies the cursor proposals (§13.4), writes the dispositions (§13.7) and the item ledger (§13.8) and appends the configured ledgers, in one transaction; `seal:journal` renders the journal (§13.5) to `journal.md` and, when `journal.destination` names a destination, writes the entry through it. A seal that stops anywhere starts again at the first step without a receipt and repeats no completed step (FR-APP-06). `docket seal --dry-run` shows what sealing would do.
 
 ### 13.7 Dispositions
 
@@ -1180,7 +1187,7 @@ Codes are dotted `<area>.<condition>`, stable across versions, and listed by `do
 | 4 | integrity | `integrity.partition`, `integrity.evidence`, `apply.stale_inputs`, `dest.line_changed`, `dest.redaction_leak` |
 | 5 | external | `source.unavailable`, `transport.timeout`, `dest.apply_failed`, `node.command_failed` |
 | 6 | lease | `lease.held` |
-| 7 | state | `run.none_open`, `run.sealed`, `node.not_ready`, `node.post_apply_change`, `state.too_old` |
+| 7 | state | `run.none_open`, `run.sealed`, `node.not_ready`, `node.post_apply_change`, `seal.writes_incomplete`, `state.too_old` |
 | 70 | internal | `internal.bug` (with a traceback path, never a traceback on stdout) |
 
 ### 15.4 Doctor
@@ -1282,7 +1289,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 | FR-DEC-01..11 | §5.2, §10, §12.8 |
 | FR-ACT-01..07 | §11 |
 | FR-PLN-01..11 | §4.6, §12 |
-| FR-APP-01..06 | §13 |
+| FR-APP-01..07 | §5.2, §13 |
 | FR-ROB-01..06 | §5.4, §5.5, §14 |
 | AE-01..11 | §5.2, §9.3, §15 |
 | CFG-01..07 | §3, §4.4 |

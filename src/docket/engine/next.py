@@ -29,12 +29,20 @@ def summary(rc: RunContext) -> dict[str, Any]:
     if receipts:
         out["operations"] = len(receipts)
         out["applied"] = sum(1 for x in receipts if x["outcome"] == "applied")
+        out["unwritten"] = unwritten(rc)
     out["journal"] = str(r.paths.journal) if r.paths.journal.is_file() else None
     n = 0
     if r.paths.unexpected.is_file():
         n = len({ln for ln in r.paths.unexpected.read_text(encoding="utf-8").splitlines() if ln.strip()})
     out["unexpected"] = n
     return out
+
+
+def unwritten(rc: RunContext) -> list[dict[str, Any]]:
+    """The operations the run's writing nodes left unwritten, as the operator or driver
+    accepted them (``docket do <node> --accept-failures``), each with its node."""
+    return [dict(r, node=node) for node, row in sorted(rc.run.header.unwritten.items())
+            for r in row.get("operations") or []]
 
 
 def _inspect(rc: RunContext, drift: list[dict[str, Any]]) -> list[Command]:

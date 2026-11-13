@@ -125,6 +125,9 @@ class WaitStep(BaseModel):
     ready_when: str | None = None
     command: Command | None = None
     inspect: list[Command] = []     # read-only commands that show the cause (post_apply_change)
+    # apply_partial: every command the driver has (repeat, accept) and the operations not written
+    commands: list[Command] = []
+    operations: list[dict[str, Any]] = []
 
 
 Step = Annotated[Union[RunStep, DispatchStep, AskStep, WaitStep], Field(discriminator="kind")]

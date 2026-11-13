@@ -32,7 +32,9 @@ TASKS = ("- [ ] Draft the capacity memo [source:: seed] [est:: 3h]\n"
          "- [ ] Reply to the venue [source:: seed] [est:: 10m]\n")
 
 
-def setup(ws: Path, kind: str, tmp_path: Path) -> Path:
+def setup(ws: Path, kind: str, tmp_path: Path, *, provider: str = "destination") -> Path:
+    """The triage graph places tasks on a calendar destination of ``kind``; planning reads that
+    destination, or with ``provider: json_file`` the persona's calendar fixture."""
     cfg = ws / "docket.yaml"
     text = cfg.read_text()
     triage = ("    decide: { ask: basic, from: [merge], questions: { kinds: [finding], budget: 8, overflow: drop } }\n"
@@ -53,10 +55,12 @@ def setup(ws: Path, kind: str, tmp_path: Path) -> Path:
                                              f"    marker: \"{MARKER}\"\n"
                                              f"    program: [{sys.executable}, {STUB}, --state, {state}]\n")
     plan = ws / "planning.yaml"
-    plan.write_text(plan.read_text().replace(
-        "calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: work-calendar }",
-        "calendar: { provider: destination, destination: work-calendar, calendar: work }").replace(
-        "    horizon_days: 10\n", "    horizon_days: 10\n    split_over: 2h\n"))
+    text = plan.read_text().replace("    horizon_days: 10\n", "    horizon_days: 10\n    split_over: 2h\n")
+    if provider == "destination":
+        text = text.replace(
+            "calendar: { provider: json_file, path: data/calendar.json, calendar: work, destination: work-calendar }",
+            "calendar: { provider: destination, destination: work-calendar, calendar: work }")
+    plan.write_text(text)
     bl = ws / "Backlog.md"
     bl.write_text(bl.read_text().replace("\n## Someday", "\n" + TASKS + "\n## Someday", 1))
     return state
@@ -135,7 +139,7 @@ def test_a_carried_task_moves_its_elapsed_block_and_apply_succeeds(persona, cli,
         assert code == 0, env
     done = run_agent(ws)
     assert done.failures == [] and done.final["kind"] == "done", done.final
-    assert done.final["summary"].get("unwritten", 0) == 0
+    assert done.final["summary"]["unwritten"] == []
 
     ops = plan_ops(ws, run2)
     for key, old in thursday.items():

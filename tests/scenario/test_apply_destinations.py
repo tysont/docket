@@ -118,6 +118,9 @@ def test_external_failure_waits_with_apply_partial_and_retries(persona, cli, pin
     code, env = cli("next", "--workspace", str(ws))
     (wait,) = env["data"]["steps"]
     assert (wait["kind"], wait["node"], wait["reason"]) == ("wait", "apply", "apply_partial")
+    assert wait["operations"] and {r["outcome"] for r in wait["operations"]} <= {"failed", "blocked"}
+    assert all(r["retryable"] for r in wait["operations"])
+    assert [c["argv"][3] for c in wait["commands"]] == ["--again", "--accept-failures"]
     blocker.rmdir()
     code, env = cli(*wait["command"]["argv"][1:])  # the retry command from the wait step
     assert code == 0, env

@@ -63,6 +63,10 @@ JOURNAL = FieldSet([
     "cursors.advanced[]", "cursors.held[]", "cursors.regressions[]", "cursors.regressions[].source",
     "cursors.regressions[].unit", "cursors.regressions[].proposed", "cursors.regressions[].durable",
     "counts.*", "ledgers.*",
+    # operations a writing node left unwritten, as accepted (TD §13.3)
+    "unwritten[]", "unwritten[].node", "unwritten[].op_id", "unwritten[].destination", "unwritten[].verb",
+    "unwritten[].line", "unwritten[].outcome", "unwritten[].error_code", "unwritten[].error_message",
+    "unwritten[].retryable",
     "approval.digest", "approval.delay", "approval.delay_minutes", "approval.approved_at", "approval.built_at",
 ])
 

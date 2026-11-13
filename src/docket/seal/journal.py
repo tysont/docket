@@ -8,7 +8,8 @@ pure function of the run's artifacts, receipts and database rows, so a repeated
 seal renders the same journal and its journal operation keeps its id.
 
 Context lists: ``sources`` (outcomes and coverage), ``findings``, ``questions``,
-``answers``, ``operations`` (with receipt outcomes), ``not_asked``, ``dropped``
+``answers``, ``operations`` (with receipt outcomes), ``unwritten`` (operations a writing node
+left unwritten, as accepted), ``not_asked``, ``dropped``
 (dropped and suppressed topics with reasons), ``coverage_notes``, ``context``
 (context records), ``unexpected``, ``dispositions``; maps ``run``, ``cursors``,
 ``counts``, ``ledgers`` (rows by ledger across recent runs) and ``approval``.
@@ -20,6 +21,9 @@ from datetime import datetime
 from typing import Any
 
 from docket.text import templates
+
+# operations a writing node left unwritten, as accepted (TD §13.3)
+UNWRITTEN = "{#unwritten}- {destination}: {line} [{outcome}: {error_code}]\n{/unwritten}"
 
 JOURNAL_TEMPLATE = """# Docket journal: {run.id}
 
@@ -37,6 +41,8 @@ Graph {run.graph} for {run.date}{?run.sandbox} (sandbox run){/run.sandbox}.
 ## Operations
 {#operations}- {destination}: {line} [{outcome}]
 {/operations}
+## Unwritten
+""" + UNWRITTEN + """
 ## Not asked
 {#not_asked}- {title}
 {/not_asked}
@@ -150,18 +156,23 @@ def build_context(rc: Any, *, cursors: dict[str, Any] | None = None,
              "destination": d.get("destination"), "op_id": d.get("op_id"), "until": d.get("until"),
              "note": d.get("note"), "outcome": d.get("outcome")} for d in dispositions or []]
     unexpected_rows = _unexpected_rows(r)
+    from docket.engine.next import unwritten as accepted_unwritten
+    unwritten = [{"node": u["node"], "op_id": u["op_id"], "destination": u["destination"], "verb": u.get("verb"),
+                  "line": u.get("what") or "", "outcome": u["outcome"], "error_code": u.get("code") or "blocked",
+                  "error_message": u.get("message") or "", "retryable": u.get("retryable")}
+                 for u in accepted_unwritten(rc)]
     counts = {"sources": len(sources), "findings": len(findings), "answers": len(answers),
               "operations": len(ops), "applied": sum(1 for o in ops if o["outcome"] == "applied"),
               "failed": sum(1 for o in ops if o["outcome"] in ("failed", "refused", "blocked")),
               "not_asked": len(not_asked), "dropped": len(dropped), "coverage_notes": len(coverage),
-              "unexpected": len(unexpected_rows), "dispositions": len(disp)}
+              "unexpected": len(unexpected_rows), "dispositions": len(disp), "unwritten": len(unwritten)}
     plan_digest = rc.output("approve").get("plan_digest")
     return {
         "run": {"id": r.id, "date": hdr.clock.date, "graph": hdr.graph, "sandbox": hdr.sandbox,
                 "timezone": hdr.clock.timezone, "instant": hdr.clock.instant},
         "sources": sources, "findings": findings, "questions": questions, "answers": answers,
         "operations": ops, "not_asked": not_asked, "dropped": dropped, "coverage_notes": coverage,
-        "context": context, "unexpected": unexpected_rows, "dispositions": disp,
+        "context": context, "unexpected": unexpected_rows, "dispositions": disp, "unwritten": unwritten,
         "cursors": {"advanced": list(cur.get("advanced") or []), "held": list(cur.get("held") or []),
                     "regressions": list(cur.get("regressions") or [])},
         "counts": counts, "ledgers": {}, "approval": approval_view(rc, plan_digest),
@@ -187,6 +198,9 @@ def render(cfg: Any, ctx: dict[str, Any], *, level: int = 2, title: bool = True)
             if sec.skip_empty and not body.strip():
                 continue
             parts.append(f"{'#' * level} {templates.render(sec.heading, ctx).strip()}\n{body}".rstrip())
+        if ctx.get("unwritten") and not any("unwritten" in sec.template for sec in cfg.sections):
+            # operations left unwritten are always on the record, whatever sections the workspace chose
+            parts.append(f"{'#' * level} Unwritten\n" + templates.render(UNWRITTEN, ctx).rstrip())
         out = "\n\n".join(parts) + "\n"
     if cfg.approval_delay_note and ctx.get("approval", {}).get("delay") != "":
         note = templates.render(cfg.approval_delay_note, ctx).strip()
