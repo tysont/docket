@@ -23,7 +23,7 @@ effect`` (an explicit record that the block stays). ``op_id`` is
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -85,6 +85,7 @@ class Inputs:
     store_digest: str
     store_dest: str | None
     ledger: dict[str, str]
+    earlier: list[Any] = field(default_factory=list)   # owned task and batch blocks of the days before
 
 
 def _provider(rc: "RunContext", tz: ZoneInfo) -> Any:
@@ -105,7 +106,8 @@ def _provider(rc: "RunContext", tz: ZoneInfo) -> Any:
         adapter = build(c.destination, dests[c.destination], env_for(rc.ws, run=rc.run, env=rc.env))
         today = date.fromisoformat(rc.run.header.clock.date)
         horizon = rc.ws.config.planning.policy.horizon_days
-        window = (at(today - timedelta(days=1), 0, tz), at(today + timedelta(days=horizon + 1), 0, tz))
+        back = rc.ws.config.decisions.reconcile.days_back()
+        window = (at(today - timedelta(days=back), 0, tz), at(today + timedelta(days=horizon + 1), 0, tz))
 
         def list_raw(w: tuple[str, str]) -> list[Any]:
             try:
@@ -162,7 +164,26 @@ def gather(rc: "RunContext", now: datetime | None = None) -> Inputs:
     sd = "absent"
     if dest is not None and dest in cfg.destinations:
         tasks, sd = read_store(rc, dest, sections=cfg.planning.tasks.sections)
-    return Inputs(policy, tz, today, now, lo, hi, prov, events, tasks, sd, dest, read_ledger(rc))
+    return Inputs(policy, tz, today, now, lo, hi, prov, events, tasks, sd, dest, read_ledger(rc),
+                  earlier_blocks(rc, prov, policy, today, tz))
+
+
+def earlier_blocks(rc: "RunContext", prov: Any, policy: Policy, today: date, tz: ZoneInfo) -> list[Any]:
+    """Owned task and batch blocks of the days before ``today``, as far back as reconcile looks.
+    A task placed again after its block elapsed moves that block (TD §12.3): its key derives
+    from the task, so the calendar must never be asked for a second block under it."""
+    lo = at(today - timedelta(days=rc.ws.config.decisions.reconcile.days_back()), 0, tz)
+    hi = at(today, 0, tz)
+    kinds = (policy.key_prefix + "t_", policy.key_prefix + "b_")
+    out = []
+    for ev in prov.list_events(lo, hi):
+        if ev.cancelled or ev.all_day or not isinstance(ev.start, datetime) or not isinstance(ev.end, datetime):
+            continue
+        if not (ev.owned_key or "").startswith(kinds):
+            continue
+        if lo <= ev.start and ev.end <= hi:
+            out.append(ev)
+    return out
 
 
 def _light_instances(inp: Inputs) -> list[tuple[Any, str]]:
@@ -366,6 +387,7 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
     c = cfg.planning.calendar
     assert c is not None
     res = schedule(tasks, cal, inp.policy, today=inp.today, now=inp.now, tz=inp.tz, calendar=c.calendar,
+                   earlier=inp.earlier, redo=carried_blocks(decide),
                    titler=_titler(rc, by_id, plan_labels.for_run(rc, decide), plan_labels.open_for_run(rc, decide)))
     problems = validate(res)
     if problems:
@@ -398,6 +420,17 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
     if res.moves_used:
         notes.append(f"Repair displaced {res.moves_used} block(s) (move cap {inp.policy.move_cap}).")
     return Built(inp, cal, tasks, res, mp, ops, notes)
+
+
+CARRIED = ("not_done", "partly", "rescope")   # reconcile answers that place the task again
+
+
+def carried_blocks(decide: dict[str, Any]) -> frozenset[str]:
+    """The keys of elapsed blocks whose work did not happen, by the reconcile answers: the task
+    is placed again, and the block moves to its new slot (TD §10.4)."""
+    keys = {q["id"]: q.get("block_key") for q in decide.get("questions") or [] if q.get("kind") == "reconcile"}
+    return frozenset(keys[qid] for qid, a in (decide.get("answers") or {}).items()
+                     if qid in keys and keys[qid] and isinstance(a, dict) and a.get("option") in CARRIED)
 
 
 def raise_window_errors(rc: "RunContext", built: Built) -> None:

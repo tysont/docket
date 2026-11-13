@@ -181,10 +181,14 @@ def make_batches(ordered: list[Task], ctx: Ctx, titler: Titler | None) -> tuple[
 
 
 def _existing(cal: Calendar, tz: ZoneInfo, prefix: str, mirror_prefix: str) -> list[Existing]:
+    return _as_existing([ev for ev, _ in cal.owned], tz, mirror_prefix)
+
+
+def _as_existing(events: list[Event], tz: ZoneInfo, mirror_prefix: str) -> list[Existing]:
     out = []
-    for ev, _ in cal.owned:
+    for ev in events:
         k = ev.owned_key or ""
-        if k.startswith(mirror_prefix):
+        if not k or k.startswith(mirror_prefix):
             continue
         if ev.all_day or not isinstance(ev.start, datetime):
             d, s, e = (ev.start if not isinstance(ev.start, datetime) else ev.start.date()), 0, 1440
@@ -198,7 +202,12 @@ def _existing(cal: Calendar, tz: ZoneInfo, prefix: str, mirror_prefix: str) -> l
 
 
 def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, now: datetime, tz: ZoneInfo,
-             calendar: str = "work", titler: Titler | None = None) -> ScheduleResult:
+             calendar: str = "work", titler: Titler | None = None, earlier: list[Event] | None = None,
+             redo: frozenset[str] = frozenset()) -> ScheduleResult:
+    """Place ``tasks``. ``earlier`` are owned blocks of the days before ``today``, and ``redo``
+    the keys of elapsed blocks whose work did not happen (a reconcile answer carried the task).
+    A unit whose block is one of those is placed again and its block moves to the new slot:
+    its key derives from the task, so a second block under the same key is never created."""
     ctx = Ctx(policy, cal, today, now, tz)
     prefix = policy.key_prefix
     tasks = prepare(tasks, today, policy)
@@ -226,6 +235,31 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             releases.append((x, "duplicate block for the same task"))
         else:
             u.existing = x
+    # an owned block of an earlier day stands for its task only when the task has none in the
+    # horizon; one whose task is closed, or a batch whose members changed, is history
+    for x in sorted(_as_existing(list(earlier or []), tz, prefix + "m_"), key=lambda x: (x.day, x.start),
+                    reverse=True):
+        u = by_key.get(x.key)
+        if x.day < today and u is not None and u.existing is None:
+            u.existing = x
+
+    def behind(u: Unit) -> bool:
+        """Whether the unit's block is behind it and the task is to be placed anew."""
+        x = u.existing
+        if x is None:
+            return False
+        return x.day < today or (x.key in redo and at(x.day, x.end, tz) <= now)
+
+    # a part placed anew goes before the parts after it, so they are placed anew too
+    anew = {u.key for u in units if behind(u)}
+    for u in units:
+        t = u.task
+        if t.part_of and u.existing is not None and any(
+                o.key in anew and o.task.part_of == t.part_of and o.task.part < t.part for o in units):
+            anew.add(u.key)
+
+    def again(u: Unit) -> bool:
+        return u.key in anew
     seq = 0
 
     def notes_of(t: Task) -> str:
@@ -248,12 +282,12 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
     lock_until = now + timedelta(minutes=policy.move_lock)
     for u in units:
         x = u.existing
-        if x is not None and at(x.day, x.start, tz) < lock_until:
+        if x is not None and not again(u) and at(x.day, x.start, tz) < lock_until:
             u.locked = True
             place(u, replace(existing_block(u), locked=True))
     for u in units:
         x = u.existing
-        if x is None or u.block is not None:
+        if x is None or u.block is not None or again(u):
             continue
         blk = existing_block(u)
         if x.minutes == policy.length_for(u.task) and not check(blk, ctx):
@@ -352,6 +386,13 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
                 fs, fe = span(x.day, x.start, x.end)  # type: ignore[union-attr]
                 op["from"] = {"start": fs, "end": fe}
             ops.append(op)
+            if verb == "move" and (x.event.title != b.title or (x.event.notes or "") != (b.notes or "")):
+                # a calendar move changes the time only; new words follow as their own update
+                upd = base_op("update", u.key, u, b.title, b.notes)
+                upd.update({"start": st, "end": en, "late": u.late, "follows": "move"})
+                ops.append(upd)
+        elif x is not None and x.day < today:
+            pass  # an earlier day's block of a task not placed again stays as it was
         elif x is not None:
             reason = (f"unschedulable: {u.reason.reason}" if u.reason else
                       "window too small" if u.window_error else "not placed")
@@ -450,6 +491,8 @@ def validate(result: ScheduleResult) -> list[str]:
                 problems.append(f"{u.task.id}: claimed unschedulable ({u.reason.reason}) but search says {res}")
     counted: dict[str, int] = {}
     for op in result.ops:
+        if op.get("follows"):
+            continue  # the second half of one decision about a block
         counted[op["key"]] = counted.get(op["key"], 0) + 1
     from collections import Counter
     for k, n in Counter(result.owned_keys).items():

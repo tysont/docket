@@ -27,6 +27,15 @@ SCRATCH = {"n": 0, "events": [
 ]}
 
 
+def instant(value):
+    """An ISO time as a UTC instant, so times written with different offsets compare."""
+    from datetime import datetime, timezone
+    if not value:
+        return None
+    dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state", required=True)
@@ -93,8 +102,8 @@ def main() -> int:
             continue
         st = load()
         if op == "list":
-            lo, hi = args.get("from"), args.get("to")
-            rows = [e for e in st["events"] if (not lo or e["end"] > lo) and (not hi or e["start"] < hi)]
+            lo, hi = instant(args.get("from")), instant(args.get("to"))
+            rows = [e for e in st["events"] if (not lo or instant(e["end"]) > lo) and (not hi or instant(e["start"]) < hi)]
             reply({"events": rows})
         elif op == "busy":
             reply({"busy": [[e["start"], e["end"]] for e in st["events"]]})

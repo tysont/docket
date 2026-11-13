@@ -240,6 +240,15 @@ FR-PLN-09:
   - tests/scenario/test_live_plan_clock.py::test_a_plan_built_hours_into_a_live_run_places_nothing_before_it_was_built
   - tests/scenario/test_live_plan_clock.py::test_a_run_whose_clock_was_given_plans_from_that_clock_only
   - tests/unit/store/test_store.py::test_the_live_now_is_the_later_of_the_pinned_instant_and_the_wall_only_for_a_wall_clock
+FR-PLN-10:
+  - tests/unit/plan/test_plan_carry.py::test_a_task_whose_block_elapsed_on_an_earlier_day_moves_that_block
+  - tests/unit/plan/test_plan_carry.py::test_a_moved_block_whose_words_changed_is_updated_after_the_move
+  - tests/unit/plan/test_plan_carry.py::test_a_block_elapsed_today_moves_when_its_work_did_not_happen_and_stays_otherwise
+  - tests/unit/plan/test_plan_carry.py::test_a_carried_batch_with_the_same_members_moves_and_a_changed_one_leaves_the_old_block
+  - tests/unit/plan/test_plan_carry.py::test_the_parts_of_a_split_task_move_their_own_blocks
+  - tests/unit/plan/test_plan_carry.py::test_a_later_part_moves_after_an_earlier_part_placed_again
+  - tests/scenario/test_carry_scenario.py::test_a_carried_task_moves_its_elapsed_block_and_apply_succeeds
+  - tests/scenario/test_carry_scenario.py::test_a_batch_whose_members_changed_leaves_the_elapsed_block_as_history
 
 # --- approve, apply, seal -----------------------------------------------------------------------------
 FR-APP-01:

@@ -155,8 +155,11 @@ def test_every_owned_input_block_gets_exactly_one_operation(sc):
     res = build(*sc)
     cal = calendar(evs, horizon=pol.horizon_days)
     owned_in = Counter(ev.owned_key for ev, _ in cal.owned)
-    ops = Counter(o["key"] for o in res.ops if o["verb"] != "create")
+    # a move whose words changed is followed by an update of the same block: one decision
+    ops = Counter(o["key"] for o in res.ops if o["verb"] != "create" and not o.get("follows"))
     assert owned_in == ops
+    assert all(o["verb"] == "update" and any(m["verb"] == "move" and m["key"] == o["key"] for m in res.ops)
+               for o in res.ops if o.get("follows"))
     assert validate(res) == []
 
 

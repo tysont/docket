@@ -771,6 +771,8 @@ Answers are stored keyed by question id, which derives from item identity (FR-DE
 
 Reconcile options are fixed in kind and configurable in label: `done`, `partly` (requires `--est` for the remainder), `not_done`, `to_agenda`, `drop`. Each maps to task-store and calendar operations. Carry counts are a task field maintained by the task-store adapter. At `decisions.reconcile.carry_limit` (default: 3), `not_done` gives way to `rescope` and `drop` (FR-DEC-05).
 
+`done`, `drop` and `to_agenda` close the task, and the plan places nothing more for it. `not_done`, `partly` and `rescope` carry it: the task is placed again, and the elapsed block it was asked about moves to the new slot (§12.3, carried blocks). The block keeps its key, so the calendar never holds two blocks of one task.
+
 A batch block (`<prefix>b_...`, §12.3) holds several small tasks. When one has elapsed, each member still open gets its own reconcile question, with the options and operations of a task block; a member already closed is not asked. The members are the task ids the plan that placed the block named. A batch key is a digest of its members, so earlier runs' plans are read newest first until the key is found; failing that, the item ledger's placements of the block (§13.8) name them. A block whose members are found nowhere is not asked about. A member's question id is `r_` + the block key + `.` + a digest of its task id, its prompt is `decisions.templates.reconcile_batch_prompt` (default: `Did "{task.title}" happen in "{block.title}" (...)?`), and its details carry `batch_block` (the block's key, title and number of open members), so a driver can show the members of one block together. Like a task block, a member is asked once: the next run's window starts after it.
 
 **Covered.** A meeting that left no record cannot say what it covered, so an ask node can ask (FR-DEC-09). It lists `covered` in `questions.kinds` and says where the meetings come from:
@@ -916,6 +918,8 @@ A plan node with `schedule_tasks: true` also places open tasks on the calendar, 
 7. Release owned blocks whose task is done, dropped or rescheduled, as explicit `release` operations. No owned block is left without an operation (FR-PLN-06).
 
 "Now" in these steps is the moment the plan is built for (§4.6): no slot before it is legal, and the move lock counts from it, so a block already under way or about to start stays locked where it is (FR-PLN-09).
+
+**Carried blocks.** A block's key derives from its task, so a task placed again after its block elapsed has the key that block still carries. The plan therefore reads owned task and batch blocks of the days before the run too, as far back as `decisions.reconcile.lookback` reaches (at least one day), and the calendar destination lists the same span. A task whose block is one of these is placed again, and the plan moves that block to the new slot: a `move` with the old time in `from`, and, when the title or notes changed, an `update` of the same block after it (`follows: move`). It never plans a `create` under a key the calendar already holds. A block of today that has ended moves the same way when a reconcile answer carried its task (`not_done`, `partly`, `rescope`); otherwise it stays locked where it is. A part of a split task moves its own block (`<task>#<n>`), and the parts after a part placed again are placed again after it, so they keep their order. A batch with the same members has the same key and moves; a batch whose members changed is another batch, and its elapsed block is left as history. An elapsed block of an earlier day whose task is closed, or not placed, gets no operation. An elapsed block of today whose task is closed is released.
 
 Planning 200 tasks over 42 days runs in well under 5 seconds because `free_intervals` is computed once per day and updated incrementally on each placement (NFR-06).
 
@@ -1277,7 +1281,7 @@ The reference workspace models the predecessor as configuration. It lives in the
 | FR-TSK-01..07 | §9 |
 | FR-DEC-01..11 | §5.2, §10, §12.8 |
 | FR-ACT-01..07 | §11 |
-| FR-PLN-01..09 | §4.6, §12 |
+| FR-PLN-01..11 | §4.6, §12 |
 | FR-APP-01..06 | §13 |
 | FR-ROB-01..06 | §5.4, §5.5, §14 |
 | AE-01..11 | §5.2, §9.3, §15 |

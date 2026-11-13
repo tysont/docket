@@ -443,6 +443,13 @@ class ReconcileConfig(Strict):
     def _duration(cls, v: Any) -> Any:
         return _decision_duration(v)
 
+    def days_back(self) -> int:
+        """Whole days before the run's date that ``lookback`` reaches, at least one. Planning and
+        the calendar destination see owned blocks that far back (TD §12.3): an elapsed block
+        of a task placed again is moved, never created a second time."""
+        from docket.text.durations import parse_duration
+        return max(1, -(-parse_duration(self.lookback) // 1440))
+
     @field_validator("labels")
     @classmethod
     def _known(cls, v: dict[str, str]) -> dict[str, str]:

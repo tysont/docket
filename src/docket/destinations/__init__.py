@@ -48,7 +48,9 @@ def env_for(ws: Any, *, run: Any = None, env: Any = None, call_tool: Any = None)
         from datetime import date as _date, timedelta
         d = _date.fromisoformat(date)
         horizon = 42
-        window = ((d - timedelta(days=1)).isoformat() + "T00:00:00Z",
+        # as far back as planning looks for elapsed blocks it may move (TD §12.3)
+        back = ws.config.decisions.reconcile.days_back()
+        window = ((d - timedelta(days=back)).isoformat() + "T00:00:00Z",
                   (d + timedelta(days=horizon)).isoformat() + "T00:00:00Z")
     return DestEnv(
         root=ws.root, profile=ws.config.profile, date=date,
