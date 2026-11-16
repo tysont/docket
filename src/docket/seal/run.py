@@ -62,14 +62,13 @@ def _standing_blocks(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[st
     return out
 
 
-def durable_texts(rc: Any) -> dict[str, str]:
-    """The words each labelled task had when its label was written: the label nodes' packs."""
-    out: dict[str, str] = {}
-    for name in rc.judging("label"):
-        for p in (rc.eval(name).extra or {}).get("packs") or []:
-            for it in p.get("items") or []:
-                out[it["id"]] = "\n".join(ln["text"] for ln in it.get("lines") or [])
-    return out
+def durable_texts(rc: Any, decide: dict[str, Any] | None = None) -> dict[str, str]:
+    """The words each labelled task has: what its label is remembered against. Read from the
+    tasks themselves, as the label nodes read them, and not from the nodes' packs, which a
+    node that a write has pinned no longer carries."""
+    from docket.plan import labels as plan_labels
+    texts, _, _ = plan_labels.task_texts(rc, decide or {})
+    return texts
 
 
 def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any]],
@@ -127,7 +126,7 @@ def state_step(rc: Any) -> dict[str, Any]:
     covered: list[dict[str, Any]] = []
     adopted: list[dict[str, Any]] = []
     labels_now = dict(rc.output("judge").get("labels") or {})
-    label_texts = durable_texts(rc) if labels_now else {}
+    label_texts = durable_texts(rc, decide) if labels_now else {}
     with db:
         moved = seal_cursors.advance(db, r)
         if durable:
