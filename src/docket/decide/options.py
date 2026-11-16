@@ -91,6 +91,26 @@ def forum_row(rc: "RunContext", forum_id: str | None) -> dict[str, Any] | None:
     return None
 
 
+def person_id(prof: Any, who: Any) -> str | None:
+    """The profile person a judged row names: by id, else by full name, alias or first name when
+    exactly one person answers to it, whatever the case. A task is told to give the id and
+    often gives the name."""
+    text = str(who or "").strip()
+    if not text:
+        return None
+    low = text.lower()
+    people = list(prof.people)
+    for p in people:
+        if p.id.lower() == low:
+            return p.id
+    full = [p.id for p in people if (p.name or "").lower() == low
+            or low in [str(x).lower() for x in (getattr(p, "aliases", None) or [])]]
+    if len(full) == 1:
+        return full[0]
+    first = [p.id for p in people if (p.name or "").lower().split()[:1] == [low]]
+    return first[0] if len(first) == 1 else None
+
+
 def forum_for(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any] | None:
     """The forum an item belongs to: where it would be raised. A meeting with the person who
     owns it, else with the person who sent it; else the forum of a group the sender is in,
@@ -100,7 +120,7 @@ def forum_for(rc: "RunContext", it: dict[str, Any]) -> dict[str, Any] | None:
     mentioned = set((it.get("mentioned") or {}).get("groups") or [])
     a = it.get("assessment") if isinstance(it.get("assessment"), dict) else {}
     with_person = {f.person: f.id for f in prof.forums if f.person}
-    for who in (a.get("owner"), sender):
+    for who in (person_id(prof, a.get("owner")), sender):
         if who and who in with_person:
             return forum_row(rc, with_person[who])
     for g in prof.groups:

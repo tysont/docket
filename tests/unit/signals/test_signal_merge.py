@@ -207,3 +207,15 @@ def test_an_item_whose_key_is_on_an_open_task_line_is_tracked():
     by, _ = merge([ask], agent={"a": {"keep": True, "score": 90}},
                   task_stores=[{"destination": "backlog", "path": "tasks.md", "open": ["- [ ] Something else [id:: iother123]"]}])
     assert by["a"]["status"] != "tracked"
+
+
+def test_two_asks_about_one_topic_are_two_items():
+    """The assess task names what an item is about. That is not an identity: two commitments
+    about one service, with no thread or reference between them, stay two items with their
+    own topics, so a decision made about one cannot hide the other."""
+    a = item("c1", text="Read the corruption thread", source="notes", thread="")
+    b = item("c2", text="Remind the account team of the limits", source="notes", thread="")
+    rows = {"c1": {"keep": True, "score": 80, "topic": "storage"}, "c2": {"keep": True, "score": 80, "topic": "storage"}}
+    by, data = merge([a, b], agent=rows)
+    assert by["c1"]["topic"] != by["c2"]["topic"] and not data["merged"]
+    assert {by["c1"]["topic_basis"], by["c2"]["topic_basis"]} == {"item"}

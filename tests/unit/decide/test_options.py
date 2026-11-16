@@ -154,3 +154,16 @@ def test_an_item_the_reviewer_said_to_show_is_asked_whatever_floor_its_new_decis
     assert select_asked([item], 55, 5, floors=floors) == ([], [])
     assert select_asked([{**item, "verdict": "ask"}], 55, 5, floors=floors)[0][0]["id"] == "a"
     assert select_asked([{**item, "assessment": {"decision": "monitor"}}], 55, 5, floors=floors)[0][0]["id"] == "a"
+
+
+def test_an_owner_given_by_name_is_the_person_with_that_name():
+    """A judged row should carry a person's id and often carries the name. "Kim" is the one
+    person called Kim; a first name two people share names nobody."""
+    from types import SimpleNamespace as NS
+
+    from docket.decide.options import person_id
+    prof = NS(people=[NS(id="kim", name="Kim Osei", aliases=[]), NS(id="jp", name="Jean-Pierre Laurent", aliases=["J-P"]),
+                      NS(id="samr", name="Sam Rivera", aliases=[]), NS(id="samv", name="Sam Varga", aliases=[])])
+    assert person_id(prof, "Kim") == "kim" and person_id(prof, "kim osei") == "kim" and person_id(prof, "KIM") == "kim"
+    assert person_id(prof, "J-P") == "jp" and person_id(prof, "jp") == "jp"
+    assert person_id(prof, "Sam") is None and person_id(prof, "Lee") is None and person_id(prof, None) is None

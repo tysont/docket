@@ -226,8 +226,10 @@ def build_merge(inp: MergeInputs) -> dict[str, Any]:
                            **({"kind": row["kind"]} if row.get("kind") else {}),
                            **({"decision": row["decision"]} if row.get("decision") else {})}
             it["trace"].append({"verb": "judge", "step": "agent", "keep": bool(row.get("keep")), "score": agent})
-            if row.get("topic") and not it["keys"]:
-                it["keys"].append(f"agent:{row['topic']}")
+            # The task's topic says what an item is about. It is not an identity: two different
+            # asks about one service are two items, and a decision once made about that service
+            # must not hide the next one. An item with no thread, conversation or reference of
+            # its own stands alone; a reviewer merges what is really the same thing.
         score_item(it, sc, agent)
         it["keep"], it["status"], it["reason"] = False, "pending", None
     notes = coverage(items, inp)
