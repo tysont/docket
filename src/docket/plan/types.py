@@ -264,6 +264,7 @@ class Task:
     part: int = 0                       # which part, from 1
     parts: int = 0                      # of how many
     notes: str = ""                     # a standing block's own notes (``planning.standing``)
+    fallback: tuple[int, int] | None = None   # a standing block: the hours it may use when its day has no slot
 
     def with_flags(self, today: date, imminent_days: int) -> "Task":
         overdue = self.due is not None and self.due < today

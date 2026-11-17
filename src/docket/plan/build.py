@@ -428,7 +428,13 @@ def run_planning(rc: "RunContext", decide: dict[str, Any],
 def standing_entries(rc: "RunContext") -> list[Standing]:
     """``planning.standing``, with each duration in minutes (TD §12.9)."""
     from docket.text.durations import parse_duration
-    return [Standing(id=s.id, title=s.title, est=parse_duration(s.est), on=s.on, notes=s.notes)
+    def hours(text: str | None) -> tuple[int, int] | None:
+        if not text:
+            return None
+        a, b = text.split("-")
+        return int(a[:2]) * 60 + int(a[3:]), int(b[:2]) * 60 + int(b[3:])
+
+    return [Standing(id=s.id, title=s.title, est=parse_duration(s.est), on=s.on, notes=s.notes, fallback=hours(s.fallback))
             for s in rc.ws.config.planning.standing]
 
 

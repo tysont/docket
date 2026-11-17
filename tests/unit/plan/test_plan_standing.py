@@ -84,3 +84,19 @@ def test_standing_entries_are_checked():
                 [{"id": "Plan Day", "title": "A", "est": "30m"}]):
         with pytest.raises(ValueError):
             Planning.model_validate({"standing": bad})
+
+
+def test_on_a_day_with_no_slot_the_block_takes_its_fallback_hours_outside_the_day_window():
+    """The day window is 09:00 to 17:00 and meetings fill it. With fallback hours the block
+    sits there instead; without them nothing is placed and the notes say so."""
+    full = [ev("all", d(1), "09:00", "17:00", "Workshop")]
+    res = run(events=full, standing=(Standing(id="plan-day", title="Plan the day", est=30, fallback=(480, 540)),),
+              now=dt(TODAY, "17:30"))
+    (u,) = [u for u in res.units if u.task.kind == "standing"]
+    assert (u.block.day, u.block.start, u.block.end) == (d(1), 480, 510)          # 08:00-08:30
+    none = run(events=full, now=dt(TODAY, "17:30"))
+    assert [u for u in none.units if u.task.kind == "standing" and u.block] == []
+    # a day that has room is not touched by the fallback
+    free = run(standing=(Standing(id="plan-day", title="Plan the day", est=30, fallback=(480, 540)),), now=dt(TODAY, "17:30"))
+    (v,) = [u for u in free.units if u.task.kind == "standing"]
+    assert v.block.start == 540

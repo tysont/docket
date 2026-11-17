@@ -733,6 +733,9 @@ class PlanningStanding(Strict):
     est: Duration
     on: Literal["next_workday", "today"] = "next_workday"
     notes: str = ""
+    # Hours the block may use when its day has no legal slot, even outside the day window
+    # ("08:00-08:30"). Meetings and buffers still hold there.
+    fallback: str | None = Field(None, pattern=r"^\d{2}:\d{2}-\d{2}:\d{2}$")
 
     @field_validator("est")
     @classmethod

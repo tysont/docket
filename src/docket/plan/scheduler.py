@@ -33,7 +33,7 @@ from docket.config.digest import digest
 from docket.plan.calendar_classify import Calendar
 from docket.plan.constraints import Ctx, block_for, check, search, slot_bounds, candidate_days, _grid_up
 from docket.plan.types import (
-    Block, Event, Placement, Policy, Task, Unschedulable, at, minute_of, task_key,
+    Block, Event, Placement, PlanWindow, Policy, Task, Unschedulable, at, minute_of, task_key,
 )
 from docket.plan.windows import window_free_minutes
 
@@ -299,6 +299,12 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             place(u, existing_block(u))
             continue
         res = search(u.task, ctx)
+        if not isinstance(res, Placement) and u.task.fallback and u.task.due is not None:
+            # no slot in its day: the hours the workspace allows it instead, even outside the day window
+            a, b = u.task.fallback
+            hold = PlanWindow(f"{u.task.due.isoformat()} {a // 60:02d}:{a % 60:02d}-{b // 60:02d}:{b % 60:02d}",
+                              ((u.task.due, a, b),), explicit_times=True, explicit_days=True)
+            res = search(replace(u.task, window=hold), ctx)
         if isinstance(res, Placement):
             place(u, res.block, False)
         else:
@@ -461,6 +467,7 @@ class Standing:
     est: int
     on: str = "next_workday"
     notes: str = ""
+    fallback: tuple[int, int] | None = None   # minutes of the day the block may use when its day has no slot
 
 
 def standing_day(on: str, today: date, workdays: frozenset[int]) -> date | None:
@@ -485,7 +492,7 @@ def standing_units(entries: list[Standing], today: date, ctx: Ctx, owned: set[st
         for i in range((day - today).days + 1):
             d = today + timedelta(days=i)
             t = Task(id=f"{s.id}@{d.isoformat()}", title=s.title, est=s.est, due=d, earliest=d, kind="standing",
-                     source="standing", notes=s.notes)
+                     source="standing", notes=s.notes, fallback=s.fallback)
             if d == day or task_key(t, ctx.policy.key_prefix) in owned:
                 units.append(t)
     return units, notes

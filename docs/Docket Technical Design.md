@@ -1023,6 +1023,8 @@ A standing block is no task's: it carries no `task_ids`, it is never batched or 
 
 ## 13. Approve, apply and seal
 
+An entry may name `fallback` hours (`"08:00-08:30"`): when its day has no legal slot, the block is placed inside those hours instead, even outside the day window. Meetings and buffers still hold there.
+
 ### 13.1 Approval
 
 An approve node asks one question, whose id is the node's name. It shows the plan diff path, the counts and the digest. When a block the plan creates, moves or updates has a planned start that has passed by the time the question is shown, its details carry `passed` (each block's key, title, start and verb, in the compact form too) and the prompt says how many, so a driver tells the operator. It never blocks the approval. `docket ask answer approve yes --digest <plan_digest>` (for a node named `approve`) binds the approval to that digest. Any change to an input digest makes the plan stale (§4.4) and the approval with it (FR-APP-01). Wall-clock build and approval times are appended to the `approvals` ledger outside the run artifacts. This keeps digest-bound artifacts deterministic.
