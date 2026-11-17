@@ -12,6 +12,10 @@ Review verdicts wire into the item set:
   into (``merged_into``); that item lists it under ``merged``. A merge whose
   target is not retained keeps the item, so no finding is lost;
 - ``needs_verification``: the item stays kept and is flagged for the operator.
+
+A row's ``decision``, ``deadline`` and ``est`` replace the assessment's values under any
+verdict; the trace keeps the old ones (``was``, ``was_deadline``, ``was_est``). On a drop or
+a completed merge the item leaves the kept set, so they change nothing asked.
 """
 from __future__ import annotations
 
@@ -181,6 +185,10 @@ def combine_rows(items: list[dict[str, Any]], plan: NodePlan, kind: str) -> dict
     return {"items": out}
 
 
+# Review fields that replace the assessment's value, and the trace key that keeps the old one.
+REVIEW_REPLACES = {"decision": "was", "deadline": "was_deadline", "est": "was_est"}
+
+
 def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any]:
     verdicts: dict[str, tuple[str | None, dict[str, Any]]] = dict(rows(plan))
     by_id = {it["id"]: it for it in items}
@@ -223,13 +231,16 @@ def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
             continue
         task, row = hit
         v = row.get("verdict")
-        review = {k: row[k] for k in ("against", "reason", "merge_with", "decision") if row.get(k)}
+        review = {k: row[k] for k in ("against", "reason", "merge_with", "decision", "deadline", "est")
+                  if row.get(k) not in (None, "")}
         entry: dict[str, Any] = {"verb": "judge", "step": "reviewed", "node": plan.node, "verdict": v, **review}
-        if row.get("decision"):
-            # The reviewer's decision replaces the first recommendation; the trace keeps both.
-            was = (it.get("assessment") or {}).get("decision")
-            new["assessment"] = {**(it.get("assessment") or {}), "decision": row["decision"]}
-            entry["was"] = was
+        # The reviewer's decision, deadline and estimate replace the assessment's; the trace keeps both.
+        before = it.get("assessment") or {}
+        changed = {k: review[k] for k in REVIEW_REPLACES if k in review}
+        if changed:
+            new["assessment"] = {**before, **changed}
+        for k in changed:
+            entry[REVIEW_REPLACES[k]] = before.get(k)
         entry["task"] = task
         new["verdict"] = v
         new["review"] = review

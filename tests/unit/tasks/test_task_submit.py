@@ -234,6 +234,79 @@ def test_the_reviewers_decision_replaces_the_first_recommendation():
     assert out["b"]["assessment"]["decision"] == "act" and "decision" not in out["b"]["review"]
 
 
+def test_a_review_row_may_give_a_deadline_and_an_estimate_read_like_the_assessments():
+    """A reviewer who turns an item into work may say when it is due and how long it takes.
+    The two fields are typed and read as the assess fields are: a date, and a duration in
+    minutes. A value that is not one is read as none and recorded, never refused. A merge or
+    drop row may carry them too; nothing refuses it."""
+    cfg = persona_config("reference-like")
+    kind = registry(TasksConfig.model_validate(DECISIONS))["review"]
+    assess = registry(TasksConfig.model_validate(DECISIONS))["assess"]
+    for name in ("deadline", "est"):
+        assert kind.field(name).type == assess.field(name).type and not kind.field(name).required
+    assert "deadline" in {f.name for f in persona_kinds("reference-like")["review"].fields}  # no vocabulary needed
+    items = [item(i, keep=True, assessment={"kind": "request", "owner": "me", "ask": "Reply", "decision": "note"})
+             for i in range(4)]
+    pack = packs_for(kind, items, cfg)[0]
+    a, b, c, d = (it["id"] for it in pack["items"])
+    got = submit.validate(kind, pack, {"items": [
+        {"id": a, "verdict": "ask", "against": "It may wait.", "decision": "park",
+         "deadline": "2026-10-16T17:00:00Z", "est": "1h"},
+        {"id": b, "verdict": "needs_verification", "reason": "Unclear.", "deadline": "before the meeting",
+         "est": "a while"},
+        {"id": c, "verdict": "merge", "merge_with": a, "deadline": "2026-10-20", "est": 30},
+        {"id": d, "verdict": "drop", "reason": "Handled.", "deadline": "2026-10-21"}]},
+        raw_text=raw_from_lines(pack), rerun=RERUN)
+    rows = {r["id"]: r for r in got.body["items"]}
+    assert (rows[a]["deadline"], rows[a]["est"]) == ("2026-10-16", 60)
+    assert rows[b].get("deadline") is None and rows[b].get("est") is None
+    assert (rows[c]["deadline"], rows[c]["est"]) == ("2026-10-20", 30) and rows[d]["deadline"] == "2026-10-21"
+    assert {s.detail for s in got.shapes} == {"review.deadline not a date", "review.est not a duration"}
+
+
+def _review_plan(rows):
+    from docket.tasks.runner import NodePlan
+    return NodePlan(node="review", kind=persona_kinds("reference-like")["review"], packs=[{"task_id": "t1"}],
+                    results={"t1": {"items": rows}}, issued={"t1"})
+
+
+def test_the_reviewers_deadline_and_estimate_replace_the_assessments_and_the_trace_keeps_both():
+    """The assessment thought an item needed nothing, so it gave no deadline. The reviewer makes
+    it work and names the day it is needed: that day and the estimate stand on the item, as the
+    reviewer's decision does, and the trace keeps what the assessment said. Fields the reviewer
+    left out keep the assessment's values. On a drop or a merge row they are applied the same
+    way, whatever the verdict; the item leaves the kept set, so they change nothing asked."""
+    from docket.tasks.runner import combine_review
+    base = {"keep": True, "trace": []}
+    items = [{"id": "a", **base, "assessment": {"decision": "note", "ask": "Reply", "est": 15}},
+             {"id": "b", **base, "assessment": {"decision": "act", "ask": "Reply", "deadline": "2026-10-30",
+                                                "est": 15}},
+             {"id": "c", **base, "assessment": {"decision": "act", "ask": "Reply", "deadline": "2026-10-30"}},
+             {"id": "d", **base, "assessment": {"decision": "act", "ask": "Reply"}}]
+    rows = [{"id": "a", "verdict": "ask", "against": "It may wait.", "decision": "act", "deadline": "2026-10-16",
+             "est": 45, "reason": "Needed for tomorrow's meeting."},
+            {"id": "b", "verdict": "needs_verification", "reason": "Check the date.", "deadline": "2026-10-20"},
+            {"id": "c", "verdict": "ask", "against": "Could wait."},
+            {"id": "d", "verdict": "drop", "reason": "Handled.", "deadline": "2026-10-21", "est": 30}]
+    out = {it["id"]: it for it in combine_review(items, _review_plan(rows))["items"]}
+    a = out["a"]
+    assert a["assessment"] == {"decision": "act", "ask": "Reply", "est": 45, "deadline": "2026-10-16"}
+    assert (a["review"]["deadline"], a["review"]["est"]) == ("2026-10-16", 45)
+    last = a["trace"][-1]
+    assert (last["was"], last["deadline"], last["was_deadline"], last["est"], last["was_est"]) == \
+        ("note", "2026-10-16", None, 45, 15)
+    b = out["b"]
+    assert (b["assessment"]["deadline"], b["assessment"]["est"]) == ("2026-10-20", 15)
+    assert b["trace"][-1]["was_deadline"] == "2026-10-30" and "was_est" not in b["trace"][-1]
+    assert "was" not in b["trace"][-1]                       # the decision was not touched
+    c = out["c"]
+    assert c["assessment"]["deadline"] == "2026-10-30" and "deadline" not in c["review"]
+    assert not {"was_deadline", "was_est"} & set(c["trace"][-1])
+    d = out["d"]
+    assert d["keep"] is False and d["assessment"]["deadline"] == "2026-10-21"
+    assert d["trace"][-1]["was_deadline"] is None
+
+
 def test_a_workspace_can_ask_the_assessment_for_extra_words_about_an_item():
     """Some destinations want an item said another way than its ask: as a topic for a meeting,
     say. A workspace names such a field and says what it should be; the assessment may fill

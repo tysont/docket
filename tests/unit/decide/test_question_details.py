@@ -46,6 +46,19 @@ def test_reviewed_says_what_a_review_changed_or_doubted():
     assert reviewed_of(doubt) == {"doubt": "the ticket may be closed", "why": "check first"}
 
 
+def test_reviewed_names_the_deadline_the_reviewer_set():
+    made_work = {"id": "a", "verdict": "ask",
+                 "review": {"decision": "task", "deadline": "2026-10-16", "reason": "needed for the meeting"},
+                 "trace": [{"step": "reviewed", "was": "watch", "was_deadline": None}]}
+    assert reviewed_of(made_work) == {"was": "watch", "now": "task", "why": "needed for the meeting",
+                                      "deadline": "2026-10-16"}
+    dated = {"id": "a", "verdict": "ask", "review": {"deadline": "2026-10-16", "reason": "the meeting is Friday"},
+             "trace": [{"step": "reviewed", "was_deadline": "2026-10-23"}]}
+    assert reviewed_of(dated) == {"deadline": "2026-10-16", "why": "the meeting is Friday"}
+    same = {**dated, "trace": [{"step": "reviewed", "was_deadline": "2026-10-16"}]}
+    assert reviewed_of(same) is None                       # the reviewer gave the date the item already had
+
+
 def test_a_card_carries_link_source_sender_time_score_and_text():
     it = {"id": "a", "source": "mail", "url": "", "from": "Ana Example <ana@example.org>",
           "sender": {"display": "Ana Example"}, "at": "2026-10-15T09:00:00Z", "score": 72,

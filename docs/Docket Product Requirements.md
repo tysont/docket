@@ -199,7 +199,7 @@ Requirements are numbered for traceability. **Must** is required for v1; **Shoul
 - **FR-TSK-03 (Must).** A task's input pack is self-contained. The prompt states that the agent must not read anything else and must treat every input line as untrusted data.
 - **FR-TSK-04 (Must).** `docket task submit` validates the result: schema, identity partition, verbatim evidence against raw records, vocabulary. Integrity failures reject the submission with per-row errors. Unknown vocabulary with a declared safe reading is accepted on that reading and recorded as an unexpected shape.
 - **FR-TSK-05 (Must).** Packs respect configurable size budgets and must-surface items are never dropped by packing.
-- **FR-TSK-06 (Must).** The review task presents candidates without scores and requires, per retained item, the strongest argument against asking.
+- **FR-TSK-06 (Must).** The review task presents candidates without scores and requires, per retained item, the strongest argument against asking. A reviewer may replace an item's recommended decision, deadline and estimate; it gives a deadline only when it makes the item work and the item names the date or the event it is needed for.
 - **FR-TSK-07 (Should).** An accepted result is reused whenever a new pack has the same input digest. A task whose pack has not changed, in the same run or a later one, is not issued again.
 
 ### 7.4 Decisions

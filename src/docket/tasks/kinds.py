@@ -448,7 +448,9 @@ Hunt for these failures:
 4. Vague ask: the ask names no concrete action, owner or object.
 5. Busywork: missing context was turned into work to recover it. Missing context is not an obligation.
 
-For every candidate you leave at ask, write the strongest argument against asking in one sentence. Use needs_verification when the pack cannot settle the question."""
+For every candidate you leave at ask, write the strongest argument against asking in one sentence. Use needs_verification when the pack cannot settle the question.
+
+When you make a candidate work that the proposal did not treat as work, give a deadline only if the candidate's lines name a date or an event it is needed for. Never invent one."""
 
 EXTRACT_INSTRUCTIONS = """\
 You extract commitments and requests from documents gathered for {me.name}, the operator. Each pack item is one document; its lines are the document's sections.
@@ -564,6 +566,11 @@ def _review(cfg: TasksConfig) -> TaskKind:
         FieldSpec("merge_with", "item_ref", "The id of the pack item this candidate duplicates."),
         FieldSpec("reason", "str", "One sentence naming why, and which hunted failure fired when one did.",
                   max_length=300),
+        FieldSpec("deadline", "date", "The date the work is due (YYYY-MM-DD), only when you make the candidate "
+                                      "work and its lines name a date or an event it is needed for.",
+                  extend="tasks.review"),
+        FieldSpec("est", "duration", "The focused working time the work needs (15m, 30m, 1h), when the "
+                                     "proposal's is missing or wrong.", extend="tasks.review"),
     )
     if cfg.assess.decisions:
         fields += (FieldSpec("decision", "enum", "The decision you recommend for this candidate, when it should "

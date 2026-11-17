@@ -207,3 +207,56 @@ def test_evidence_is_checked_against_the_latest_version_of_a_record(persona, cli
     assert code == 4 and [r["code"] for r in env["error"]["details"]["rows"]] == ["task.evidence_not_verbatim"]
     code, env = submit(cli, task, synthetic_result("assess", pack))
     assert code == 0, env
+
+
+def test_a_reviewer_who_makes_an_item_work_gives_the_deadline_the_question_and_the_task_use(persona, cli,
+                                                                                               pinned_now):
+    """The assessment saw nothing owed in any item, so it recommended watching and gave no
+    deadline. The reviewer sees one is needed for tomorrow's meeting: it changes the decision
+    to a task and names the day. The question recommends the task, proposes that day as due
+    and shows what the reviewer changed; the task the answer writes is due that day."""
+    ws = persona("reference-like")
+    cfg = ws / "docket.yaml"
+    cfg.write_text(cfg.read_text().replace(
+        "  assess: { max_items: 10 }",
+        "  assess:\n    max_items: 10\n    decisions: { task: Work the operator owes., watch: Nothing is owed yet. }", 1))
+    run_id = start(cli, ws, "daily", pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "assess")
+    assert res.failures == [], res.failures
+    for t in res.final["tasks"]:
+        result = synthetic_result("assess", json.loads(Path(t["pack_path"]).read_text()))
+        code, env = submit(cli, t, {"items": [{**r, "decision": "watch"} for r in result["items"]]})
+        assert code == 0, env
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "review")
+    assert res.failures == [], res.failures
+    undated = {it["id"] for it in artifact(ws, run_id, "merge")["items"]
+               if not (it.get("signals") or {}).get("deadline")}
+    chosen = None
+    for t in res.final["tasks"]:
+        rows = synthetic_result("review", json.loads(Path(t["pack_path"]).read_text()))["items"]
+        for r in rows:
+            if chosen is None and r["id"] in undated:
+                chosen = r["id"]
+                r.update(decision="task", deadline="2026-10-16", est="45m",
+                         reason="The item says it is needed for tomorrow's planning meeting.")
+        code, env = submit(cli, t, {"items": rows})
+        assert code == 0, env
+    assert chosen is not None
+    reviewed = {it["id"]: it for it in artifact(ws, run_id, "review")["items"]}[chosen]
+    assert (reviewed["assessment"]["deadline"], reviewed["assessment"]["est"]) == ("2026-10-16", 45)
+    assert reviewed["trace"][-1]["was_deadline"] is None and reviewed["trace"][-1]["was"] == "watch"
+
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask", full=True)
+    assert res.failures == [] and res.final["kind"] == "ask", res.final
+    q = next(q for q in res.final["questions"] if q["id"] == f"q_{chosen}")
+    d = q["details"]
+    assert d["recommended"] == "task"
+    assert d["defaults"]["due"] == "2026-10-16" and d["defaults"]["est"] == 45
+    assert d["reviewed"] == {"was": "watch", "now": "task", "deadline": "2026-10-16",
+                             "why": "The item says it is needed for tomorrow's planning meeting."}
+    other = next(q for q in res.final["questions"] if q["id"] != f"q_{chosen}")
+    assert other["details"]["recommended"] == "watch" and other["details"]["defaults"]["due"] != "2026-10-16"
+    code, env = cli("ask", "answer", q["id"], "task", "--workspace", str(ws))
+    assert code == 0, env
+    line = env["data"]["action_preview"]["operations"][0]["line"]
+    assert "[due:: 2026-10-16]" in line and "[est:: 45m]" in line
