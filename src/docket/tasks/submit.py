@@ -86,8 +86,10 @@ def _fix(spec: "FieldSpec | None", err: dict[str, Any]) -> str:
         if t == "string_too_long":
             return f"keep each quote to at most {spec.max_quote} characters"
         return "give quotes as {\"line\": \"L1\", \"quote\": \"words copied exactly\"}"
+    if t == "too_long" and spec.cap is not None:
+        return f"keep at most {spec.cap} entries in `{spec.name}`, the most important first"
     if t == "string_too_long":
-        return f"shorten `{spec.name}` to at most {spec.max_length} characters"
+        return f"shorten `{spec.name}` to at most {spec.max_length or 200} characters"
     return f"give `{spec.name}` as: {type_text(spec)}"
 
 
@@ -212,6 +214,9 @@ def row_errors(kind: "TaskKind", pack: dict[str, Any], rows: list[dict[str, Any]
                 errors.append({"id": rid, "path": f"{base}.{name}", "received": row.get(name),
                                "code": "task.cross_field", "rule": r.describe(),
                                "fix": f"add `{name}`: {f.description}" if f else f"add `{name}`"})
+        # rules that need the pack item (a core kind's own, such as the audit's entries and links)
+        if kind.check is not None:
+            errors += kind.check.row_errors(item, row, base)
     return errors
 
 

@@ -64,14 +64,13 @@ class Layout:
 
 def edges_of(graph: dict[str, Node]) -> list[Edge]:
     """Every edge of the graph, the seal's included: data edges from a node's inputs and the
-    read node its covered questions take meetings from, order edges from ``after``, and an
+    nodes its questions read (the read node of covered meetings, the judge node of audit
+    proposals), order edges from ``after``, and an
     order edge into the seal from every node no other node waits for."""
     out: list[Edge] = []
     for name in ordered(graph):
         n = graph[name]
-        data = list(n.inputs)
-        if n.verb == "ask" and n.questions.covered is not None:
-            data.append(n.questions.covered.meetings)
+        data = list(n.inputs) + n.question_sources
         for other in n.needs:
             out.append(Edge(other, name, "data" if other in data else "order"))
     needed = {e.src for e in out}

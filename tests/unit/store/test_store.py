@@ -6,7 +6,7 @@ import pytest
 
 from docket.cli.errors import DocketError
 from docket.store.blobs import BlobStore
-from docket.store.db import SCHEMA_VERSION, open_db
+from docket.store.db import MIGRATIONS, SCHEMA_VERSION, open_db
 from docket.store.paths import state_root, workspace_slug
 
 pytestmark = pytest.mark.smoke
@@ -29,15 +29,37 @@ def test_a_new_database_has_the_current_schema_and_reopens_unchanged(tmp_path):
     db.close()
 
 
-def test_refuses_an_older_database(tmp_path):
+def test_refuses_an_older_database_it_cannot_migrate(tmp_path):
+    old = min(MIGRATIONS) - 1
     db = open_db(tmp_path / "docket.db")
-    db.execute("UPDATE schema_meta SET value=? WHERE key='version'", (str(SCHEMA_VERSION - 1),))
+    db.execute("UPDATE schema_meta SET value=? WHERE key='version'", (str(old),))
     db.commit()
     db.close()
     with pytest.raises(DocketError) as ei:
         open_db(tmp_path / "docket.db")
     assert ei.value.code == "state.too_old" and ei.value.exit_code == 7
-    assert ei.value.details["db_version"] == SCHEMA_VERSION - 1 and ei.value.details["supported"] == SCHEMA_VERSION
+    assert ei.value.details["db_version"] == old and ei.value.details["supported"] == SCHEMA_VERSION
+
+
+def test_migrates_a_version_16_ledger_in_place(tmp_path):
+    """Schema 17 adds the ask, owner, sender and forum of an item to the ledger; a version 16
+    database gains the columns when it is opened, and keeps its rows."""
+    import sqlite3
+    path = tmp_path / "docket.db"
+    conn = sqlite3.connect(str(path))
+    conn.execute("CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute("INSERT INTO schema_meta VALUES ('version', '16')")
+    conn.execute("CREATE TABLE item_ledger (key TEXT PRIMARY KEY, topic TEXT NOT NULL UNIQUE, source TEXT, title TEXT, "
+                 "url TEXT, state TEXT NOT NULL, state_at TEXT, first_run TEXT, first_at TEXT, last_run TEXT, due TEXT, "
+                 "est INTEGER, area TEXT, placements TEXT NOT NULL DEFAULT '[]', history TEXT NOT NULL DEFAULT '[]')")
+    conn.execute("INSERT INTO item_ledger (key, topic, state) VALUES ('iaaaaaaaa', 't', 'new')")
+    conn.commit()
+    conn.close()
+    db = open_db(path)
+    assert db.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == str(SCHEMA_VERSION)
+    cols = {r[1] for r in db.execute("PRAGMA table_info(item_ledger)")}
+    assert {"ask", "owner", "sender", "forum"} <= cols
+    assert db.execute("SELECT state, ask FROM item_ledger WHERE key='iaaaaaaaa'").fetchone()[:] == ("new", None)
 
 
 def test_refuses_newer_database(tmp_path):

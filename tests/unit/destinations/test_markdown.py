@@ -480,3 +480,76 @@ def test_the_first_item_of_an_empty_section_keeps_the_blank_line_the_document_pu
     assert after("# A\n\n## Next\n\n") == "# A\n\n## Next\n\n- one\n"
     assert after("# A\n## Next\n## Later\n") == "# A\n## Next\n- one\n## Later\n"            # a tight document stays tight
     assert after("# A\n\n## Next\n\n- zero\n\n## Later\n") == "# A\n\n## Next\n\n- zero\n- one\n\n## Later\n"
+
+
+# --- agenda edits (TD §12.8) ----------------------------------------------------------------
+
+EDITED = """# Weekly
+
+## Next
+- Topic one (https://chat.example.org/t/1)
+  - its sub-point
+- Topic two
+- Topic three
+
+## 2026-10-08
+- Topic two
+"""
+
+
+def edit(kind, old="", text="", **kw):
+    return Action(kind="agenda.edit", destination="agendas",
+                  fields={"edit": kind, "old": old, "text": text, "forum": {"id": "weekly"}, **kw})
+
+
+def test_an_agenda_edit_replaces_one_entry_keeping_its_marker_and_links(tmp_path):
+    d = agenda(tmp_path)
+    (tmp_path / "meet" / "weekly.md").write_text(EDITED)
+    [op] = d.preview(edit("replace", old="- Topic one (https://chat.example.org/t/1)", text="Decide topic one"),
+                     d.snapshot())
+    assert op.verb == "replace" and op.line == "- Decide topic one (https://chat.example.org/t/1)"
+    assert d.edit_problem(op, d.snapshot()) is None
+    d.apply(op)
+    assert d.verify(op, d.apply(op)).ok
+    assert (tmp_path / "meet" / "weekly.md").read_text() == EDITED.replace("- Topic one", "- Decide topic one")
+
+
+def test_an_agenda_edit_removes_an_entry_with_its_sub_lines_and_only_from_next(tmp_path):
+    d = agenda(tmp_path)
+    (tmp_path / "meet" / "weekly.md").write_text(EDITED)
+    [one] = d.preview(edit("remove", old="- Topic one (https://chat.example.org/t/1)"), d.snapshot())
+    [two] = d.preview(edit("remove", old="- Topic two"), d.snapshot())
+    for op in (one, two):
+        r = d.apply(op)
+        assert r.outcome == "applied" and d.verify(op, r).ok
+    assert (tmp_path / "meet" / "weekly.md").read_text() == EDITED.replace(
+        "- Topic one (https://chat.example.org/t/1)\n  - its sub-point\n- Topic two\n", "")
+    assert d.apply(two).outcome == "already_present"           # repeated: nothing left to remove
+
+
+def test_an_agenda_edit_appends_with_its_link(tmp_path):
+    d = agenda(tmp_path, capacity=4)
+    (tmp_path / "meet" / "weekly.md").write_text(EDITED)
+    [op] = d.preview(edit("append", text="New topic", url="https://chat.example.org/t/9"), d.snapshot())
+    assert op.verb == "append" and op.line == "- New topic (https://chat.example.org/t/9)"
+    d.apply(op)
+    assert "- Topic three\n- New topic (https://chat.example.org/t/9)\n" in (tmp_path / "meet" / "weekly.md").read_text()
+
+
+def test_an_entry_edited_since_the_audit_refuses_the_edit_by_its_old_digest(tmp_path):
+    d = agenda(tmp_path)
+    (tmp_path / "meet" / "weekly.md").write_text(EDITED)
+    [rw] = d.preview(edit("replace", old="- Topic two", text="Decide topic two"), d.snapshot())
+    [rm] = d.preview(edit("remove", old="- Topic three"), d.snapshot())
+    (tmp_path / "meet" / "weekly.md").write_text(EDITED.replace("- Topic two", "- Topic two, edited")
+                                                 .replace("- Topic three\n", "- Topic three\n- Topic three\n"))
+    now = d.snapshot()
+    assert "no longer in meet/weekly.md ## Next" in d.edit_problem(rw, now)
+    assert "2 entries" in d.edit_problem(rm, now)
+    with pytest.raises(IntegrityError) as e:
+        d.apply(rw)
+    assert e.value.code == "dest.line_changed"
+    with pytest.raises(IntegrityError) as e:
+        d.apply(rm)
+    assert e.value.code == "dest.line_changed"
+    assert "- Topic two, edited" in (tmp_path / "meet" / "weekly.md").read_text()

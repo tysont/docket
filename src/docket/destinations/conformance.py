@@ -273,6 +273,16 @@ def agenda_scenario(cfg: DestConfig, scratch: Path, dest_id: str = "agendas", pr
         lambda s: Action(kind="agenda.roll", destination=dest_id,
                          fields={"agenda": "conformance-sync", "date": "2030-02-01", "remove": ["N1"],
                                  "lines": ["- Seeded topic was covered"]}),
+        # an audit rewords one entry, drops another and adds a third
+        lambda s: Action(kind="agenda.edit", destination=dest_id,
+                         fields={"agenda": "conformance-sync", "edit": "replace", "ident": "audit-1",
+                                 "old": "- First conformance topic", "text": "First conformance topic, reworded"}),
+        lambda s: Action(kind="agenda.edit", destination=dest_id,
+                         fields={"agenda": "conformance-sync", "edit": "remove", "ident": "audit-1",
+                                 "old": "- Second conformance topic"}),
+        lambda s: Action(kind="agenda.edit", destination=dest_id,
+                         fields={"agenda": "conformance-sync", "edit": "append", "ident": "audit-1",
+                                 "text": "Third conformance topic", "url": "https://example.invalid/i/3"}),
     ]
 
     def unowned(dest: Any, state: DestState) -> list[Operation]:

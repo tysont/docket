@@ -296,11 +296,20 @@ class MarkdownTasks(MarkdownBase):
 # --- markdown_agenda ------------------------------------------------------------
 
 
+_MARKER = re.compile(r"^(\s*(?:[-*+]|\d+[.)])\s+)")
+_WEB = re.compile(r"https?://[^\s<>\"'\])]+")
+
+
 class MarkdownAgenda(MarkdownBase):
-    """Agendas discovered under a path pattern or listed per forum, with a capacity-limited section."""
+    """Agendas discovered under a path pattern or listed per forum, with a capacity-limited section.
+
+    ``agenda.edit`` changes one entry of the agenda section, as an agenda audit proposed it
+    (TD §12.8): ``replace`` an entry's line (its sub-lines stay), ``remove`` an entry with its
+    sub-lines and record it nowhere, or ``append`` a new entry. A replace or remove names the
+    line it expects by its digest, so an entry edited since it was proposed is never changed."""
     adapter = "markdown_agenda"
-    capabilities = frozenset({"agenda.add", "agenda.roll"})
-    verbs = frozenset({"append", "roll"})
+    capabilities = frozenset({"agenda.add", "agenda.roll", "agenda.edit"})
+    verbs = frozenset({"append", "roll", "replace", "remove"})
 
     @property
     def section(self) -> str:
@@ -462,13 +471,80 @@ class MarkdownAgenda(MarkdownBase):
         self.save(op.path, doc)
         return self.receipt(op, "applied", self.ext(op.path, op.title or ""))
 
+    # --- edit: one entry as an audit proposed (TD §12.8) ---------------------------------
+    def _edit(self, action: Action, state: DestState) -> list[Operation]:
+        f = action.fields
+        path = self.target(action)
+        if path is None or (state.data.get("files") or {}).get(path) is None:
+            raise IntegrityError("dest.not_accepted", f"{self.id}: no agenda found for this item",
+                                 hint="docket do <write node>", details={"destination": self.id, "path": path})
+        ident = f"{path}#{f.get('ident') or ''}"
+        prov = {"question_id": action.question_id, "item_id": action.item_id, "depends_on": action.depends_on or None}
+        edit = f.get("edit")
+        if edit == "append":
+            ctx = {**f, "title": str(f.get("text") or "").strip()}
+            line = one_line(templates.render(self.cfg.line_template or DEFAULT_AGENDA_LINE, ctx))
+            url = str(f.get("url") or "")
+            if url and url not in line:
+                line += f" ({url})"
+            line = self.shared_text(line, "line_template")
+            return [make_op(self.id, "append", ident=ident, path=path, anchor=self.section, line=line, **prov)]
+        old = str(f.get("old") or "").rstrip()
+        if edit == "replace":
+            m = _MARKER.match(old)
+            marker = m.group(1) if m else "- "
+            text = _MARKER.sub("", " ".join(str(f.get("text") or "").split()))
+            for u in _WEB.findall(old):  # a link the entry carried stays with it
+                if u not in text:
+                    text += f" ({u})"
+            line = self.shared_text(marker + text, "line")
+            return [make_op(self.id, "replace", ident=ident, path=path, anchor=self.section,
+                            old_digest=line_digest(old), old_line=old, line=line, **prov)]
+        if edit == "remove":
+            return [make_op(self.id, "remove", ident=ident, path=path, anchor=self.section,
+                            old_digest=line_digest(old), old_line=old, **prov)]
+        raise IntegrityError("dest.not_accepted", f"{self.id}: unknown agenda edit {edit!r}",
+                             hint="docket do <write node>", details={"destination": self.id, "edit": edit})
+
+    def edit_problem(self, op: Operation, state: DestState) -> str | None:
+        """Why ``op`` cannot be applied to the agenda as ``state`` holds it, or None. A replace
+        or remove needs its line exactly once in the agenda section (a replace already in place
+        is fine); the entry was edited or removed since the audit proposed the change otherwise."""
+        if op.verb not in ("replace", "remove"):
+            return None
+        doc = Doc.parse((state.data.get("files") or {}).get(op.path or ""))
+        m = doc.matches(op.anchor or "", op.old_digest or "")
+        if len(m) == 1 or (op.verb == "replace" and not m and doc.count_in(op.anchor or "", op.line or "") == 1):
+            return None
+        return (f"the entry {op.old_line!r} is no longer in {op.path} {op.anchor} as the audit saw it" if not m
+                else f"{len(m)} entries in {op.path} {op.anchor} read {op.old_line!r}")
+
+    def _remove(self, op: Operation) -> Receipt:
+        doc = self.doc(op.path)
+        m = doc.matches(op.anchor, op.old_digest or "")
+        if not m:
+            return self.receipt(op, "already_present", self.ext(op.path, op.old_line or ""))
+        if len(m) > 1:
+            raise self.line_changed(op, op.anchor, doc, len(m), f"{len(m)} lines match the entry to remove")
+        sec = doc.section(op.anchor)
+        end = sec[1] if sec else len(doc.lines)
+        i = j = m[0]
+        j += 1
+        while j < end and doc.lines[j].strip() and doc.lines[j][:1] in (" ", "\t"):
+            j += 1
+        del doc.lines[i:j]
+        self.save(op.path, doc)
+        return self.receipt(op, "applied", self.ext(op.path, op.old_line or ""))
+
     def preview(self, action: Action, state: DestState, **kw: Any) -> list[Operation]:  # type: ignore[no-redef]
-        if action.kind == "agenda.roll":
+        if action.kind in ("agenda.edit", "agenda.roll"):
+            # capacity is not the question here: a roll empties the section, and the audit's
+            # write orders its edits so the removals come before the additions (TD §12.8)
             base = BaseDestination.can_accept(self, action)
             if not base.ok:
                 raise IntegrityError("dest.not_accepted", base.reason or "not accepted", hint="docket do <plan node>, then approve again",
                                      details={"destination": self.id})
-            return self._roll(action, state)
+            return self._edit(action, state) if action.kind == "agenda.edit" else self._roll(action, state)
         return self._preview_add(action, state, **kw)
 
     def apply(self, op: Operation) -> Receipt:
@@ -476,11 +552,19 @@ class MarkdownAgenda(MarkdownBase):
         self.own_path(op, set(self.discover()) | (set(self.forum_paths().values()) if self.cfg.new_note else set()))
         if op.verb == "roll":
             return self._apply_roll(op)
+        if op.verb == "replace":
+            return self._replace(op)
+        if op.verb == "remove":
+            return self._remove(op)
         if op.body and not self.io.exists(op.path):  # the forum's first item: its note is created with it
             self.io.write(op.path, op.body if op.body.endswith("\n") else op.body + "\n")
         return self._append(op, capacity=self.cfg.capacity)
 
     def verify(self, op: Operation, receipt: Receipt) -> VerifyResult:
+        if op.verb == "remove":
+            left = self.doc(op.path).matches(op.anchor or "", op.old_digest or "")
+            return VerifyResult(ok=True) if not left else VerifyResult(ok=False, status="mismatch",
+                                                                       detail="the entry is still there")
         if op.verb == "roll":
             doc = self.doc(op.path)
             if not op.title:  # a roll that only drops: none of the dropped entries is left

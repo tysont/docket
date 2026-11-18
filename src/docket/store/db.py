@@ -1,8 +1,9 @@
 """The workspace database (TD §4.2): SQLite in WAL mode, one schema with a version.
 
-A new database is created at ``SCHEMA_VERSION``. A database at another version is
-refused: one written by a newer Docket with ``store.db_too_new``, an older one with
-``state.too_old`` (its state must be migrated before this Docket can use it).
+A new database is created at ``SCHEMA_VERSION``. An older database that ``MIGRATIONS``
+can bring forward step by step is migrated in one transaction when it is opened; any other
+version is refused: one written by a newer Docket with ``store.db_too_new``, an older one
+with ``state.too_old`` (its state must be migrated before this Docket can use it).
 """
 from __future__ import annotations
 
@@ -11,7 +12,15 @@ from pathlib import Path
 
 from docket.cli.errors import StateError
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
+
+# version -> the statements that bring a database at that version to the next one. Only
+# additive changes are migrated in place.
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    # 17: the item ledger keeps what an item asks, who owns it, who sent it and its forum (TD §13.8)
+    16: ("ALTER TABLE item_ledger ADD COLUMN ask TEXT", "ALTER TABLE item_ledger ADD COLUMN owner TEXT",
+         "ALTER TABLE item_ledger ADD COLUMN sender TEXT", "ALTER TABLE item_ledger ADD COLUMN forum TEXT"),
+}
 
 SCHEMA = """
 CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -63,7 +72,8 @@ CREATE TABLE dispositions (
 CREATE TABLE item_ledger (
   key TEXT PRIMARY KEY, topic TEXT NOT NULL UNIQUE, source TEXT, title TEXT, url TEXT,
   state TEXT NOT NULL, state_at TEXT, first_run TEXT, first_at TEXT, last_run TEXT,
-  due TEXT, est INTEGER, area TEXT, placements TEXT NOT NULL DEFAULT '[]', history TEXT NOT NULL DEFAULT '[]'
+  due TEXT, est INTEGER, area TEXT, placements TEXT NOT NULL DEFAULT '[]', history TEXT NOT NULL DEFAULT '[]',
+  ask TEXT, owner TEXT, sender TEXT, forum TEXT
 );
 CREATE INDEX item_ledger_state ON item_ledger (state);
 CREATE TABLE ledgers (
@@ -119,6 +129,18 @@ def open_db(path: Path) -> sqlite3.Connection:
             hint="Upgrade Docket to a version that supports database schema " + str(current),
             details={"db_version": current, "supported": SCHEMA_VERSION, "path": str(path)},
         )
+    elif current < SCHEMA_VERSION and all(v in MIGRATIONS for v in range(current, SCHEMA_VERSION)):
+        conn.execute("BEGIN")
+        try:
+            for v in range(current, SCHEMA_VERSION):
+                for stmt in MIGRATIONS[v]:
+                    conn.execute(stmt)
+            conn.execute("UPDATE schema_meta SET value=? WHERE key='version'", (str(SCHEMA_VERSION),))
+        except Exception:
+            conn.execute("ROLLBACK")
+            conn.close()
+            raise
+        conn.execute("COMMIT")
     elif current < SCHEMA_VERSION:
         conn.close()
         raise StateError(

@@ -158,6 +158,11 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
                                "(partly needs --est); the hint is the command with it."),
     "input.bad_merge": ("input", False, "--merge-with names no other finding question, or one that already absorbs "
                         "others."),
+    "input.bad_override": ("input", False, "--keep or --without names a change the audit question does not propose, "
+                           "or is given with an option or a question it does not apply to."),
+    "task.audit_entries": ("integrity", False, "An audit row does not answer every current agenda entry exactly once, "
+                           "or names an entry the agenda does not have."),
+    "task.unknown_link": ("integrity", False, "An audit row's link does not appear in the pack."),
     "input.unknown_forum": ("input", False, "--forum names no forum of the profile; details.forums lists them."),
     # --- M8 apply and seal ---
     "apply.stale_inputs": ("integrity", True, "A destination the plan touches changed since the plan was built; "

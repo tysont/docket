@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 FIELD_TYPES: tuple[str, ...] = ("str", "int", "bool", "enum", "date", "duration", "evidence", "item_ref")
 FieldTypeName = Literal["str", "int", "bool", "enum", "date", "duration", "evidence", "item_ref"]
 RESERVED_FIELDS = frozenset({"id", "source"})
-CORE_KIND_NAMES: tuple[str, ...] = ("assess", "extract", "review", "classify", "label", "recap")
+CORE_KIND_NAMES: tuple[str, ...] = ("assess", "extract", "review", "classify", "label", "recap", "audit")
 
 
 class Strict(BaseModel):
@@ -101,6 +101,19 @@ class RecapTasks(TaskBudget):
     max_covered: int = Field(8, ge=1, le=30)
 
 
+class AuditTasks(TaskBudget):
+    """``audit`` (TD §9.7) reads one forum's agenda beside its recent meetings, the person it is
+    with and the ledger items that concern them, and proposes what the agenda should hold.
+    ``agendas`` is the agenda destination it reads. A pack holds ``max_items`` forums (default 1)."""
+    max_items: int = Field(1, ge=1, le=20)
+    agendas: str | None = None
+    guidance: str | None = None
+    max_add: int = Field(3, ge=0, le=10)          # missing topics a row may propose
+    max_ledger: int = Field(20, ge=0, le=200)     # related ledger items per forum, most recent first
+    sections: int = Field(3, ge=0, le=10)         # the note's latest dated sections shown
+    section_chars: int = Field(1500, ge=100, le=20000)  # characters kept of each
+
+
 class ClassifyTasks(TaskBudget):
     """``classify`` gives each entry a class and a tier; ``classes`` replaces the core class set."""
     classes: dict[str, str] = {}
@@ -172,6 +185,7 @@ class TasksConfig(Strict):
     classify: ClassifyTasks = ClassifyTasks()
     label: LabelTasks = LabelTasks()
     recap: RecapTasks = RecapTasks()
+    audit: AuditTasks = AuditTasks()
     kinds: dict[str, TaskKindConfig] = {}
 
     @field_validator("kinds")

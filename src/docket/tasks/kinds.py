@@ -90,6 +90,7 @@ class FieldSpec:
     hi: int = 100
     echo: str | None = None                       # copied exactly from this pack item field
     rows: tuple["FieldSpec", ...] = ()            # rows: the sub-row fields
+    cap: int | None = None                        # rows, texts: most entries in the list
     example: Any = None
     extend: str = ""                              # where an unknown vocabulary value is modelled
 
@@ -160,6 +161,9 @@ class TaskKind:
     context_items: int = 12       # context messages per conversation in a pack
     context_chars: int = 300      # characters kept of each context message
     examples: tuple[tuple[str, str, str], ...] = ()   # (what the item was, the row as JSON, why)
+    # Rules a row must keep that need its pack item (core kinds only): an object with
+    # ``row_errors(item, row, base)``, ``example(item, row)`` and ``example_item(row)``.
+    check: Any = field(compare=False, repr=False, default=None)
 
     @property
     def input_schema(self) -> str:
@@ -299,6 +303,8 @@ def _coercer(spec: FieldSpec, kind: str) -> Any:
         return lambda cls, v: _coerce_str(spec, kind, v)
     if t == "evidence":
         return lambda cls, v: _coerce_evidence(v)
+    if t == "texts":
+        return lambda cls, v: [v] if isinstance(v, str) else v
     if t == "bool":
         return lambda cls, v: v.strip().lower() if isinstance(v, str) else v
     return None
@@ -358,6 +364,15 @@ def _annotation(spec: FieldSpec, kind: str, prefix: str) -> tuple[Any, dict[str,
     elif t == "rows":
         sub = _row_model(f"{prefix}{_camel(spec.name)}", kind, spec.rows, (), with_id=False)
         tp = list[sub]  # type: ignore[valid-type]
+        if spec.cap is not None:
+            kw["max_length"] = spec.cap
+    elif t == "texts":
+        from pydantic import StringConstraints
+        from typing import Annotated
+        tp = list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1,  # type: ignore[valid-type]
+                                                   max_length=spec.max_length or 200)]]
+        if spec.cap is not None:
+            kw["max_length"] = spec.cap
     else:  # pragma: no cover - the field type set is closed
         raise ValueError(f"unknown field type {t}")  # raise-ok: the field type set is closed (a programming error)
     if spec.echo:
@@ -470,6 +485,29 @@ For each meeting:
 - List what people agreed to do under `actions`.
 - Write notes, not sentences: the subject, then what was said or decided. Do not copy the record's wording at length, and never invent what the record does not show."""
 
+AUDIT_INSTRUCTIONS = """\
+You audit the agendas of {me.name}'s recurring meetings, the way a chief of staff would before each one. Each pack item is one forum: a meeting {me.name} holds again and again, usually with one person. It carries the forum and the person, what the workspace says about that person, the agenda as it stands (`fields.entries`, each entry with an id N1, N2, ...), the note's latest dated sections (what earlier meetings covered), the dates of the last and the next meeting when known, and the ledger items that concern this person or this forum, in every state, most recent first.
+
+A one-on-one is for what only these two people can settle:
+
+- decisions only the two of them can make;
+- risks the person carries;
+- people and team health;
+- commitments in both directions, and whether each was kept;
+- what {me.name} is watching that the person owns.
+
+A status check belongs in a message, not in the meeting: drop it and say so.
+
+For each forum:
+
+- Give every current entry a verdict, exactly once: `keep` it, `reword` it (give the new one-line wording in `text`), or `drop` it, with the reason in `why`. Drop what is done, stale, a status check, or better handled elsewhere.
+- Name at most the allowed number of missing topics under `add`, best first, each with why it belongs here, the words in the pack that show it (`evidence`, copied exactly) and, when one fits, a link that appears in the pack.
+- List the open commitments in both directions under `commitments`: `who` is `me` for {me.name}'s own and `them` for the person's; say whether each is `open`, `done` or `unknown` from the pack.
+- Say in `focus`, in one sentence, what the next meeting should be used for.
+- List under `unknown` what the pack could not tell you.
+
+Never invent a fact, a date, a link or a person. Say "guess" when you infer. Fewer is better: an agenda of three things that matter beats one of eight."""
+
 CLASSIFY_INSTRUCTIONS = """\
 You classify entries gathered for {me.name}, the operator. For each pack item choose the class that best describes it, and a tier from 1 (most important to the operator) to 9 when the entry suggests one.
 
@@ -495,7 +533,10 @@ def example_problems(kind: TaskKind, row: dict[str, Any]) -> list[str]:
         if isinstance(q, str) and q.strip():
             quotes.append(q)
     lines = [{"line": f"L{i}", "text": q} for i, q in enumerate(quotes, 1)] or [{"line": "L1", "text": "example"}]
-    pack = {"items": [{"id": "example", "source": "example", "lines": lines}]}
+    item: dict[str, Any] = {"id": "example", "source": "example", "lines": lines}
+    if kind.check is not None:
+        item = {**item, **kind.check.example_item(row)}
+    pack = {"items": [item]}
     text = "\n".join(ln["text"] for ln in lines)
     out: list[str] = []
     with collecting() as col:
@@ -624,6 +665,60 @@ def _recap(cfg: TasksConfig) -> TaskKind:
                     context_items=0, examples=_examples(r.examples))
 
 
+def _audit(cfg: TasksConfig) -> TaskKind:
+    from docket.tasks.audit_check import AuditCheck
+    a = cfg.audit
+    entry = (
+        FieldSpec("line", "str", "The id of the current agenda entry, such as N1, copied exactly.", required=True,
+                  max_length=8, example="N1"),
+        FieldSpec("verdict", "enum", "What the agenda should do with the entry.", required=True,
+                  values=(("keep", "It belongs on the next agenda as it is written."),
+                          ("reword", "It belongs there in other words; give them in text."),
+                          ("drop", "It does not belong there; say why.")),
+                  safe="keep", example="keep", extend="docket/tasks/kinds.py: audit verdicts"),
+        FieldSpec("text", "str", "For a reword: the new one-line wording of the entry, without a list marker.",
+                  max_length=200),
+        FieldSpec("why", "str", "One short sentence: why this verdict.", max_length=300,
+                  example="A decision only the two of them can make"),
+    )
+    add = (
+        FieldSpec("text", "str", "The topic to add, as one agenda line without a list marker.", required=True,
+                  max_length=200, example="Decide who owns the vendor review"),
+        FieldSpec("why", "str", "Why it belongs in this meeting, in one sentence.", required=True, max_length=300,
+                  example="It is a risk the person carries and nobody has decided"),
+        FieldSpec("link", "str", "A link that appears in the pack and leads to the topic; left out when none fits.",
+                  max_length=500),
+        FieldSpec("evidence", "str", "Words copied exactly from the pack that show the topic.", max_length=300),
+    )
+    commitment = (
+        FieldSpec("who", "enum", "Who owes it.", required=True,
+                  values=(("me", "The operator owes it to the person."), ("them", "The person owes it.")),
+                  example="them"),
+        FieldSpec("what", "str", "What is owed, in a short phrase.", required=True, max_length=200,
+                  example="Send the hiring plan"),
+        FieldSpec("status", "enum", "Whether the pack shows it was kept.", required=True,
+                  values=(("open", "Not done yet."), ("done", "The pack shows it was done."),
+                          ("unknown", "The pack does not say.")),
+                  safe="unknown", example="open", extend="docket/tasks/kinds.py: audit commitments"),
+        FieldSpec("since", "date", "When it was promised (YYYY-MM-DD), only when the pack says.", extend="tasks.audit"),
+    )
+    fields = (
+        FieldSpec("entries", "rows", "One verdict for every current agenda entry, each entry exactly once; empty "
+                                     "when the agenda has no entries.", required=True, rows=entry),
+        FieldSpec("add", "rows", f"Missing topics, best first; at most {a.max_add}. Empty when nothing is missing.",
+                  required=True, rows=add, cap=a.max_add),
+        FieldSpec("commitments", "rows", "Open commitments in both directions, with whether each was kept; empty "
+                                         "when there are none.", required=True, rows=commitment, cap=12),
+        FieldSpec("focus", "str", "One sentence: what the next meeting should be used for.", required=True,
+                  max_length=300, example="Settle the vendor decision and check on the team's load"),
+        FieldSpec("unknown", "texts", "What the audit could not tell from the pack, each in a short phrase.",
+                  max_length=200, cap=5),
+    )
+    return TaskKind("audit", "item", True, "Say what each forum's next agenda should hold.",
+                    AUDIT_INSTRUCTIONS, a.guidance, fields, (), a.max_items, a.max_bytes, "item",
+                    context_items=0, examples=_examples(a.examples), check=AuditCheck(a.max_add))
+
+
 def _extract(cfg: TasksConfig) -> TaskKind:
     e = cfg.extract
     entry = (
@@ -683,7 +778,7 @@ def _custom(name: str, kc: Any) -> TaskKind:
 def _registry(key: bytes) -> dict[str, TaskKind]:
     import json
     cfg = TasksConfig.model_validate(json.loads(key))
-    kinds = [_assess(cfg), _extract(cfg), _review(cfg), _classify(cfg), _label(cfg), _recap(cfg)]
+    kinds = [_assess(cfg), _extract(cfg), _review(cfg), _classify(cfg), _label(cfg), _recap(cfg), _audit(cfg)]
     kinds += [_custom(n, kc) for n, kc in sorted(cfg.kinds.items())]
     return {k.name: build_models(k) for k in kinds}
 

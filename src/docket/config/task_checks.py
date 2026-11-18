@@ -33,26 +33,28 @@ def check(loaded: Loaded) -> list[Issue]:
             out.append(_issue(loaded, "config.bad_template", f"{dotted(path)}: {err.message}{where}", path, 3,
                               suggestion=sugg))
 
-    for core in ("assess", "review", "extract", "classify", "label", "recap"):
+    for core in ("assess", "review", "extract", "classify", "label", "recap", "audit"):
         sect = tasks.get(core)
         if isinstance(sect, dict):
             tpl(("tasks", core, "guidance"), sect.get("guidance"))
-    assess = tasks.get("assess") if isinstance(tasks.get("assess"), dict) else {}
-    if isinstance(assess.get("examples"), list) and assess["examples"]:
+    for name in ("assess", "audit"):
+        sect = tasks.get(name) if isinstance(tasks.get(name), dict) else {}
+        if not (isinstance(sect.get("examples"), list) and sect["examples"]):
+            continue
         try:
             from docket.config.task_models import TasksConfig
             from docket.tasks.kinds import example_problems, registry
-            kind = registry(TasksConfig.model_validate(tasks))["assess"]
+            kind = registry(TasksConfig.model_validate(tasks))[name]
         except Exception:  # the structure pass reports a malformed tasks section
             kind = None
-        for i, ex in enumerate(assess["examples"]):
+        for i, ex in enumerate(sect["examples"]):
             if kind is None or not isinstance(ex, dict) or not isinstance(ex.get("row"), dict):
                 continue
             problems = example_problems(kind, ex["row"])
             if problems:
                 out.append(_issue(loaded, "config.bad_example",
-                                  f"tasks.assess.examples[{i}].row is a row the task would refuse: "
-                                  + "; ".join(problems[:3]), ("tasks", "assess", "examples", i, "row"), 3))
+                                  f"tasks.{name}.examples[{i}].row is a row the task would refuse: "
+                                  + "; ".join(problems[:3]), ("tasks", name, "examples", i, "row"), 3))
     kinds = tasks.get("kinds")
     if isinstance(kinds, dict):
         for name, kc in kinds.items():

@@ -62,7 +62,8 @@ def derive(run_id: str, at: str, *, kept: list[dict[str, Any]], decided: list[di
     """What a closing run says about its items.
 
     ``kept`` are the items the run put forward (``id``, ``topic``, ``title``, ``url``,
-    ``source``). ``decided`` are the decisions made, by topic: ``decision`` and, when it
+    ``source``, and when known the one-line ``ask``, the ``owner`` and ``sender`` as person
+    ids, and the ``forum`` the item would be raised at). ``decided`` are the decisions made, by topic: ``decision`` and, when it
     wrote to a destination, ``destination``, ``adapter``, ``op_id`` and where (``path``,
     ``anchor``, ``key``, and the ``line`` written); also ``due``, ``est``, ``area`` and ``note`` when known.
     """
@@ -75,6 +76,9 @@ def derive(run_id: str, at: str, *, kept: list[dict[str, Any]], decided: list[di
         d = by_topic.get(topic)
         row: dict[str, Any] = {"key": item_key(topic), "topic": topic, "source": it.get("source"),
                                "title": it.get("title"), "url": it.get("url"), "run": run_id, "at": at}
+        for k in FACTS:
+            if it.get(k) not in (None, ""):
+                row[k] = str(it[k])
         if d is not None:
             row["decision"] = d.get("decision")
             row["state"] = state_of(d.get("decision"), d.get("adapter"))
@@ -88,6 +92,15 @@ def derive(run_id: str, at: str, *, kept: list[dict[str, Any]], decided: list[di
                 row["placement"]["run"] = run_id
         out.append(row)
     return out
+
+
+# What the ledger keeps of an item as it was when written: its one-line ask, its owner and
+# sender (person ids, or the owner as the assessment named it), and the forum it routes to.
+FACTS = ("ask", "owner", "sender", "forum")
+COLUMNS = ("key", "topic", "source", "title", "url", "state", "state_at", "first_run", "first_at", "last_run", "due",
+           "est", "area", "placements", "history", *FACTS)
+_INSERT = (f"INSERT OR REPLACE INTO item_ledger ({', '.join(COLUMNS)}) "
+           f"VALUES ({','.join('?' for _ in COLUMNS)})")
 
 
 def write(db: sqlite3.Connection, derived: list[dict[str, Any]]) -> None:
@@ -109,15 +122,14 @@ def write(db: sqlite3.Connection, derived: list[dict[str, Any]]) -> None:
                 state, state_at = new_state, d["at"]
         if d.get("placement") and d["placement"] not in placements:
             placements.append(d["placement"])
-        db.execute(
-            "INSERT OR REPLACE INTO item_ledger (key, topic, source, title, url, state, state_at, first_run, first_at, "
-            "last_run, due, est, area, placements, history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (d["key"], d["topic"], d.get("source") or (old or {}).get("source"),
-             d.get("title") or (old or {}).get("title"), d.get("url") or (old or {}).get("url"), state, state_at,
-             old["first_run"] if old else d["run"], old["first_at"] if old else d["at"], d["run"],
-             d.get("due") or (old or {}).get("due"), d.get("est") if d.get("est") is not None else (old or {}).get("est"),
-             d.get("area") or (old or {}).get("area"),
-             json.dumps(placements, sort_keys=True), json.dumps(history, sort_keys=True)))
+        db.execute(_INSERT, (
+            d["key"], d["topic"], d.get("source") or (old or {}).get("source"),
+            d.get("title") or (old or {}).get("title"), d.get("url") or (old or {}).get("url"), state, state_at,
+            old["first_run"] if old else d["run"], old["first_at"] if old else d["at"], d["run"],
+            d.get("due") or (old or {}).get("due"), d.get("est") if d.get("est") is not None else (old or {}).get("est"),
+            d.get("area") or (old or {}).get("area"),
+            json.dumps(placements, sort_keys=True), json.dumps(history, sort_keys=True),
+            *(d.get(k) or (old or {}).get(k) for k in FACTS)))
 
 
 def import_rows(db: sqlite3.Connection, items: list[Any], *, run_id: str, at: str) -> dict[str, Any]:
@@ -191,7 +203,7 @@ def added(db: sqlite3.Connection, d: dict[str, Any], *, run_id: str, at: str, no
         placements.append(d["placement"])
     pick = lambda k: d.get(k) if d.get(k) not in (None, "") else (old or {}).get(k)   # noqa: E731
     return {"key": d["key"], "topic": d["topic"], "source": pick("source"), "title": pick("title"),
-            "url": pick("url"), "state": "backlog",
+            "url": pick("url"), "state": "backlog", **{k: pick(k) for k in FACTS},
             "state_at": old["state_at"] if old and old["state"] == "backlog" else at,
             "first_run": old["first_run"] if old else run_id, "first_at": old["first_at"] if old else at,
             "last_run": run_id, "due": pick("due"), "est": pick("est"), "area": pick("area"),
@@ -200,12 +212,11 @@ def added(db: sqlite3.Connection, d: dict[str, Any], *, run_id: str, at: str, no
 
 def put(db: sqlite3.Connection, row: dict[str, Any]) -> None:
     """Write one whole row, as ``added`` or ``get`` returns it (the caller holds the transaction)."""
-    db.execute(
-        "INSERT OR REPLACE INTO item_ledger (key, topic, source, title, url, state, state_at, first_run, first_at, "
-        "last_run, due, est, area, placements, history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (row["key"], row["topic"], row.get("source"), row.get("title"), row.get("url"), row["state"], row["state_at"],
-         row["first_run"], row["first_at"], row["last_run"], row.get("due"), row.get("est"), row.get("area"),
-         json.dumps(row.get("placements") or [], sort_keys=True), json.dumps(row.get("history") or [], sort_keys=True)))
+    db.execute(_INSERT, (
+        row["key"], row["topic"], row.get("source"), row.get("title"), row.get("url"), row["state"], row["state_at"],
+        row["first_run"], row["first_at"], row["last_run"], row.get("due"), row.get("est"), row.get("area"),
+        json.dumps(row.get("placements") or [], sort_keys=True), json.dumps(row.get("history") or [], sort_keys=True),
+        *(row.get(k) for k in FACTS)))
 
 
 def observe(db: sqlite3.Connection, seen: dict[str, dict[str, str] | None], *, run_id: str, at: str,
@@ -350,6 +361,72 @@ def cover(db: sqlite3.Connection, rolls: list[dict[str, Any]], *, run_id: str, a
             moves.append({"key": row["key"], "title": row["title"], "was": "raised", "state": "done", "note": note})
             break
     return moves
+
+
+def audited(db: sqlite3.Connection, edits: list[dict[str, Any]], *, run_id: str, at: str,
+            forums: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """Follow what an agenda audit wrote (the caller holds the transaction; TD §12.8).
+
+    ``edits`` are the agenda edits a run applied: ``verb`` (``append``, ``replace`` or
+    ``remove``), ``destination``, ``adapter``, ``op_id``, ``path``, ``anchor``, ``line``,
+    ``old_line`` and, for an addition that came from a ledger item, ``item_id`` (its key).
+    ``forums`` maps an agenda file to its forum. An added item is ``raised``, with the entry as a
+    placement. A dropped entry's raised item goes back to the state it had before it was raised,
+    or ``acknowledged`` when the history does not say. A reworded entry keeps its item, whose
+    placement follows the new line. Returns the items moved."""
+    forums = forums or {}
+    moves: list[dict[str, Any]] = []
+    for e in edits:
+        verb, path = e.get("verb"), e.get("path")
+        forum = forums.get(str(path))
+        where = f"{path}" + (f" ({forum})" if forum else "")
+        if verb == "append" and e.get("item_id"):
+            row = get(db, str(e["item_id"]))
+            if row is None:
+                continue
+            place = {k: e[k] for k in ("destination", "adapter", "op_id", "path", "anchor", "line") if e.get(k)}
+            place.update({"run": run_id, **({"forum": forum} if forum else {})})
+            placements = row["placements"] + ([place] if place not in row["placements"] else [])
+            history = row["history"] + [{"run": run_id, "at": at, "decision": "raised", "state": "raised",
+                                         "note": f"added to {where} by the agenda audit"}]
+            db.execute("UPDATE item_ledger SET state='raised', state_at=?, placements=?, history=? WHERE key=?",
+                       (at if row["state"] != "raised" else row["state_at"], json.dumps(placements, sort_keys=True),
+                        json.dumps(history, sort_keys=True), row["key"]))
+            moves.append({"key": row["key"], "title": row["title"], "was": row["state"], "state": "raised"})
+            continue
+        if verb not in ("remove", "replace"):
+            continue
+        old = str(e.get("old_line") or "").rstrip()
+        for row in rows(db, "raised"):
+            hits = [p for p in row["placements"] if p.get("path") == path and (
+                str(p.get("line") or "").rstrip() == old or (row.get("url") and row["url"] in old))]
+            if not hits:
+                continue
+            if verb == "replace":
+                for p in hits:
+                    p["line"] = e.get("line")
+                db.execute("UPDATE item_ledger SET placements=? WHERE key=?",
+                           (json.dumps(row["placements"], sort_keys=True), row["key"]))
+                continue
+            before = _before_raised(row["history"])
+            history = row["history"] + [{"run": run_id, "at": at, "decision": "dropped", "state": before,
+                                         "note": f"dropped from {where} by the agenda audit"}]
+            db.execute("UPDATE item_ledger SET state=?, state_at=?, history=? WHERE key=?",
+                       (before, at, json.dumps(history, sort_keys=True), row["key"]))
+            moves.append({"key": row["key"], "title": row["title"], "was": "raised", "state": before})
+    return moves
+
+
+def _before_raised(history: list[dict[str, Any]]) -> str:
+    """The state an item had before it was last raised; ``acknowledged`` when its history does not say."""
+    for i in range(len(history) - 1, -1, -1):
+        if history[i].get("state") == "raised" and (i == len(history) - 1 or history[i + 1].get("state") != "raised"):
+            for prev in reversed(history[:i]):
+                st = prev.get("state")
+                if st and st != "raised" and st in STATES:
+                    return st
+            return "acknowledged"
+    return "acknowledged"
 
 
 EDITABLE = ("state", "due", "est", "title", "area")

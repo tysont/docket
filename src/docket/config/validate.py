@@ -247,7 +247,7 @@ def pass_references(loaded: Loaded) -> list[Issue]:
         ref(t.get("forum"), forums, ("profile", "topics", i, "forum"), "forum")
 
     # graphs: what each node names must exist (the shape of a graph is checked with its structure)
-    task_kinds = ["assess", "review", "extract", "classify", "label", "recap",
+    task_kinds = ["assess", "review", "extract", "classify", "label", "recap", "audit",
                   *[k for k, _ in _items(_get(d, "tasks", "kinds"))]]
     for gname, nodes in _items(_get(d, "graphs")):
         for nname, node in _items(nodes):
@@ -259,7 +259,11 @@ def pass_references(loaded: Loaded) -> list[Issue]:
             ref(node.get("ask"), option_sets, base + ("ask",), "option set", ("default",))
             ref(node.get("to"), dests, base + ("to",), "destination")
             ref(_get(node, "questions", "covered", "to"), dests, base + ("questions", "covered", "to"), "destination")
+            ref(_get(node, "questions", "audit", "to"), dests, base + ("questions", "audit", "to"), "destination")
+            for j, fid in enumerate(_get(node, "audit", "forums") or []):
+                ref(fid, forums, base + ("audit", "forums", j), "forum")
     ref(_get(d, "tasks", "recap", "agendas"), dests, ("tasks", "recap", "agendas"), "destination")
+    ref(_get(d, "tasks", "audit", "agendas"), dests, ("tasks", "audit", "agendas"), "destination")
 
     ref(_get(d, "planning", "tasks", "destination"), dests, ("planning", "tasks", "destination"), "destination")
 
@@ -394,7 +398,8 @@ def pass_semantics(loaded: Loaded) -> list[Issue]:
                 for i, arg in enumerate(argv if isinstance(argv, list) else []):
                     _check_template(loaded, arg, contexts.RUN_COMMAND, ("graphs", gname, nname, key, i), out)
     # --- M5 decisions: reconcile, verify and covered label templates ---
-    for sect, site in (("reconcile", contexts.RECONCILE), ("verify", contexts.VERIFY), ("covered", contexts.COVERED)):
+    for sect, site in (("reconcile", contexts.RECONCILE), ("verify", contexts.VERIFY), ("covered", contexts.COVERED),
+                       ("audit", contexts.AUDIT)):
         for oid, tpl in _items(_get(d, "decisions", sect, "labels")):
             _check_template(loaded, tpl, site, ("decisions", sect, "labels", oid), out)
     out += conflict_issues(loaded)
@@ -459,6 +464,24 @@ def pass_capabilities(loaded: Loaded) -> list[Issue]:
                                   f"graph {gname!r}: node {nname}: {cto} is a {_get(dests[cto], 'adapter')} destination; "
                                   f"covered questions roll an agenda (markdown_agenda)",
                                   ("graphs", gname, nname, "questions", "covered", "to"), 4))
+            for path, did in ((("questions", "audit", "to"), _get(node, "questions", "audit", "to")),
+                              (("to",), node.get("to") if node.get("write") == "audit" else None)):
+                if isinstance(did, str) and did in dests and _get(dests[did], "adapter") != "markdown_agenda":
+                    out.append(_issue(loaded, "config.capability_missing",
+                                      f"graph {gname!r}: node {nname}: {did} is a {_get(dests[did], 'adapter')} "
+                                      f"destination; an agenda audit writes an agenda (markdown_agenda)",
+                                      ("graphs", gname, nname, *path), 4))
+            if node.get("judge") == "audit":
+                ag = _get(d, "tasks", "audit", "agendas")
+                if not isinstance(ag, str):
+                    out.append(_issue(loaded, "config.capability_missing",
+                                      f"graph {gname!r}: node {nname} audits agendas, but tasks.audit.agendas names "
+                                      f"no agenda destination to read", ("graphs", gname, nname, "judge"), 4))
+                elif ag in dests and _get(dests[ag], "adapter") != "markdown_agenda":
+                    out.append(_issue(loaded, "config.capability_missing",
+                                      f"tasks.audit.agendas {ag!r} is a {_get(dests[ag], 'adapter')} destination; "
+                                      f"an agenda audit reads an agenda (markdown_agenda)",
+                                      ("tasks", "audit", "agendas"), 4))
             to = node.get("to")
             if node.get("write") is not None and to in dests and _get(dests[to], "visibility", default="private") != "private":
                 out.append(_issue(loaded, "config.capability_missing",

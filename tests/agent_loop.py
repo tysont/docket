@@ -96,10 +96,13 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
               max_rounds: int = 200,
               choose: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
               stop_at: Callable[[dict[str, Any]], bool] | None = None,
-              repeat_commands: bool = False, full: bool = False) -> LoopResult:
+              repeat_commands: bool = False, full: bool = False,
+              results: Callable[[str, dict[str, Any], str], dict[str, Any] | None] | None = None) -> LoopResult:
     """Loop on ``docket next``, doing every ready step each round. ``stop_at`` sees each step
     (it has ``kind`` and ``node``) before it is done; with ``full`` the loop asks for ``docket
-    next --full`` (every option's command and the question details)."""
+    next --full`` (every option's command and the question details). ``results`` may write a
+    task's result itself (it sees the kind, the pack and the prompt); None falls back to the
+    synthetic result."""
     environ = dict(os.environ if env is None else env)
     workdir = str(cwd or workspace)
     res = LoopResult(final={})
@@ -129,7 +132,8 @@ def run_agent(workspace: Path, *, env: dict[str, str] | None = None, cwd: Path |
             for t in step["tasks"]:
                 pack = json.loads(Path(t["pack_path"]).read_text(encoding="utf-8"))
                 prompt = Path(t["prompt_path"]).read_text(encoding="utf-8")
-                result = synthetic_result(t["kind"], pack, prompt)
+                result = (results(t["kind"], pack, prompt) if results else None) \
+                    or synthetic_result(t["kind"], pack, prompt)
                 Path(t["result_path"]).write_text(json.dumps(result), encoding="utf-8")
                 call(t["submit"]["argv"])
         elif kind == "ask":

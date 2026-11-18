@@ -237,6 +237,11 @@ def _preview(s: Session, q: dict[str, Any], answer: dict[str, Any]) -> dict[str,
                 "covered": f"moves under {m['date']} in {m['path']} when the plan rolls the meeting",
                 "keep": f"stays in {m['path']} for the next meeting of {m['forum_name']}",
                 "drop": f"leaves {m['path']} without a record"}[answer["option"]]
+    elif q["kind"] == "audit":
+        row = s.subject(q["id"])
+        if row is not None:
+            from docket.decide.audit import effect
+            out["agenda_effect"] = effect(row, answer)
     elif q["kind"] in ("reconcile", "verify"):
         row = s.subject(q["id"])
         if row is not None:
@@ -263,6 +268,8 @@ def _normalize(rc: Any, ctx: Any, s: Session, qid: str, option_text: str, raw: d
         ov["merge_with"] = resolve_merge_targets(ov["merge_with"], q["id"], s.by_node.get(ev.name, {}), s.answers)
     base_argv = rc.argv("ask", "answer", q["id"], opt["id"])
     check_required(q, opt["id"], ov, base_argv)
+    from docket.decide.audit import check_overrides
+    check_overrides(q, opt["id"], ov)
     answer: dict[str, Any] = {"kind": q["kind"], "option": opt["id"], "action": opt.get("action"),
                               "destination": opt.get("destination"), "overrides": ov, "input": str(option_text)}
     if q.get("subject"):
@@ -406,6 +413,9 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
                Arg("--forum", "Forum for an agenda item: a profile forum id or name."),
                Arg("--merge-with", "Another finding question this answer absorbs into one action (repeatable).",
                    action="append"),
+               Arg("--keep", "Audit answer: entries to keep as they are that the audit drops or rewords "
+                             "(N2,N5; repeatable).", action="append"),
+               Arg("--without", "Audit answer: additions to leave out (A1; repeatable).", action="append"),
                Arg("--note", "Free-text note kept with the answer."),
                Arg("--digest", "Plan digest; required to approve."),
                Arg("--file", "Answer several questions from a JSON file (or - for stdin), all or nothing.")],
@@ -413,6 +423,7 @@ def _write(ctx: Any, rc: Any, s: Session, rows: list[dict[str, Any]], *, batch: 
          inputs={"--file": {"schema": "answers-file", "description": ANSWERS_FILE_FORMS,
                             "example": ANSWERS_FILE_EXAMPLE}},
          examples=["docket ask answer q_9a1c task --due monday --est 60 --merge-with q_77b2 --note 'after the review' --json",
+                   "docket ask answer u_5e01 accept --keep N2 --without A1 --json",
                    "docket ask answer q_41d0 block --when 'thu 13:00-17:00' --title 'Draft pricing memo' --json",
                    "docket ask answer r_dk_t_5f20 partly --est 30 --json",
                    "docket ask answer --file answers.json --json",
@@ -443,7 +454,7 @@ def cmd_ask_answer(ctx: Any, ns: Any) -> Result:
                          hint="docket ask list")
     raw = {"due": ns.due, "est": ns.est, "when": ns.when, "parts": ns.parts, "title": ns.title, "action": ns.action,
            "links": ns.link or None, "area": ns.area, "forum": ns.forum, "merge_with": ns.merge_with or None,
-           "note": ns.note}
+           "keep": ns.keep or None, "without": ns.without or None, "note": ns.note}
     row = _normalize(rc, ctx, s, ns.question_id, ns.option, {k: v for k, v in raw.items() if v is not None},
                      ns.digest)
     _record(s, row)

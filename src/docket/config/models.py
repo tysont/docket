@@ -74,6 +74,7 @@ class Person(Strict):
     handles: dict[str, str] = {}
     reports_to: str | None = None
     roles: list[str] = []
+    about: str | None = None        # free text: role, team, what the person owns (read by the audit task)
 
 
 class Group(Strict):
@@ -148,6 +149,8 @@ class Profile(Strict):
 # --- graphs (TD §5) -----------------------------------------------------------
 
 VERBS: tuple[str, ...] = ("read", "run", "judge", "merge", "ask", "plan", "approve", "apply", "write")
+# What a write node writes: the rolls of agendas after meetings, or the changes an agenda audit proposed.
+WRITE_ACTIONS: tuple[str, ...] = ("roll", "audit")
 # What a node hands on: items, the operator's decisions, labels, a plan, an approval, or nothing.
 OUTPUT: dict[str, str] = {"read": "items", "judge": "items", "merge": "items", "ask": "decisions", "plan": "plan",
                           "approve": "approval", "apply": "done", "write": "done", "run": "done"}
@@ -161,9 +164,18 @@ class CoveredQuestions(Strict):
     suffix: str = "no record of the meeting"
 
 
+class AuditQuestions(Strict):
+    """Where audit questions come from (TD §10.7): the ``judge: audit`` node whose proposals they
+    put to the operator, and the agenda destination the answers write."""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, serialize_by_alias=True)
+    from_: str = Field(alias="from")
+    to: str
+
+
 class Questions(Strict):
     kinds: list[str] = ["finding"]
     covered: CoveredQuestions | None = None
+    audit: AuditQuestions | None = None
     bursts: int = 1
     # How many findings are asked one by one, and how many recommended for a batch option.
     # None (null) means no limit.
@@ -192,7 +204,26 @@ class Questions(Strict):
                              "and the agenda destination (to)")
         if self.covered is not None and "covered" not in self.kinds:
             raise ValueError("questions.covered is read only when kinds lists covered")
+        if "audit" in self.kinds and self.audit is None:
+            raise ValueError("the audit kind needs questions.audit: the judge: audit node (from) and the agenda "
+                             "destination (to)")
+        if self.audit is not None and "audit" not in self.kinds:
+            raise ValueError("questions.audit is read only when kinds lists audit")
         return self
+
+
+class AuditSettings(Strict):
+    """Which forums a ``judge: audit`` node audits in a run (TD §9.7): those whose note a roll
+    wrote since the last sealed live run (``after_meeting``), those whose next meeting starts
+    within ``before_meeting`` of working time, and those named in ``forums``."""
+    after_meeting: bool = True
+    before_meeting: str | int | None = None
+    forums: list[str] = []
+
+    @field_validator("before_meeting")
+    @classmethod
+    def _duration(cls, v: Any) -> Any:
+        return _decision_duration(v)
 
 
 class ReadSchedule(Strict):
@@ -247,6 +278,8 @@ class Node(Strict):
     questions: Questions = Questions()
     # plan
     schedule_tasks: bool = False     # also place open tasks on the calendar (TD §12)
+    # judge: audit
+    audit: AuditSettings | None = None
     # write
     to: str | None = None            # the destination written
     # A meeting with no record: with no_record, assume its agenda was covered and roll it all
@@ -269,6 +302,12 @@ class Node(Strict):
             raise ValueError("write needs to: the destination it writes")
         if self.schedule is not None and v != "read":
             raise ValueError("schedule says how often a source is read; only a read node takes one")
+        if v == "write" and self.write not in WRITE_ACTIONS:
+            raise ValueError(f"unknown write action {self.write!r}; actions are {list(WRITE_ACTIONS)}")
+        if self.audit is not None and not (v == "judge" and self.judge == "audit"):
+            raise ValueError("audit says which forums an agenda audit reads; only a judge: audit node takes it")
+        if v == "write" and self.write != "roll" and (self.no_record is not None or self.trailer or self.commitments):
+            raise ValueError("no_record, trailer and commitments are settings of write: roll")
         return self
 
     @property
@@ -289,8 +328,16 @@ class Node(Strict):
     def needs(self) -> list[str]:
         """What the node waits for: its inputs, ``after``, and the read node its covered
         questions take their meetings from."""
-        covered = [self.questions.covered.meetings] if self.verb == "ask" and self.questions.covered else []
-        return list(dict.fromkeys([*self.inputs, *self.after, *covered]))
+        return list(dict.fromkeys([*self.inputs, *self.after, *self.question_sources]))
+
+    @property
+    def question_sources(self) -> list[str]:
+        """The nodes an ask node's questions read besides its inputs: the read node of covered
+        meetings and the judge node of audit proposals. Each hands it data."""
+        if self.verb != "ask":
+            return []
+        q = self.questions
+        return [x for x in ((q.covered.meetings if q.covered else None), (q.audit.from_ if q.audit else None)) if x]
 
 
 def graph_problems(nodes: dict[str, Node]) -> list[str]:
@@ -330,6 +377,8 @@ def graph_problems(nodes: dict[str, Node]) -> list[str]:
         for other in n.inputs:
             got = OUTPUT[nodes[other].verb]
             ok = want.get(v) or (("items", "decisions") if v == "judge" else ())
+            if v == "write" and n.write == "audit":
+                ok = ("decisions",)   # an audit write works on the operator's answers to audit questions
             if got not in ok:
                 out.append(f"node {nid} ({v}) cannot work on {other} ({nodes[other].verb}), which hands on "
                            f"{'nothing' if got == 'done' else got}")
@@ -341,6 +390,15 @@ def graph_problems(nodes: dict[str, Node]) -> list[str]:
         if cov is not None and nodes[cov.meetings].verb != "read":
             out.append(f"node {nid} (ask) reads the meetings of {cov.meetings} ({nodes[cov.meetings].verb}); "
                        f"questions.covered.meetings names a read node")
+        aud = n.questions.audit if v == "ask" else None
+        if aud is not None and not (nodes[aud.from_].verb == "judge" and nodes[aud.from_].judge == "audit"):
+            out.append(f"node {nid} (ask) reads the audit proposals of {aud.from_} ({nodes[aud.from_].verb}); "
+                       f"questions.audit.from names a judge: audit node")
+        if v == "write" and n.write == "audit":
+            asks = [o for o in n.inputs if nodes[o].verb == "ask"]
+            if any(nodes[o].questions.audit is None for o in asks):
+                out.append(f"node {nid} (write: audit) works on the answers of an ask node that lists the audit "
+                           f"kind (questions.audit)")
     return out
 
 
@@ -411,7 +469,7 @@ class OptionConfig(Strict):
 
 
 # --- M5 decisions (TD §10) ---
-QUESTION_KINDS = ("reconcile", "covered", "finding", "verify")
+QUESTION_KINDS = ("reconcile", "covered", "finding", "verify", "audit")
 
 
 def _decision_duration(v: Any) -> Any:
@@ -428,6 +486,7 @@ def _decision_duration(v: Any) -> Any:
 RECONCILE_OPTIONS = ("done", "partly", "not_done", "rescope", "to_agenda", "drop")
 VERIFY_OPTIONS = ("close", "keep", "update")
 COVERED_OPTIONS = ("covered", "keep", "drop")
+AUDIT_OPTIONS = ("accept", "additions", "skip")
 
 
 class ReconcileConfig(Strict):
@@ -489,6 +548,19 @@ class CoveredConfig(Strict):
         return v
 
 
+class AuditDecisions(Strict):
+    """Audit questions (TD §10.7): option kinds are fixed, labels are templates."""
+    labels: dict[str, str] = {}
+
+    @field_validator("labels")
+    @classmethod
+    def _known(cls, v: dict[str, str]) -> dict[str, str]:
+        bad = sorted(set(v) - set(AUDIT_OPTIONS))
+        if bad:
+            raise ValueError(f"unknown audit option(s) {bad}; options are {list(AUDIT_OPTIONS)}")
+        return v
+
+
 class DecisionDefaults(Strict):
     """Derived option defaults (TD §10.2). Unset values fall back to the planning policy."""
     lead_days: int | None = Field(None, ge=0)
@@ -513,8 +585,10 @@ class Decisions(Strict):
     reconcile: ReconcileConfig = ReconcileConfig()
     verify: VerifyConfig = VerifyConfig()
     covered: CoveredConfig = CoveredConfig()
+    audit: AuditDecisions = AuditDecisions()
     defaults: DecisionDefaults = DecisionDefaults()
-    order: list[Literal["reconcile", "covered", "finding", "verify"]] = ["reconcile", "covered", "finding", "verify"]
+    order: list[Literal["reconcile", "covered", "finding", "verify", "audit"]] = [
+        "reconcile", "covered", "finding", "verify", "audit"]
 
 
 class GrammarConfig(Strict):

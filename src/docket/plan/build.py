@@ -121,6 +121,12 @@ def _provider(rc: "RunContext", tz: ZoneInfo) -> Any:
                             key_property=c.key_property, owner=owner, strip=marker.strip)
 
 
+def calendar_provider(rc: "RunContext", tz: ZoneInfo) -> Any:
+    """The planning calendar (``planning.calendar``), as the planner reads it; None without one.
+    The agenda audit reads the next meeting of a forum from it (TD §9.7)."""
+    return _provider(rc, tz) if rc.ws.config.planning.calendar is not None else None
+
+
 def read_ledger(rc: "RunContext") -> dict[str, str]:
     import json
     state: dict[str, str] = {}

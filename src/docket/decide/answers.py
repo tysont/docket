@@ -12,7 +12,7 @@ A stored answer::
     {"kind": "finding", "option": "task", "action": "task.add", "destination": "backlog",
      "overrides": {"due": "2026-10-19", "est": 60, "when": "event:...", "title": "...",
                    "action": "...", "links": ["..."], "area": "...", "forum": "<forum id>",
-                   "merge_with": ["q_..."], "note": "..."},
+                   "merge_with": ["q_..."], "keep": ["N2"], "without": ["A1"], "note": "..."},
      "input": "<the operator's words for the option>", "subject": "<subject digest>",
      "previous": {...}}                  # the unbound answer this one replaced, when any
 
@@ -33,7 +33,8 @@ from docket.cli.errors import InputError
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
 
-OVERRIDES = ("due", "est", "when", "parts", "title", "action", "links", "area", "forum", "merge_with", "note")
+OVERRIDES = ("due", "est", "when", "parts", "title", "action", "links", "area", "forum", "merge_with", "keep",
+             "without", "note")
 MERGED = "merged"
 
 
@@ -67,6 +68,8 @@ class AnswerRow(BaseModel):
     area: str | None = None
     forum: str | None = None
     merge_with: list[str] | str | None = None
+    keep: list[str] | str | None = None
+    without: list[str] | str | None = None
     note: str | None = None
     digest: str | None = None
 
@@ -173,6 +176,12 @@ def normalize_overrides(rc: "RunContext", raw: dict[str, Any], ref: date) -> dic
     merge = [str(x).strip() for x in (mw if isinstance(mw, list) else [mw] if mw not in (None, "") else [])]
     if merge:
         out["merge_with"] = list(dict.fromkeys(m for m in merge if m))
+    from docket.decide.audit import parse_ids
+    for k, prefix in (("keep", "N"), ("without", "A")):   # an audit answer's changes left out (TD §10.7)
+        if raw.get(k) not in (None, "", []):
+            ids = parse_ids(raw[k], prefix, "--" + k)
+            if ids:
+                out[k] = ids
     return out
 
 
@@ -191,6 +200,8 @@ def command_args(overrides: dict[str, Any]) -> list[str]:
         elif k == "merge_with":
             for x in v:
                 out += ["--merge-with", x]
+        elif k in ("keep", "without"):
+            out += [flag, ",".join(v)]
         elif k == "est":
             out += [flag, format_duration(v)]
         else:

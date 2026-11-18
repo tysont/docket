@@ -90,6 +90,8 @@ def _destinations_of(ws: Any, nodes: dict[str, Any]) -> set[str]:
                     add(o.action, o.destination)
             if ask.questions.covered is not None:   # covered answers roll this agenda
                 out.add(ask.questions.covered.to)
+            if ask.questions.audit is not None:     # audit answers edit this agenda
+                out.add(ask.questions.audit.to)
             if {"reconcile", "verify"} & set(ask.questions.kinds):
                 pt = cfg.planning.tasks.destination
                 out.add(pt) if pt else add("task.add", None)
@@ -245,7 +247,7 @@ class Doctor:
 
     # --- 2. state root and database ----------------------------------------------------
     def check_state(self) -> None:
-        from docket.store.db import SCHEMA_VERSION
+        from docket.store.db import MIGRATIONS, SCHEMA_VERSION
         from docket.store.paths import state_root
         try:
             root = state_root(self.root, self.env)
@@ -280,6 +282,9 @@ class Doctor:
             self.add("state.db", "state", str(db), "fail",
                      f"schema {ver} is newer than this Docket understands ({SCHEMA_VERSION})",
                      f"upgrade Docket to a version that supports database schema {ver}")
+        elif ver < SCHEMA_VERSION and all(v in MIGRATIONS for v in range(ver, SCHEMA_VERSION)):
+            self.add("state.db", "state", str(db), "ok",
+                     f"schema {ver}; migrated in place to {SCHEMA_VERSION} on first use")
         elif ver < SCHEMA_VERSION:
             self.add("state.db", "state", str(db), "fail",
                      f"schema {ver} is older than this Docket's ({SCHEMA_VERSION}); the state must be migrated",

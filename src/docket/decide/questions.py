@@ -14,7 +14,9 @@ the verification results into the ordered questions of the burst:
   record (``c_`` + a digest of forum, date and entry), when the kinds list ``covered``
   (``docket.decide.covered``);
 - ``verify``: one per open task that looks done (``v_`` + task key), when the
-  kinds list ``verify``.
+  kinds list ``verify``;
+- ``audit``: one per forum whose agenda audit proposes a change (``u_`` + a digest of the
+  forum and what the audit read), when the kinds list ``audit`` (``docket.decide.audit``).
 
 Kinds are ordered by ``decisions.order`` (reference: reconcile, covered, then
 findings by score, then verify). A question::
@@ -35,7 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from docket.config.defaults import DEFAULT_OPTION_SET
 from docket.config.digest import digest
-from docket.decide import covered, reconcile, verify
+from docket.decide import audit, covered, reconcile, verify
 from docket.decide.options import Acceptor, finding_options, item_view, recommended_option
 from docket.shapes.unexpected import unexpected
 from docket.text import templates
@@ -57,6 +59,7 @@ class QuestionSet:
     reconcile: list[dict[str, Any]] = field(default_factory=list)
     covered: list[dict[str, Any]] = field(default_factory=list)
     verify: list[dict[str, Any]] = field(default_factory=list)
+    audit: list[dict[str, Any]] = field(default_factory=list)
     not_asked: list[dict[str, Any]] = field(default_factory=list)
     pending_refs: list[str] = field(default_factory=list)
 
@@ -68,7 +71,7 @@ class QuestionSet:
         out: dict[str, dict[str, Any]] = {}
         for f in self.findings:
             out[f["question_id"]] = f["item"]
-        for r in self.reconcile + self.covered + self.verify:
+        for r in self.reconcile + self.covered + self.verify + self.audit:
             out[r["question_id"]] = r
         return out
 
@@ -321,7 +324,8 @@ def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionS
     qs.pending_refs = verify.pending(rc, tg)
     acceptor = Acceptor(rc)
     try:
-        by_kind: dict[str, list[dict[str, Any]]] = {"finding": [], "reconcile": [], "covered": [], "verify": []}
+        by_kind: dict[str, list[dict[str, Any]]] = {"finding": [], "reconcile": [], "covered": [], "verify": [],
+                                                    "audit": []}
         if "finding" in kinds:
             notes = verify.item_notes(rc, tg) if not qs.pending_refs else {}
             by_kind["finding"], overflow, qs.findings, qs.not_asked = _findings(rc, items, acceptor, notes, node)
@@ -335,6 +339,11 @@ def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionS
                 q = covered.question(rc, row)
                 qs.covered.append({"question_id": q["id"], **row})
                 by_kind["covered"].append(q)
+        if "audit" in kinds:
+            for row in audit.candidates(rc, node):
+                q = audit.question(rc, row)
+                qs.audit.append({"question_id": q["id"], **row})
+                by_kind["audit"].append(q)
         if "verify" in kinds and not qs.pending_refs:
             for row in verify.rows(rc, tg):
                 q = verify.question(rc, row)
@@ -342,7 +351,8 @@ def build(rc: "RunContext", items: list[dict[str, Any]], node: Any) -> QuestionS
                 by_kind["verify"].append(q)
     finally:
         acceptor.close()
-    order = list(dict.fromkeys(list(rc.ws.config.decisions.order) + ["reconcile", "covered", "finding", "verify"]))
+    order = list(dict.fromkeys(list(rc.ws.config.decisions.order)
+                               + ["reconcile", "covered", "finding", "verify", "audit"]))
     for k in order:
         qs.questions += by_kind.get(k, [])
     qs.questions += overflow  # past a budget: after every other question, so a driver shows them as one list

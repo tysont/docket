@@ -350,6 +350,8 @@ class JudgeNode(BaseNode):
             return ("profile", "tasks", "planning", "destinations")
         if kind.name == "recap":
             return ("profile", "signals", "tasks", "destinations")
+        if kind.name == "audit":
+            return ("profile", "tasks", "destinations", "planning")
         return ("profile", "signals", "tasks")
 
     @property
@@ -370,6 +372,9 @@ class JudgeNode(BaseNode):
         items = list(data.get("items") or [])
         if kind.family == "review":
             return [it for it in items if it.get("keep")]
+        if kind.name == "audit":
+            from docket.plan.agenda_audit import candidates
+            return candidates(run, self.name, items)
         from docket.signals.node import assess_selection
         cands = assess_selection(run, items).candidates
         if kind.name == "recap":
@@ -377,7 +382,8 @@ class JudgeNode(BaseNode):
             cands = with_agendas(run, cands)
         return cands
 
-    def combine(self, run: "RunContext", up: Eval | None, plan: Any) -> dict[str, Any]:
+    def combine(self, run: "RunContext", up: Eval | None, plan: Any,
+                cands: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         from docket.tasks import runner
         kind = self.kind(run)
         data = (up.output if up is not None else None) or {}
@@ -385,6 +391,9 @@ class JudgeNode(BaseNode):
             rows = runner.rows(plan)
             return {"labels": {tid: str(row.get("label") or "") for tid, (_, row) in sorted(rows.items())},
                     "open": sorted(tid for tid, (_, row) in rows.items() if row.get("open") is True)}
+        if kind.name == "audit":
+            from docket.plan.agenda_audit import combine
+            return combine(run, plan, cands or [])
         items = list(data.get("items") or [])
         rest = {k: v for k, v in data.items() if k != "items"}
         if kind.family == "review":
@@ -397,10 +406,11 @@ class JudgeNode(BaseNode):
         from docket.tasks.runner import plan_node
         inputs = self.up_input(up)
         dg, cfg = self.node_digest(run, inputs)
-        plan = plan_node(run, self.name, self.kind(run), self.candidates(run, up))
+        cands = self.candidates(run, up)
+        plan = plan_node(run, self.name, self.kind(run), cands)
         extra = {"packs": plan.packs, "issued": plan.issued, "accepted": set(plan.results), "plan": plan}
         if plan.complete:
-            out = self.combine(run, up, plan)
+            out = self.combine(run, up, plan, cands)
             return Eval(self.name, self.verb, "current", dg, None, out, digest(out), cfg, inputs, extra, self.how)
         return Eval(self.name, self.verb, "waiting", dg, "tasks", None, None, cfg, inputs, extra, self.how)
 
@@ -479,6 +489,8 @@ class AskNode(BaseNode):
             }
             if "covered" in self.cfg.questions.kinds:
                 out["covered"] = qs.covered
+            if "audit" in self.cfg.questions.kinds:
+                out["audit"] = qs.audit
             return Eval(self.name, self.verb, "current", dg, None, out, digest(out), cfg, inputs, extra, self.how)
         return Eval(self.name, self.verb, "waiting", dg, "answers", None, None, cfg, inputs, extra, self.how)
 
@@ -528,7 +540,7 @@ def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why:
         details = {k: v for k, v in q.items() if k in ("item_id", "digest", "diff_path", "operations", "counts",
                                                         "block_key", "task_id", "evidence", "refused", "notes",
                                                         "previous", "requires", "defaults", "recommended", "batch_block",
-                                                        "meeting", "overflow", "passed", *CARD_DETAILS)
+                                                        "meeting", "overflow", "passed", "audit", *CARD_DETAILS)
                    and v not in (None, [], {}, "")}
         batch = [o["id"] for o in q["options"] if o.get("batch")]
         if batch:
@@ -546,7 +558,7 @@ def ask_step(run: "RunContext", node: str, questions: list[dict[str, Any]], why:
 # --- plan --------------------------------------------------------------------
 
 EMPTY_DECISIONS: dict[str, Any] = {"questions": [], "answers": {}, "findings": [], "reconcile": [], "verify": [],
-                                   "covered": [], "not_asked": [], "merged": {}}
+                                   "covered": [], "audit": [], "not_asked": [], "merged": {}}
 
 
 class PlanNode(BaseNode):
@@ -618,6 +630,8 @@ def op_line(o: dict[str, Any]) -> str:
         return f"- {o['destination']}: {describe(o)}"
     if o.get("verb") == "replace":
         return f"- {o['destination']} ({o['path']} under {o['anchor']}): change `{o.get('old_line', '')}` to `{o['line']}`"
+    if o.get("verb") == "remove":
+        return f"- {o['destination']} ({o['path']} under {o['anchor']}): drop `{o.get('old_line', '')}`"
     if o.get("verb") == "roll":
         dropped = f", {len(o['drop'])} dropped" if o.get("drop") else ""
         if not o.get("title"):
@@ -731,7 +745,7 @@ def incomplete(rows: list[dict[str, Any]], ops: list[dict[str, Any]]) -> list[di
         if r.get("outcome") == "blocked":
             err = {"code": None, "message": "waits on " + ", ".join(r.get("blocked_by") or []), "retryable": True}
         out.append({"op_id": r.get("op_id"), "destination": r.get("destination"), "verb": op.get("verb"),
-                    "what": op.get("title") or op.get("line") or op.get("subject") or "", "outcome": r.get("outcome"),
+                    "what": op.get("title") or op.get("line") or op.get("subject") or op.get("old_line") or "", "outcome": r.get("outcome"),
                     "code": err.get("code"), "message": err.get("message") or "",
                     "retryable": bool(err.get("retryable"))})
     return out
@@ -838,9 +852,11 @@ class WriteNode(BaseNode):
         return _partial_step(run, self.name, ev) if ev.reason == "apply_partial" else super().step(run)
 
     def execute(self, run: "RunContext", ev: Eval, up: Eval | None) -> dict[str, Any]:
+        assert self.cfg is not None and up is not None
+        if self.cfg.write == "audit":
+            return self.execute_audit(run, ev, up)
         from docket.apply import boundary, executor
         from docket.plan import agenda_roll
-        assert self.cfg is not None and up is not None
         items = list((up.output or {}).get("items") or [])
         meetings = agenda_roll.meetings_of(run, items)
         ops = agenda_roll.operations(run, self.cfg, meetings)
@@ -862,6 +878,36 @@ class WriteNode(BaseNode):
             path = Path(self.cfg.commitments).expanduser()
             data["commitments"] = agenda_roll.append_commitments(path if path.is_absolute() else run.ws.root / path,
                                                                  promised)
+        return data
+
+
+    def execute_audit(self, run: "RunContext", ev: Eval, up: Eval) -> dict[str, Any]:
+        """``write: audit``: the operator's answers to audit questions become edits of the agenda
+        destination (TD §12.8). An edit whose entry changed since the proposal is refused, and
+        the node holds like any writing node whose operations did not all complete."""
+        from docket.apply import boundary, executor
+        from docket.plan import agenda_audit
+        assert self.cfg is not None and self.cfg.to is not None
+        built = agenda_audit.write_operations(run, self.cfg.to, {**EMPTY_DECISIONS, **(up.output or {})})
+        ops, refused = built["operations"], built["refused"]
+        plan = {"inputs": {"decisions": up.output_digest, "config_digest": ev.config_digest}, "operations": ops,
+                "refused": refused, "left_out": built["left_out"]}
+        pd = digest(plan)
+        pdir = run.run.paths.plan(pd)
+        write_atomic(pdir / "plan.json", pretty_json(plan))
+        diff = [f"# Plan {pd[:12]}", ""] + [op_line(o) for o in ops] + ([] if ops or refused else ["- No operations."])
+        diff += [f"- refused: {r.get('verb')} `{r.get('old_line') or r.get('line') or ''}`: "
+                 f"{(r.get('error') or {}).get('message', '')}" for r in refused]
+        diff += [f"- left out: {x['id']} `{x['text']}` ({x['reason']})" for x in built["left_out"]]
+        write_atomic(pdir / "diff.md", "\n".join(diff) + "\n")
+        boundary.pin(run, self.name, pd)
+        rows = executor.execute(run, ops)
+        rows += [{"op_id": r["op_id"], "destination": r["destination"], "outcome": "refused",
+                  "verify_status": "unverified", "error": r["error"]} for r in refused]
+        every = ops + [{k: v for k, v in r.items() if k != "error"} for r in refused]
+        data = {"plan_digest": pd, "sandbox": run.run.header.sandbox, "operations": ops, "receipts": rows,
+                "incomplete": incomplete(rows, every), "left_out": built["left_out"], "commitments": 0}
+        _failed(run, self, ev, data, rows)
         return data
 
 

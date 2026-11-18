@@ -12,7 +12,8 @@ Decisions:
 - ``watch``: suppressed until the topic shows activity newer than the run;
 - ``routed``: written to a destination by operation ``op_id``; re-surfaces on new activity;
 - ``now``: handled during the session, with the recorded ``outcome``; re-surfaces on new activity;
-- ``keep``: a covered question answered "not covered" (TD §10.4), keyed by the question id.
+- ``keep``: a covered question answered "not covered" (TD §10.4), keyed by the question id;
+- ``skip``: an audit question answered so that nothing changes (TD §10.7), keyed by the question id.
 
 Sources, in order: the plan's ``outcomes`` list (question, item, topic,
 decision, note, until) when the plan carries one; otherwise the ask node's
@@ -28,7 +29,9 @@ from typing import Any
 # ack: acknowledged, nothing owed; like watch it holds only until something new happens.
 # keep: an agenda entry a meeting with no record did not cover (TD §10.4), keyed by its
 # question id; that meeting does not ask about it again. Merge reads no item by that key.
-DECISIONS = ("done", "routed", "watch", "ack", "dismiss", "now", "keep")
+# skip: an agenda audit's proposal the operator declined (TD §10.7), keyed by its question id; the
+# same proposal is not asked again. Merge reads no item by that key either.
+DECISIONS = ("done", "routed", "watch", "ack", "dismiss", "now", "keep", "skip")
 OUTCOME_ACTIONS = ("done", "watch", "ack", "dismiss", "now")
 
 

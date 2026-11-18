@@ -26,6 +26,9 @@ VERIFY = FieldSet(_VERIFY)
 # Covered questions (TD §10.4): a meeting with no record, its forum and one agenda entry.
 COVERED = FieldSet(["forum.id", "forum.name", "meeting.id", "meeting.date", "meeting.title", "entry.text",
                     "entry.line"])
+# Audit questions (TD §10.7): one forum's agenda and the changes its audit proposes.
+AUDIT = FieldSet(["forum.id", "forum.name", "person.id", "person.name", "changes", "counts.reword", "counts.drop",
+                  "counts.add"])
 MERGE_TITLE = FieldSet(["title", "titles[]", "count"])
 # A run node's argv (``run`` and ``dry_run``) sees run facts only (``docket.engine.nodes.RunNode``).
 RUN_COMMAND = FieldSet(["run.id", "run.date", "run.graph", "run.dir", "run.sandbox", "node", "workspace"])
@@ -84,5 +87,6 @@ DECISION_TEMPLATE_SITES: dict[str, FieldSet] = {
     "reconcile_batch_prompt": RECONCILE,
     "verify_prompt": VERIFY,
     "covered_prompt": COVERED,
+    "audit_prompt": AUDIT,
     "merge_title": MERGE_TITLE,
 }

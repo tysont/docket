@@ -366,6 +366,8 @@ def cmd_graph_show(ctx: Any, ns: Any) -> Result:
             "description": n.description, "column": p.column, "row": p.row}
         if n.verb == "ask" and n.questions.covered is not None:
             row["meetings"] = n.questions.covered.meetings
+        if n.verb == "ask" and n.questions.audit is not None:
+            row["audits"] = n.questions.audit.from_
         if states is not None:
             row.update(states[p.name])
         rows.append(row)

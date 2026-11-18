@@ -24,12 +24,13 @@ from docket.config.digest import digest
 # Action kinds a destination may accept (FR-ACT-01). Config options name the first of each family.
 ACTION_KINDS = (
     "task.add", "task.update", "task.close", "task.carry",
-    "agenda.add", "agenda.roll",
+    "agenda.add", "agenda.roll", "agenda.edit",
     "calendar.place", "calendar.move", "calendar.update", "calendar.release", "calendar.rekey",
     "message.draft",
     "journal.write",
 )
-VERBS = ("append", "replace", "create", "move", "update", "delete", "rekey", "draft", "write_section", "roll")
+VERBS = ("append", "replace", "create", "move", "update", "delete", "rekey", "draft", "write_section", "roll",
+         "remove")
 PROVENANCE = ("question_id", "item_id", "depends_on")
 
 

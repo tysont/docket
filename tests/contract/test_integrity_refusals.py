@@ -173,6 +173,33 @@ def case_evidence_unknown_line(**_: Any) -> Refused:
                                row(items[1])]))
 
 
+def _audit_submission() -> tuple[dict[str, Any], Callable[[dict[str, Any]], Any]]:
+    """One audit pack: a forum whose agenda has two entries and whose note carries one link."""
+    from docket.tasks import submit
+    from docket.tasks.kinds import registry
+    kind = registry()["audit"]
+    item = {"id": "forum:f1", "source": "audit", "title": "Forum one", "lines": [{"line": "L1", "text": "Forum one"}],
+            "fields": {"entries": [{"line": "N1", "text": "- First topic"}, {"line": "N2", "text": "- Second topic"}],
+                       "sections": [{"date": "2026-10-01", "text": "- See https://docs.example.org/a"}]}}
+    pack = {"items": [item]}
+
+    def run(row: dict[str, Any]) -> Any:
+        body = {"id": "forum:f1", "add": [], "commitments": [], "focus": "Settle the first topic", **row}
+        return submit.validate(kind, pack, {"items": [body]}, raw_text=lambda _i: None, rerun=RERUN)
+    return item, run
+
+
+def case_audit_entries(**_: Any) -> Refused:
+    _, run = _audit_submission()
+    return expect(lambda: run({"entries": [{"line": "N1", "verdict": "keep"}]}))
+
+
+def case_unknown_link(**_: Any) -> Refused:
+    _, run = _audit_submission()
+    return expect(lambda: run({"entries": [{"line": "N1", "verdict": "keep"}, {"line": "N2", "verdict": "keep"}],
+                               "add": [{"text": "A topic", "why": "It matters", "link": "https://docs.example.org/b"}]}))
+
+
 def case_identity_mismatch(**_: Any) -> Refused:
     items, row, run = _submission()
     return expect(lambda: run([row(items[0], source="pager"), row(items[1])]))
@@ -286,6 +313,8 @@ CASES: dict[str, tuple[Callable[..., Refused], str | None]] = {
     "task.unknown_ref": (case_unknown_ref, "task.unknown_ref"),
     "task.evidence_not_verbatim": (case_evidence_not_verbatim, "task.evidence_not_verbatim"),
     "task.evidence_unknown_line": (case_evidence_unknown_line, "task.evidence_unknown_line"),
+    "task.audit_entries": (case_audit_entries, "task.audit_entries"),
+    "task.unknown_link": (case_unknown_link, "task.unknown_link"),
     "cursor.regression": (case_cursor_regression, None),
 }
 

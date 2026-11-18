@@ -74,7 +74,7 @@ def durable_texts(rc: Any, decide: dict[str, Any] | None = None) -> dict[str, st
 def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any]],
                  dispositions: list[Any]) -> list[dict[str, Any]]:
     """The run's rows for the item ledger: every item merge kept, with the decision made on it."""
-    kept = [it for it in rc.output("merge").get("items") or [] if it.get("status") == "kept"]
+    kept = [{**it, **item_facts(rc, it)} for it in rc.output("merge").get("items") or [] if it.get("status") == "kept"]
     decide = decide or {}
     by_topic_q = {str(f["item"].get("topic") or f["item"].get("id")): f["question_id"]
                   for f in decide.get("findings") or []}
@@ -101,6 +101,38 @@ def _ledger_rows(rc: Any, decide: dict[str, Any] | None, ops: list[dict[str, Any
     return item_ledger.derive(rc.run.id, rc.run.header.clock.instant, kept=kept, decided=decided)
 
 
+def item_facts(rc: Any, it: dict[str, Any]) -> dict[str, Any]:
+    """What the item ledger keeps of an item as it is written (TD §13.8): the assessment's one-line
+    ask, its owner and sender as person ids (the owner as named when it is no person), and the
+    forum it would be raised at. The agenda audit finds a forum's items by them."""
+    from docket.decide.options import forum_for, person_id
+    prof = rc.ws.config.profile
+    a = it.get("assessment") if isinstance(it.get("assessment"), dict) else {}
+    owner = a.get("owner")
+    sender = (it.get("sender") or {}).get("person") if isinstance(it.get("sender"), dict) else None
+    forum = forum_for(rc, it)
+    return {"ask": a.get("ask"), "owner": person_id(prof, owner) or (str(owner) if owner else None),
+            "sender": sender, "forum": (forum or {}).get("id")}
+
+
+def audit_edits(rc: Any, ops: list[dict[str, Any]], recs: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The agenda edits ``write: audit`` nodes applied in this run, as the item ledger follows them."""
+    names = {n for n in rc.by_verb("write") if rc.graph[n].write == "audit"}
+    ids = {o.get("op_id") for n in names for o in ((rc.eval(n).output or {}).get("operations") or [])}
+    out = []
+    for o in ops:
+        if o.get("op_id") not in ids or (recs.get(o.get("op_id", "")) or {}).get("outcome") != "applied":
+            continue
+        cfg = rc.ws.config.destinations.get(o.get("destination"))
+        out.append({**o, "adapter": cfg.adapter if cfg is not None else None})
+    return out
+
+
+def agenda_forums(rc: Any) -> dict[str, str]:
+    """Agenda file -> forum id."""
+    return {str(f.agenda["path"]): f.id for f in rc.ws.config.profile.forums if (f.agenda or {}).get("path")}
+
+
 def destination_for(rc: Any) -> str | None:
     name = rc.ws.config.journal.destination
     if name and name in rc.ws.config.destinations and rc.ws.config.destinations[name].adapter == "journal":
@@ -116,6 +148,9 @@ def state_step(rc: Any) -> dict[str, Any]:
         return prior
     decide, outcomes, ops, recs = _decided(rc)
     rows = disp_mod.derive(r.id, decide, outcomes, ops, recs)
+    from docket.decide.audit import dispositions as audit_dispositions
+    have = {d.topic_id for d in rows}
+    rows += [d for d in audit_dispositions(r.id, decide) if d.topic_id not in have]
     specs = rc.ws.config.journal.ledgers
     ctx = journal_mod.build_context(rc, dispositions=[d.row() for d in rows])
     entries = ledgers.compute(specs, ctx)
@@ -124,6 +159,7 @@ def state_step(rc: Any) -> dict[str, Any]:
     observed: list[dict[str, Any]] = []
     planned: list[dict[str, Any]] = []
     covered: list[dict[str, Any]] = []
+    moved_by_audit: list[dict[str, Any]] = []
     adopted: list[dict[str, Any]] = []
     labels_now = dict(rc.output("judge").get("labels") or {})
     label_texts = durable_texts(rc, decide) if labels_now else {}
@@ -146,6 +182,11 @@ def state_step(rc: Any) -> dict[str, Any]:
                       and (recs.get(o.get("op_id", "")) or {}).get("outcome") in ("applied", "already_present")]
             if rolled:
                 covered = item_ledger.cover(db, rolled, run_id=r.id, at=r.header.clock.instant)
+            # agenda edits an audit wrote: added items are raised, dropped ones go back
+            audited = audit_edits(rc, ops, recs)
+            if audited:
+                moved_by_audit = item_ledger.audited(db, audited, run_id=r.id, at=r.header.clock.instant,
+                                                     forums=agenda_forums(rc))
             if labels_now:
                 from docket.plan import labels as plan_labels
                 plan_labels.remember(db, labels_now, label_texts, run_id=r.id,
@@ -156,7 +197,7 @@ def state_step(rc: Any) -> dict[str, Any]:
             for name, key, row in entries:
                 ledgers.append(db, name, r.id, key, row)
         body = {"cursors": moved, "dispositions": [d.row() for d in rows], "durable": durable,
-                "items": len(items) if durable else 0, "items_adopted": len(adopted), "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered),
+                "items": len(items) if durable else 0, "items_adopted": len(adopted), "items_observed": len(observed), "items_planned": len(planned), "items_covered": len(covered), "items_audited": len(moved_by_audit),
                 "ledgers": {n: sum(1 for e in entries if e[0] == n) if durable else 0 for n in sorted(specs)}}
         receipts.put(db, r.id, "seal:state", "ok", body)
     return {**body, "outcome": "ok"}

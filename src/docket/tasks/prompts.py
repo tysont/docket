@@ -73,7 +73,10 @@ def type_text(f: "FieldSpec") -> str:
         return (f"list of at most {f.max_items} quotes, each {{\"line\": \"<line id>\", \"quote\": \"<words copied "
                 f"exactly>\"}} with a quote of at most {f.max_quote} characters")
     if t == "rows":
-        return "list of entries with the fields below"
+        return "list of entries with the fields below" + (f", at most {f.cap}" if f.cap is not None else "")
+    if t == "texts":
+        return (f"list of strings, each at most {f.max_length or 200} characters"
+                + (f", at most {f.cap}" if f.cap is not None else ""))
     return t
 
 
@@ -126,6 +129,8 @@ def _example_value(f: "FieldSpec", pack: dict[str, Any], row_id: str) -> Any:
     if t == "item_ref":
         others = [it["id"] for it in pack["items"] if it["id"] != row_id]
         return others[0] if others else None
+    if t == "texts":
+        return ["One short phrase"]
     if t == "rows":
         sub = {}
         for s in f.rows:
@@ -153,6 +158,8 @@ def example_result(kind: "TaskKind", pack: dict[str, Any]) -> dict[str, Any]:
                     val = _example_value(f, pack, row_id)
                     if val is not None:
                         row[name] = val
+    if kind.check is not None and pack["items"]:
+        row = kind.check.example(pack["items"][0], row)
     model = kind.result_model.model_validate({"items": [row]})
     return model.model_dump(mode="json", by_alias=True, exclude_none=True)
 
