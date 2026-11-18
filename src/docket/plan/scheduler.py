@@ -292,7 +292,16 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             u.locked = True
             place(u, replace(existing_block(u), locked=True))
     pending: list[Unit] = []
-    # standing blocks before any other block is kept or placed, so tasks plan around them
+    for u in units:
+        x = u.existing
+        if x is None or u.block is not None or again(u) or u.task.kind == "standing":
+            continue
+        blk = existing_block(u)
+        if x.minutes == policy.length_for(u.task) and not check(blk, ctx):
+            place(u, blk)
+
+    # Standing blocks take the earliest slot that is free of meetings and of the blocks already
+    # on the calendar, which stay where they are. Tasks not yet placed then plan around them.
     for u in (u for u in units if u.task.kind == "standing" and u.block is None):
         x = u.existing
         if x is not None and x.minutes == policy.length_for(u.task) and not check(existing_block(u), ctx):
@@ -309,14 +318,6 @@ def schedule(tasks: list[Task], cal: Calendar, policy: Policy, *, today: date, n
             place(u, res.block, False)
         else:
             pending.append(u)
-    for u in units:
-        x = u.existing
-        if x is None or u.block is not None or again(u) or u.task.kind == "standing":
-            continue
-        blk = existing_block(u)
-        if x.minutes == policy.length_for(u.task) and not check(blk, ctx):
-            place(u, blk)
-
     # window feasibility against the calendar alone (TD §12.4)
     for u in units:
         w = u.task.window

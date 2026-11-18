@@ -100,3 +100,15 @@ def test_on_a_day_with_no_slot_the_block_takes_its_fallback_hours_outside_the_da
     free = run(standing=(Standing(id="plan-day", title="Plan the day", est=30, fallback=(480, 540)),), now=dt(TODAY, "17:30"))
     (v,) = [u for u in free.units if u.task.kind == "standing"]
     assert v.block.start == 540
+
+
+def test_a_standing_block_never_displaces_a_block_already_on_the_calendar():
+    """The earliest free slot is free of meetings and of the blocks already placed. A task's
+    block that stands in the day's first slot stays there; the standing block takes the next."""
+    held = owned(task_key(Task(id="a", title="", est=60), "dk_"), d(1), "09:00", "10:00")
+    res = run([task("a", 60, due=d(1))], [held], now=dt(TODAY, "17:30"))
+    a = res.unit_for("a")
+    assert (a.block.day, a.block.start) == (d(1), 540) and not a.late
+    (s,) = [u for u in res.units if u.task.kind == "standing"]
+    assert (s.block.day, s.block.start) == (d(1), 600)
+    assert [o["verb"] for o in res.ops if o["key"] == a.block.key] in (["keep"], ["update"])      # never a move
