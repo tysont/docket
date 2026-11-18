@@ -482,12 +482,13 @@ class MarkdownAgenda(MarkdownBase):
         prov = {"question_id": action.question_id, "item_id": action.item_id, "depends_on": action.depends_on or None}
         edit = f.get("edit")
         if edit == "append":
-            ctx = {**f, "title": str(f.get("text") or "").strip()}
-            line = one_line(templates.render(self.cfg.line_template or DEFAULT_AGENDA_LINE, ctx))
+            # The audit writes the entry's own words: they are already a finished line. The
+            # destination's line template is for items from triage and has nothing to render here.
+            text = _MARKER.sub("", one_line(str(f.get("text") or "")))
             url = str(f.get("url") or "")
-            if url and url not in line:
-                line += f" ({url})"
-            line = self.shared_text(line, "line_template")
+            if url and url not in text:
+                text += f" [link]({url})"
+            line = self.shared_text("- " + text, "line")
             return [make_op(self.id, "append", ident=ident, path=path, anchor=self.section, line=line, **prov)]
         old = str(f.get("old") or "").rstrip()
         if edit == "replace":

@@ -531,9 +531,9 @@ def test_an_agenda_edit_appends_with_its_link(tmp_path):
     d = agenda(tmp_path, capacity=4)
     (tmp_path / "meet" / "weekly.md").write_text(EDITED)
     [op] = d.preview(edit("append", text="New topic", url="https://chat.example.org/t/9"), d.snapshot())
-    assert op.verb == "append" and op.line == "- New topic (https://chat.example.org/t/9)"
+    assert op.verb == "append" and op.line == "- New topic [link](https://chat.example.org/t/9)"
     d.apply(op)
-    assert "- Topic three\n- New topic (https://chat.example.org/t/9)\n" in (tmp_path / "meet" / "weekly.md").read_text()
+    assert "- Topic three\n- New topic [link](https://chat.example.org/t/9)\n" in (tmp_path / "meet" / "weekly.md").read_text()
 
 
 def test_an_entry_edited_since_the_audit_refuses_the_edit_by_its_old_digest(tmp_path):

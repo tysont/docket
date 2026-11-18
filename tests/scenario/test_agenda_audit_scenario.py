@@ -30,7 +30,7 @@ AFTER = """# Sam / Dana
 ## Next
 
 - Decide who runs the offsite (https://chat.example.org/t/7)
-- Decide the on-call rotation for ingest (https://chat.example.org/t/42)
+- Decide the on-call rotation for ingest [link](https://chat.example.org/t/42)
 
 ## 2026-10-14
 
@@ -212,7 +212,7 @@ def test_a_run_audits_the_forum_it_rolled_and_writes_what_the_operator_accepts(p
     assert got["offsite"][1][0]["line"] == "- Decide who runs the offsite (https://chat.example.org/t/7)"
     assert got["oncall"][0] == "raised"                          # added from the ledger: raised at this forum
     assert got["oncall"][1][-1]["forum"] == "sam-one-on-one"
-    assert got["oncall"][1][-1]["line"] == "- Decide the on-call rotation for ingest (https://chat.example.org/t/42)"
+    assert got["oncall"][1][-1]["line"] == "- Decide the on-call rotation for ingest [link](https://chat.example.org/t/42)"
 
     start(cli, ws, pinned_now, "--new")
     again = run_agent(ws, results=audit_result)

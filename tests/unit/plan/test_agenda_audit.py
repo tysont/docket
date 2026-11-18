@@ -403,7 +403,7 @@ def test_writes_rewords_and_drops_first_then_the_additions_that_fit(tmp_path, cl
         ("replace", "- Storage budget (https://chat.example.org/t/1)",
          "- Decide the storage budget (https://chat.example.org/t/1)"),
         ("remove", "- Weekly status", None),
-        ("append", None, "- Plan the storage hire (https://chat.example.org/t/5)"),
+        ("append", None, "- Plan the storage hire [link](https://chat.example.org/t/5)"),
         ("append", None, "- Check team load")]
     assert ops[2]["item_id"] == "iaaaaaaaa"
     assert built["left_out"] == [{"forum": "lin-weekly", "path": "notes/lin.md", "id": "A3", "text": "Third",
