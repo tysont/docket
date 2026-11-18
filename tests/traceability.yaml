@@ -119,6 +119,25 @@ FR-TSK-06:
   - tests/unit/tasks/test_task_submit.py::test_review_rules_and_item_refs
 FR-TSK-07:
   - tests/scenario/test_task_scenarios.py::test_accepted_results_are_reused_by_input_digest_in_a_later_run
+FR-TSK-08:
+  - tests/unit/plan/test_agenda_audit.py::test_after_meeting_audits_a_forum_rolled_in_this_run_only_when_it_has_a_person
+  - tests/unit/plan/test_agenda_audit.py::test_after_meeting_counts_rolls_of_runs_since_the_last_sealed_live_run
+  - tests/unit/plan/test_agenda_audit.py::test_before_meeting_counts_working_time_and_reads_the_planning_calendar_and_the_meetings
+  - tests/unit/plan/test_agenda_audit.py::test_a_before_meeting_audit_says_when_upcoming_events_are_unavailable
+  - tests/unit/plan/test_agenda_audit.py::test_named_forums_are_audited_and_a_forum_without_a_note_is_skipped
+  - tests/unit/plan/test_agenda_audit.py::test_working_time_skips_the_weekend
+  - tests/unit/plan/test_agenda_audit.py::test_a_forum_pack_item_holds_the_person_the_entries_the_dated_sections_and_the_related_items
+  - tests/unit/plan/test_agenda_audit.py::test_the_pack_item_shows_the_ask_of_an_item_and_not_its_message
+  - tests/unit/plan/test_agenda_audit.py::test_a_valid_audit_row_is_accepted
+  - tests/unit/plan/test_agenda_audit.py::test_every_entry_is_answered_exactly_once_and_a_reword_says_its_words
+  - tests/unit/plan/test_agenda_audit.py::test_an_addition_links_only_to_the_pack_and_quotes_only_the_pack
+  - tests/unit/plan/test_agenda_audit.py::test_additions_are_capped_by_max_add
+  - tests/unit/config/test_audit_config.py::test_the_example_graph_validates_and_the_ask_node_waits_for_the_audit
+  - tests/unit/config/test_audit_config.py::test_audit_settings_belong_to_a_judge_audit_node_and_its_forums_must_exist
+  - tests/unit/config/test_audit_config.py::test_the_audit_reads_and_writes_an_agenda
+  - tests/unit/config/test_audit_config.py::test_a_judge_audit_node_needs_the_agendas_it_reads
+  - tests/scenario/test_agenda_audit_scenario.py::test_a_run_audits_the_forum_it_rolled_and_writes_what_the_operator_accepts
+  - tests/scenario/test_agenda_audit_scenario.py::test_an_unchanged_forum_reuses_its_audit_and_a_skip_is_remembered_until_the_note_changes
 
 # --- decisions -----------------------------------------------------------------------------------
 FR-DEC-01:
@@ -169,6 +188,17 @@ FR-DEC-11:
   - tests/scenario/test_question_cards.py::test_null_budgets_mean_no_limit
   - tests/unit/decide/test_question_details.py::test_overflow_is_list_or_drop_and_null_budgets_mean_no_limit
   - tests/unit/config/test_covered_config.py::test_overflow_and_the_budgets_are_validated_at_the_node
+FR-DEC-12:
+  - tests/unit/plan/test_agenda_audit.py::test_the_proposal_numbers_additions_names_their_ledger_items_and_lists_what_the_agenda_would_hold
+  - tests/unit/plan/test_agenda_audit.py::test_each_option_and_override_makes_its_changes
+  - tests/unit/plan/test_agenda_audit.py::test_overrides_name_only_changes_the_option_makes
+  - tests/unit/plan/test_agenda_audit.py::test_override_ids_parse_from_lists_and_commas
+  - tests/unit/plan/test_agenda_audit.py::test_a_skip_and_an_answer_that_leaves_every_change_out_are_remembered
+  - tests/unit/config/test_audit_config.py::test_the_audit_kind_needs_its_settings_and_the_settings_need_the_kind
+  - tests/unit/config/test_audit_config.py::test_the_ask_node_reads_a_judge_audit_node_and_the_write_reads_an_audit_ask
+  - tests/unit/config/test_audit_config.py::test_the_audit_labels_and_task_settings_are_checked
+  - tests/scenario/test_agenda_audit_scenario.py::test_a_run_audits_the_forum_it_rolled_and_writes_what_the_operator_accepts
+  - tests/scenario/test_agenda_audit_scenario.py::test_an_unchanged_forum_reuses_its_audit_and_a_skip_is_remembered_until_the_note_changes
 
 # --- destinations ----------------------------------------------------------------------------------
 FR-ACT-01:
@@ -184,6 +214,7 @@ FR-ACT-03:
   - tests/conformance/test_destinations.py::test_exec_adapter_conforms_on_scratch_target
   - tests/unit/destinations/test_markdown.py::test_twin_writes_a_copy_and_never_the_live_file
 FR-ACT-04:
+  - tests/unit/destinations/test_markdown.py::test_an_entry_edited_since_the_audit_refuses_the_edit_by_its_old_digest
   - tests/unit/destinations/test_calendar.py::test_only_marker_carrying_events_without_attendees_or_recurrence_are_owned
   - tests/unit/destinations/test_calendar.py::test_unowned_targets_are_refused
   - tests/unit/destinations/test_markdown.py::test_a_line_edited_after_preview_is_refused_with_the_current_text
@@ -203,6 +234,17 @@ FR-ACT-07:
   - tests/unit/destinations/test_markdown.py::test_imperative_denylist_rewrites_and_records_a_shape
   - tests/unit/destinations/test_markdown.py::test_required_fields_take_answer_then_defaults_then_refuse_with_the_override
   - tests/unit/destinations/test_markdown.py::test_max_length_and_evidence
+FR-ACT-08:
+  - tests/unit/plan/test_agenda_audit.py::test_writes_rewords_and_drops_first_then_the_additions_that_fit
+  - tests/unit/plan/test_agenda_audit.py::test_an_entry_edited_since_the_proposal_is_refused_before_it_is_written
+  - tests/unit/plan/test_agenda_audit.py::test_the_ledger_raises_an_added_item_and_returns_a_dropped_one_to_its_earlier_state
+  - tests/unit/destinations/test_markdown.py::test_an_agenda_edit_replaces_one_entry_keeping_its_marker_and_links
+  - tests/unit/destinations/test_markdown.py::test_an_agenda_edit_removes_an_entry_with_its_sub_lines_and_only_from_next
+  - tests/unit/destinations/test_markdown.py::test_an_agenda_edit_appends_with_its_link
+  - tests/unit/destinations/test_markdown.py::test_an_entry_edited_since_the_audit_refuses_the_edit_by_its_old_digest
+  - tests/scenario/test_agenda_audit_scenario.py::test_a_run_audits_the_forum_it_rolled_and_writes_what_the_operator_accepts
+  - tests/scenario/test_agenda_audit_scenario.py::test_a_sandbox_run_leaves_the_note_and_the_ledger_as_they_were
+  - tests/scenario/test_agenda_audit_scenario.py::test_an_entry_edited_since_the_proposal_holds_the_write
 
 # --- planning ---------------------------------------------------------------------------------------
 FR-PLN-01:

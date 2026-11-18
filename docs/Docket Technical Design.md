@@ -120,7 +120,7 @@ Top-level keys, each a Pydantic model with `extra="forbid"`:
 | `transports` | Shared transport instances keyed by id (§6.3) |
 | `signals` | `rules`, `scoring`, `budgets`, `units` classification (§8) |
 | `tasks` | Agent task kinds and their overrides (§9) |
-| `decisions` | Option sets, label templates, reconcile and covered policy, the order of question kinds (§10) |
+| `decisions` | Option sets, label templates, reconcile, covered and audit policy, the order of question kinds (§10) |
 | `destinations` | Destination instances keyed by id (§11) |
 | `planning` | Scheduling policy, mirrors, standing blocks (§12) |
 | `journal` | Journal sections, ledgers (§13.5) |
@@ -142,6 +142,7 @@ profile:
       handles: { chat: "users/2002", mail: member@example.org }
       reports_to: me
       roles: [report]
+      about: Leads the ingest team and owns its on-call rotation.
     - id: manager
       name: Team Manager
       roles: [manager]
@@ -172,7 +173,7 @@ profile:
       - { match: { property: { transparency: transparent } }, kind: informational }
 ```
 
-Relationship sets (`chain`, `reports`, `skip_reports`, `peers`, `group:<id>`, `external`) are computed in `config/models.py` from `reports_to`, `roles` and mail domains. Rules reference the sets, never people by code (FR-SIG-03).
+Relationship sets (`chain`, `reports`, `skip_reports`, `peers`, `group:<id>`, `external`) are computed in `config/models.py` from `reports_to`, `roles` and mail domains. Rules reference the sets, never people by code (FR-SIG-03). A person's `about` is optional free text: their role, their team, what they own. Only the agenda audit reads it (§9.7).
 
 ### 3.3 Presets
 
@@ -189,7 +190,7 @@ Merge order is: core defaults, then each preset in list order, then workspace fi
 1. **Syntax and structure.** YAML parse, unknown keys, types, and the shape of each graph (§5.1). Each error carries file, line, column, the offending key, the expected type and, for unknown keys, the closest valid key. A graph's shape problem is `config.bad_graph` at the node.
 2. **References.** Every id a value names (a person, group, topic, source, destination, forum, template, rule, task kind, option set) exists.
 3. **Semantics.** Regexes compile; templates parse and reference only fields of their context, including the argv of a `run` node (§5.8); durations and windows are well-formed; scoring weights are finite; a shared destination has redaction templates for every sensitivity class the rules can assign. Two settings of one graph that ask for opposite things are `config.conflicting_settings`: a roll that assumes a meeting with no record covered its agenda, beside an ask node that asks about the same meetings (§12.8).
-4. **Capabilities.** Each source's transport serves the capabilities the source uses. Every action an `ask` node offers in a graph that applies has a destination that accepts it. A `write` node's destination is private. A calendar read through a destination is a calendar adapter. The destination an ask node's covered questions roll is an agenda. A destination with `adopt` is a `markdown_tasks` destination (`config.capability_missing` otherwise) whose `quality.require` names `key` and whose `quality.optional` does not (`config.adopt_needs_key` otherwise), so every line it adopts carries the item key.
+4. **Capabilities.** Each source's transport serves the capabilities the source uses. Every action an `ask` node offers in a graph that applies has a destination that accepts it. A `write` node's destination is private. A calendar read through a destination is a calendar adapter. The destination an ask node's covered questions roll is an agenda, and so are the destinations an agenda audit reads (`tasks.audit.agendas`, which a `judge: audit` node needs), asks about (`questions.audit.to`) and writes (a `write: audit` node's `to`). A destination with `adopt` is a `markdown_tasks` destination (`config.capability_missing` otherwise) whose `quality.require` names `key` and whose `quality.optional` does not (`config.adopt_needs_key` otherwise), so every line it adopts carries the item key.
 
 A run never starts on invalid configuration (CFG-02). Pass 4 is the only pass that needs a preset's capability declarations; it never contacts a system. `docket doctor` contacts systems (§15.4).
 
@@ -245,7 +246,7 @@ SQLite in WAL mode. Tables:
 | `processed_ids` | For *id-scan* sources: ids processed, by run |
 | `dispositions` | `(topic_id) -> decision, run, item, until, note` (FR-APP-05) |
 | `receipts` | Operation id, destination, outcome, external id, verify status, run |
-| `item_ledger` | Every item put in front of the operator, with its state and placements (§13.8) |
+| `item_ledger` | Every item put in front of the operator, with its state, placements and facts (§13.8) |
 | `unexpected` | Shape records across runs, aggregated for `docket unexpected` |
 | `unexpected_accepted` | Reviewed shape acceptances recorded by `docket unexpected accept` |
 | `ledgers` | Generic append-only rows for journal ledgers (coverage, surfaced, carries) |
@@ -254,6 +255,8 @@ SQLite in WAL mode. Tables:
 | `task_labels` | Labels written for task lines, with the digest of the words each was written for |
 | `step_receipts` | Completed seal steps, so a repeated seal does not repeat them |
 | `schema_meta` | Database schema version |
+
+An older database whose versions each have a migration is brought forward step by step when it is opened, in one transaction. Version 16 to 17 adds the item ledger's `ask`, `owner`, `sender` and `forum` columns. Any other older database is `state.too_old`, and a newer one `store.db_too_new`.
 
 The database has one schema with one version. Docket creates a new database at that version and refuses to open any other: a newer one with `store.db_too_new`, an older one with `state.too_old`. Each error names both versions.
 
@@ -331,15 +334,25 @@ graphs:
 | `plan: [nodes]` | Turns decisions into operations; with `schedule_tasks` also places open tasks on the calendar (§10.3, §12); one plan node per graph adopts task lines that carry no key (§11.5) | computed | a plan |
 | `approve: <plan>` | The operator approves the plan, bound to its digest (§13.1) | asked | an approval |
 | `apply: <approve>` | Writes the approved operations (§13.3) | computed | nothing |
-| `write: <action>` | Plans and writes operations that need no approval; only to a private destination (§12.8) | computed | nothing |
+| `write: <action>` | Plans and writes operations to a private destination without a plan approval: `roll` rolls agendas after meetings, `audit` writes the agenda changes the operator accepted (§12.8) | computed | nothing |
 
 A node is ready when every node it names is current. Nodes that name nothing are ready together, and nodes that do not depend on each other never wait for each other: mail is assessed while chat is still being read. A node that waits (on an agent, on the operator, on a source that is unavailable) holds back only the nodes downstream of it.
 
 Every graph ends with a seal, which is not written in it. The seal is ready when every node is current. Sealing advances cursors, writes dispositions and the item ledger, and makes the journal entry (§13.4); then the run is sealed and cannot change. A sandbox run seals without moving a cursor or writing dispositions and ledgers.
 
-The shape of a graph is checked when the workspace loads (§3.4). A graph has at least one node. Node names are lower-case words (`[a-z][a-z0-9-]*`, at most 40 characters) other than `seal`. Every name a node uses is a node of the graph, and there is no cycle. Each node works on the kind of thing its inputs hand on: a `merge`, an `ask` or a `write` on items, a `judge` on items or decisions, a `plan` on decisions or items (the decisions of at most one `ask` node), an `approve` on a plan, an `apply` on an approval. `merge`, `plan`, `approve` and `apply` name their inputs in the verb and take no `from`. `read` and `run` work on nothing another node hands on and take only `after`. The node an ask node's covered questions take their meetings from is a `read` node. A shape problem is `config.bad_graph`, reported at the node with its file and line.
+The shape of a graph is checked when the workspace loads (§3.4). A graph has at least one node. Node names are lower-case words (`[a-z][a-z0-9-]*`, at most 40 characters) other than `seal`. Every name a node uses is a node of the graph, and there is no cycle. Each node works on the kind of thing its inputs hand on: a `merge`, an `ask` or a `write` on items, a `judge` on items or decisions, a `plan` on decisions or items (the decisions of at most one `ask` node), an `approve` on a plan, an `apply` on an approval. `merge`, `plan`, `approve` and `apply` name their inputs in the verb and take no `from`. `read` and `run` work on nothing another node hands on and take only `after`. The node an ask node's covered questions take their meetings from is a `read` node, and the node its audit questions take their proposals from (`questions.audit.from`) is a `judge: audit` node. A `write: audit` node works on decisions, and every ask node it names lists the `audit` question kind. An ask, a judge or a write may follow an `apply` with `after`: each writing node has its own apply boundary (§5.4). A shape problem is `config.bad_graph`, reported at the node with its file and line.
 
-A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`, and a `write: roll` its `no_record`, `trailer` and `commitments` (§12.8). An ask node's `questions.covered` names the read node of the meetings it asks about, the agenda destination, and the suffix of the heading (§10.4). Naming that read node makes the ask node wait for it, as `after` does. Any node may carry a `description`, which `docket graph show` prints.
+A node's settings sit beside its verb: a `read` may have a `schedule` (§5.7), a `run` its `dry_run`, `env` and `timeout_s` (§5.8), an `ask` its `questions` (§10.1), a `plan` `schedule_tasks`, a `write` its destination `to`, a `write: roll` its `no_record`, `trailer` and `commitments` (§12.8), and a `judge: audit` its `audit` (§9.7). `no_record`, `trailer` and `commitments` are refused on any other write, and `audit` on any other node. An ask node's `questions.covered` names the read node of the meetings it asks about, the agenda destination, and the suffix of the heading (§10.4). An ask node's `questions.audit` names the `judge: audit` node of the proposals and the agenda destination (§10.7). Naming such a node makes the ask node wait for it, as `after` does. Any node may carry a `description`, which `docket graph show` prints.
+
+A `judge: audit` node's `audit` settings say which forums it audits in a run:
+
+| `audit` setting | Default | Meaning |
+|---|---|---|
+| `after_meeting` | `true` | Audit a forum whose note a roll wrote in this run, or in a live run that began since the last sealed live run |
+| `before_meeting` | none | A duration of working time (`2d`, `90m`; a bare number is minutes). Audit a forum whose next meeting starts within it of the run's instant |
+| `forums` | `[]` | Forum ids audited in every run |
+
+`after_meeting` and `before_meeting` concern only forums with a `person`; a forum named in `forums` is audited whatever its kind. A forum whose note does not exist is skipped.
 
 Where several nodes hand on to one, their outputs are joined: items by id (a later node adds to what an earlier one said of the same item), lists end to end, maps key by key.
 
@@ -648,10 +661,11 @@ A task kind is a named triple of input model, output model and instructions. Cor
 | `extract` | A document (for example a transcript) split into sections | Commitments and requests with owner, verbatim evidence and deadline |
 | `review` | Candidates without scores, with evidence and the decision first recommended | Per item: `verdict` (ask, merge, drop, needs_verification), `against` (strongest argument against asking), `merge_with`, `reason`, `decision` when the reviewer recommends a different one, which then stands as the recommendation, and `deadline` (a date) and `est` (a duration) when the reviewer makes the item work and its lines name the date, which replace the assessment's. All three apply under any verdict and the trace keeps the old values (`was`, `was_deadline`, `was_est`); a dropped or merged item leaves, so they change nothing asked |
 | `recap` | Meetings held, each with its record and its forum's agenda | Per meeting: `covered` (notes, each naming the agenda entry it settles), `actions` (§12.8) |
+| `audit` | One recurring forum: its person, its agenda entries, its latest dated sections, its meeting dates and the ledger items that concern it | Per forum: a verdict on every entry, the missing topics to add, the commitments both ways, the focus of the next meeting and what is unknown (§9.7) |
 | `label` | Task lines planning may place, as written in the private list | Per task: `label`, the words that stand for it where others can read them (§12.7) |
 | `classify` | Units or items needing a class | Per entry: `class`, `tier`, `reason` |
 
-A judge node names one kind, and its `from` names what the kind judges: `assess: { judge: assess, from: [read-chat, read-mail] }`. A kind's family says what it judges and what its node hands on. The `item` family (`assess`, `extract`, `recap`, `classify`) judges items one at a time and hands on the items with its judgments on them. `review` judges the kept set and hands on the items with its verdicts applied. `label` judges the task lines of a decision and hands on the labels alone (§12.7).
+A judge node names one kind, and its `from` names what the kind judges: `assess: { judge: assess, from: [read-chat, read-mail] }`. A kind's family says what it judges and what its node hands on. The `item` family (`assess`, `extract`, `recap`, `audit`, `classify`) judges items one at a time and hands on the items with its judgments on them. `review` judges the kept set and hands on the items with its verdicts applied. `label` judges the task lines of a decision and hands on the labels alone (§12.7).
 
 A workspace may define a further kind under `tasks.kinds` by declaring its family (`item` or `review`), its output fields (from a closed field-type set), its cross-field rules and its instructions. Docket renders and validates it like a core kind (FR-TSK-01).
 
@@ -696,13 +710,66 @@ A dispatch step sets `concurrency` from `tasks.concurrency` (default 6) and stat
 
 An accepted result is indexed by its pack's input digest in the workspace database (`task_results`). A pack whose digest has an accepted result, in this run or an earlier one, needs no new task (FR-TSK-07). The digest covers the kind's instructions and output model, the items as the task saw them, the profile excerpts and the vocabulary. So a changed item or instruction issues a new task, and an unchanged pack never does.
 
+### 9.7 Agenda audit
+
+What lands on a recurring forum's agenda is what happened to be raised. The `audit` kind asks what the next meeting should hold, the way a chief of staff would, and proposes the changes. Nothing in a note changes until the operator accepts (§10.7, §12.8).
+
+```yaml
+    apply-writes:   { apply: approve-writes }
+    audit-agendas:  { judge: audit, from: [gather-meetings], after: [apply-writes], audit: { after_meeting: true, before_meeting: 2d } }
+    review-agendas: { ask: default, questions: { kinds: [audit], audit: { from: audit-agendas, to: agendas } } }
+    update-agendas: { write: audit, to: agendas, from: [review-agendas] }
+```
+
+**Which forums.** The node's `audit` settings (§5.1) pick them; `tasks.audit.agendas` names the agenda destination. A forum's note was rolled when a `roll` operation with a heading on that note has an `applied` receipt in this run, or in a live run (open or abandoned) that began after the last sealed live run. Other sandbox runs never count.
+
+**The next meeting** is the earliest one after the run's instant, within 14 days or `before_meeting` if that is longer. It comes from two places. The meetings the node's `from` hands on count when their `at` lies ahead. The events of the planning calendar (`planning.calendar`) count when they are not cancelled and not all-day, with recurring events expanded. Each meeting finds its forum as a roll's does (`forum_for_meeting`, through `calendar_match`). `before_meeting` counts working time only: the hours of `profile.workdays`, so `2d` from a Friday morning is the Tuesday morning after. When no planning calendar is configured, or it cannot be read, a node with `before_meeting` records the unexpected shape `plan.audit` / `upcoming events unavailable` and reads the next meeting from its meetings only; the journal lists the shape. The last meeting is the later of the latest past meeting handed on and the note's latest dated section.
+
+**The pack.** One item per forum, id `forum:<forum id>`, source `audit`. Its fields:
+
+| Field | Contents |
+|---|---|
+| `forum` | `id`, `name`, `path` |
+| `person` | `id`, `name`, `about`, `roles`, `reports_to` (`{id, name}`), or null for a group forum |
+| `entries` | The agenda section's entries as `Agenda.entries` names them: `line` (N1, N2, ...), `text`, and `lines` for the sub-lines |
+| `sections` | The latest `tasks.audit.sections` dated sections, newest first: `date`, `heading`, `text` cut to `section_chars`, and `cut: true` when cut |
+| `meetings` | `last` (a date) and `next` (an instant), each null when unknown |
+| `ledger` | `items`, `shown`, `total`, and `note` when rows were cut |
+
+A ledger item concerns a forum when a placement put it on this agenda (`agenda`), when the forum's person owns it (`owner`) or sent it (`sender`), when it routes to this forum (`forum`, as `forum_for` derived it at the seal), or when its area is the area of a topic whose forum this is (`area`). Every state counts. Each row carries `key`, `state`, `date`, `ask` (the one-line ask, else the title), `link`, `owner`, `from` and `why` (the reasons above). Rows are most recent first and at most `max_ledger`; `note` says how many older rows were left out.
+
+**The row.**
+
+| Field | Type | Rule |
+|---|---|---|
+| `entries` | rows `{line, verdict, text, why}` | Every entry of the pack exactly once; `verdict` is `keep`, `reword` or `drop`; a `reword` needs `text` |
+| `add` | rows `{text, why, link, evidence}` | At most `max_add`, best first; `link` must appear in the pack; `evidence` is copied verbatim from the pack |
+| `commitments` | rows `{who, what, status, since}` | At most 12; `who` is `me` or `them`; `status` is `open`, `done` or `unknown` (an unknown value reads as `unknown`); `since` is a date |
+| `focus` | string | One sentence: what the next meeting is for |
+| `unknown` | strings | At most 5: what the pack could not tell |
+
+A row that breaks these refuses with `task.rows_refused`, and each row error carries its own code: `task.audit_entries` (an entry missing, unknown or answered twice), `task.cross_field` (a reword without text), `task.unknown_link` and `task.evidence_not_verbatim`. Too many additions is `task.invalid_result`, with the cap in the fix.
+
+| `tasks.audit` setting | Default | Meaning |
+|---|---|---|
+| `agendas` | none | The agenda destination audited; required by a `judge: audit` node |
+| `guidance` | none | Workspace words added to the instructions |
+| `examples` | `[]` | Worked rows, validated as submitted rows are (§9.3) |
+| `max_items` | `1` | Forums per pack |
+| `max_add` | `3` | Additions a row may propose (0 to 10) |
+| `max_ledger` | `20` | Related ledger rows per forum |
+| `sections` | `3` | Dated sections shown |
+| `section_chars` | `1500` | Characters kept of each dated section |
+
+The node hands on `audits`: one row per forum with an accepted result, carrying the forum, the note path, the person, the destination, the entries as the audit saw them, the ledger links, the digest of the pack item and the row. The pack digest is the task input digest, so a forum whose note, ledger rows and meeting dates are unchanged reuses its result (§9.6) and costs no task.
+
 ## 10. Decisions
 
 ### 10.1 Building questions
 
-An `ask` node builds its questions from four inputs: the findings in the items it works on, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), the agendas of meetings that left no record, and task-verification results. The node's `questions.kinds` says which it asks (`reconcile`, `covered`, `finding`, `verify`; default: `finding`); an unknown kind is refused. Each question has a stable id derived from its subject (`q_` + item id, `r_` + block key, `c_` + a digest of forum, meeting date and agenda entry, or `v_` + task key), a kind (`finding`, `reconcile`, `covered` or `verify`), a rendered prompt from templates, the evidence summary, and options. The approve question is the one exception: its id is the approve node's name (§13.1).
+An `ask` node builds its questions from five inputs: the findings in the items it works on, reconcile candidates (owned calendar blocks in the reconcile window, from the calendar destination's `list`), the agendas of meetings that left no record, task-verification results, and agenda audit proposals. The node's `questions.kinds` says which it asks (`reconcile`, `covered`, `finding`, `verify`, `audit`; default: `finding`); an unknown kind is refused. Each question has a stable id derived from its subject (`q_` + item id, `r_` + block key, `c_` + a digest of forum, meeting date and agenda entry, `v_` + task key, or `u_` + a digest of forum and audit pack), a kind (`finding`, `reconcile`, `covered`, `verify` or `audit`), a rendered prompt from templates, the evidence summary, and options. The approve question is the one exception: its id is the approve node's name (§13.1).
 
-Kinds are asked in the order of `decisions.order` (default: reconcile, covered, then findings by score, then verify). The node's `questions.budget` caps the findings asked one by one, and `questions.batch_budget` those recommended for a batch option. A budget of null means no limit.
+Kinds are asked in the order of `decisions.order` (default: reconcile, covered, then findings by score, then verify, then audit). The node's `questions.budget` caps the findings asked one by one, and `questions.batch_budget` those recommended for a batch option. A budget of null means no limit.
 
 Nothing an ask node was given is dropped without the driver seeing it. `questions.overflow` says what happens to the findings past a budget:
 
@@ -713,6 +780,7 @@ Nothing an ask node was given is dropped without the driver seeing it. `question
 |---|---|---|
 | `kinds` | `[finding]` | The kinds of question the node asks |
 | `covered` | none | Where covered questions come from (§10.4); needed when `kinds` lists `covered` |
+| `audit` | none | `from` (the `judge: audit` node) and `to` (the agenda destination) of audit questions (§10.7); needed when `kinds` lists `audit` |
 | `bursts` | `1` | How many bursts the questions are asked in |
 | `budget` | null (no limit) | Findings asked one by one; an integer of 0 or more |
 | `batch_budget` | null (no limit) | Findings recommended for a batch option; an integer of 0 or more |
@@ -763,7 +831,7 @@ docket ask answer r_5f20 partly --est 30
 docket ask answer --file answers.json
 ```
 
-Overrides (FR-DEC-04): `--due` (date or weekday name, next occurrence after the run date), `--est` (duration), `--when` (window: a day, a day with times, a named calendar event to schedule over, or `this week`), `--title`, `--action` (task text), `--link` (repeatable), `--area`, `--forum`, `--merge-with`, `--note`. Option resolution accepts the id, the label, its leading words, the position, or a destination name, case-insensitively; an ambiguous match fails with the candidates (AE-09). The command echoes the normalized answer and the resulting action preview, so the operator's words and the stored decision can be compared before anything is built.
+Overrides (FR-DEC-04): `--due` (date or weekday name, next occurrence after the run date), `--est` (duration), `--when` (window: a day, a day with times, a named calendar event to schedule over, or `this week`), `--title`, `--action` (task text), `--link` (repeatable), `--area`, `--forum`, `--merge-with`, `--note`, and for an audit question `--keep` and `--without` (§10.7). Option resolution accepts the id, the label, its leading words, the position, or a destination name, case-insensitively; an ambiguous match fails with the candidates (AE-09). The command echoes the normalized answer and the resulting action preview, so the operator's words and the stored decision can be compared before anything is built.
 
 Answers are stored keyed by question id, which derives from item identity (FR-DEC-06). Each answer also records the digest of its question's subject. When an ask node's questions are computed again, as after a rule edit upstream, an answer whose subject is unchanged is kept; the answer of a changed item moves to `previous`, and the question is asked again with it shown.
 
@@ -803,6 +871,24 @@ Open tasks with references are resolved through sources (§6.10). A task whose r
 
 When an answer names a day, the echo includes that day's committed minutes, free minutes inside the work window and existing owned blocks, computed by the constraint engine (FR-DEC-08).
 
+### 10.7 Audit questions
+
+An ask node that lists `audit` in `questions.kinds` asks about the proposals of the `judge: audit` node `questions.audit.from` names, for the agenda destination `questions.audit.to` (§9.7). Each proposal that changes something (an entry reworded or dropped, or a topic added) is one question about one forum. A proposal that keeps every entry and adds nothing is not asked.
+
+The prompt is `decisions.templates.audit_prompt` (default: `Update the {forum.name} agenda as its audit proposes ({changes})?`). Its context has `forum.id`, `forum.name`, `person.id`, `person.name`, `changes` (for example `1 reworded, 1 dropped, 2 added`) and `counts.reword`, `counts.drop` and `counts.add`. The details carry the whole proposal under `audit`: `forum`, `forum_name`, `person`, `path`, `meetings`, `focus`, `entries` (each with its `line`, `text`, `verdict`, `why`, and `new` for a reword), `additions` (ids `A1`, `A2`, ..., each with `text`, `why`, `link` and `evidence` when given, and `key` when its link is a ledger item's), `commitments`, `unknown`, and `proposed`, the list the agenda section would hold with every change applied and the additions that fit its capacity.
+
+The options are fixed in kind and configurable in label (`decisions.audit.labels`):
+
+| Option | Effect |
+|---|---|
+| `accept` | Every change: rewords, drops and additions. Recommended |
+| `additions` | Only the additions; the entries stay as they are. Not offered when the audit adds nothing, and the question notes why |
+| `skip` | Nothing changes |
+
+Two overrides name changes to leave out. `--keep N2,N5` keeps entries the audit would reword or drop, and applies with `accept`. `--without A1` leaves an addition out, and applies with `accept` or `additions`. Each flag is repeatable and takes ids separated by commas. An id that is not of the form `N1` or `A1`, that the proposal does not change, or that the option does not apply is `input.bad_override`. The answer's echo shows the effect: the entries reworded and dropped, the additions and the note path.
+
+The question id derives from the forum and the digest of the pack item, so the same note, ledger rows and meeting dates keep it. A `skip`, or an `accept` whose overrides leave every change out, is remembered at a durable seal as a `skip` disposition keyed by the question id (§13.7). The same proposal is not asked again; when the note or the related items change, the pack and the id change, and it is asked. A sandbox run remembers nothing.
+
 ## 11. Destinations
 
 ### 11.1 Adapter interface
@@ -833,7 +919,7 @@ Sandbox twins are the real adapter with its I/O layer swapped: Markdown adapters
 | Adapter | Behavior |
 |---|---|
 | `markdown_tasks` | A task store in Markdown. A configurable line grammar (`text/grammar.py`) parses and renders lines: checkbox, text, inline fields (`key:: value` or bracketed), links and tags. Sections and tiers are configured headings. Planning, reconciliation and task verification read open tasks through this adapter and its grammar. No second task parser exists. Quality rules (§11.5) run on every rendered line. |
-| `markdown_agenda` | Agendas discovered by a path pattern or listed per forum. A configured section (for example `## Next`) with a capacity; dated history sections and unknown sections are preserved and tolerated. A `roll` writes a dated section under the agenda section and takes out the entries it covered (`remove`) and those dropped unrecorded (`drop`); a roll with no heading only drops (§12.8). |
+| `markdown_agenda` | Agendas discovered by a path pattern or listed per forum. A configured section (for example `## Next`) with a capacity; dated history sections and unknown sections are preserved and tolerated. A `roll` writes a dated section under the agenda section and takes out the entries it covered (`remove`) and those dropped unrecorded (`drop`); a roll with no heading only drops (§12.8). An `agenda.edit` action makes one `replace`, `remove` or `append` of an entry for an agenda audit, each `replace` and `remove` bound to the old line's digest (§12.8). |
 | `calendar_exec` | Speaks the exec protocol (§17.2) to a local bridge binary with verbs `list`, `busy`, `create`, `move`, `update`, `delete`, `rekey`, `mirror`. The reference workspace wraps its existing bridge this way. |
 | `calendar_file` | ICS read for availability; write to an ICS file for testing and for systems that import ICS. |
 | `calendar_mcp` | An MCP calendar server, read always, write where the server's tools support it (declared in the preset). |
@@ -997,6 +1083,18 @@ With `commitments` naming a JSON-lines file, the node also appends what the oper
 
 At a durable seal, an item that was raised on an agenda (§13.8) is done when a roll took its entry off the agenda. The entry is recognised by its line as written, or by the item's link when the operator reworded the line.
 
+**Writing an audit.** A `write: audit` node writes the answers to audit questions (§10.7) through the agenda destination `to`, which must be a private `markdown_agenda` destination:
+
+```yaml
+    update-agendas: { write: audit, to: agendas, from: [review-agendas] }
+```
+
+Its `from` names ask nodes that list the `audit` kind. For each answered question it makes `agenda.edit` operations in a fixed order. Rewords come first: `replace` writes the new words as the entry's line, keeping the old line's list marker and the links it carried. Drops come next: `remove` takes the entry and its sub-lines out of the agenda section and records it nowhere, so no dated section gains it. Additions come last, in the audit's order, as `append` lines, each followed by its link when it has one. Capacity is counted after the drops: the additions that do not fit `destinations.<id>.capacity` are left out, best first kept, and listed under `left_out` in the node's output and the plan's diff. Forums are written in id order.
+
+Ownership is checked by the old line's digest before anything is written. A `replace` or `remove` whose entry no longer reads as the audit saw it, or reads so twice, is refused with `dest.line_changed` and written to the receipts as refused; a `replace` already in place is not refused. The rest of the answer is written. Like any writing node whose operations did not all complete, the node holds with `apply_partial` (§13.3): `docket do <node> --again` repeats it, and `--accept-failures` leaves the refused edits unwritten. The node keeps `plan.json` and `diff.md` beside its receipts and pins its boundary before its first write (§5.4), so an ask node after an `apply` and a second writing node in one graph work as written. A sandbox run writes the twin of the note and leaves the note byte-identical.
+
+At a durable seal the item ledger follows the edits (§13.8).
+
 ### 12.9 Standing blocks
 
 A standing block is one a workspace wants on the calendar every working day, such as its own planning session. `planning.standing` lists them:
@@ -1078,13 +1176,15 @@ The seal ends every run once every node is done. While a writing node holds on o
 
 ### 13.7 Dispositions
 
-The seal writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05). A covered question answered `keep` (§10.4) is a `keep` disposition keyed by its question id; covered questions read it, and merge meets no item by that key.
+The seal writes a disposition per decided topic: `done`, `routed` (with the destination and operation id), `watch` (re-surface on new activity), `dismiss` (with an optional until date), `now` (with the recorded outcome). Merge (§7.3) reads them in the next run (FR-APP-05). A covered question answered `keep` (§10.4) is a `keep` disposition keyed by its question id; covered questions read it, and merge meets no item by that key. An audit question answered `skip`, or answered so that nothing changes, is a `skip` disposition keyed by its question id (§10.7); audit questions read it.
 
 ### 13.8 The item ledger
 
-The ledger is the master record of every item Docket has put in front of the operator: one row per item, in Docket's own state, keyed by a short stable key derived from the item's topic (`i` and eight characters). A row carries the item's source, title and link, its state, every decision made on it with the run that made it, and its placements: the task line, calendar block or agenda entry it became, with the operation that wrote it.
+The ledger is the master record of every item Docket has put in front of the operator: one row per item, in Docket's own state, keyed by a short stable key derived from the item's topic (`i` and eight characters). A row carries the item's source, title and link, its state, every decision made on it with the run that made it, and its placements: the task line, calendar block or agenda entry it became, with the operation that wrote it. It also carries facts the seal derives for each item it keeps: `ask` (the assessment's one-line ask), `owner` (the person id of the assessment's owner), `sender` (the sender's person id) and `forum` (the forum the item would be raised at, as `forum_for` finds it, §10.2). The agenda audit finds a forum's items by them (§9.7).
 
 A state is where an item is; a decision is what moves it. The states are `new`, `backlog`, `scheduled`, `raised`, `monitoring`, `acknowledged`, `done` and `ignored`. Writing an item to a task store leaves it in `backlog`, to a calendar in `scheduled`, to an agenda in `raised`; a raised item is `done` when its agenda is rolled and its entry was covered (§12.8); `watch` leaves it `monitoring`, `ack` `acknowledged`, `now` and `done` `done`, `dismiss` `ignored`. An item put forward and not decided is `new`, and one seen again without a decision keeps its state. A scheduled item is not in the backlog: it has left it.
+
+An agenda audit's edits (§12.8) move items too. An addition whose link is a ledger item's link makes that item `raised`, with the new entry as a placement that names the forum, and a history line `added to <path> (<forum>) by the agenda audit`. A dropped entry's raised item, matched by its placement's line or by its link in the old line, goes back to the state it had before it was raised, or `acknowledged` when its history does not say, with a history line `dropped from <path> (<forum>) by the agenda audit`. A reworded entry's item stays `raised`, and its placement takes the new line. The seal summary counts the items moved as `items_audited`.
 
 Destinations are projections of the ledger. Templates can write the item's `key`, and merge treats an item whose key is on an open task line as tracked, so an item is recognised wherever it landed and by whatever tool reads it next. No destination is the ledger's home: the same ledger serves a Markdown list today and another task store tomorrow.
 
@@ -1208,9 +1308,9 @@ Codes are dotted `<area>.<condition>`, stable across versions, and listed by `do
 | Exit | Kind | Examples |
 |---|---|---|
 | 0 | ok | |
-| 2 | input | `input.unknown_option`, `input.ambiguous_option`, `input.bad_duration` |
+| 2 | input | `input.unknown_option`, `input.ambiguous_option`, `input.bad_duration`, `input.bad_override` |
 | 3 | config | `config.unknown_key`, `config.bad_reference`, `config.invalid` |
-| 4 | integrity | `integrity.partition`, `integrity.evidence`, `apply.stale_inputs`, `dest.line_changed`, `dest.redaction_leak` |
+| 4 | integrity | `integrity.partition`, `integrity.evidence`, `apply.stale_inputs`, `dest.line_changed`, `dest.redaction_leak`, `task.audit_entries`, `task.unknown_link` |
 | 5 | external | `source.unavailable`, `transport.timeout`, `dest.apply_failed`, `node.command_failed` |
 | 6 | lease | `lease.held` |
 | 7 | state | `run.none_open`, `run.sealed`, `node.not_ready`, `node.post_apply_change`, `seal.writes_incomplete`, `state.too_old` |
