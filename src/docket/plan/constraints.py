@@ -132,21 +132,23 @@ class Ctx:
 
     def add(self, b: Block) -> None:
         self.overlay.setdefault(b.day, {})[b.key] = b
-        self._minutes[b.day] = self._minutes.get(b.day, 0) + b.minutes
+        if b.kind != "standing":  # a standing block is not planned work: the daily cap does not count it
+            self._minutes[b.day] = self._minutes.get(b.day, 0) + b.minutes
         if b.day in self._free:
             self._free[b.day] = subtract(self._free[b.day], b.start, b.end)
 
     def remove(self, b: Block) -> None:
         day = self.overlay.get(b.day, {})
         if day.pop(b.key, None) is not None:
-            self._minutes[b.day] -= b.minutes
+            if b.kind != "standing":
+                self._minutes[b.day] -= b.minutes
             self._free.pop(b.day, None)
 
     def minutes(self, day: date, *, excluding: str | None = None) -> int:
         n = self._minutes.get(day, 0)
         if excluding is not None:
             b = self.overlay.get(day, {}).get(excluding)
-            if b is not None:
+            if b is not None and b.kind != "standing":
                 n -= b.minutes
         return n
 
@@ -221,7 +223,8 @@ def check(block: Block, ctx: Ctx) -> list[Violation]:
                      and _hits(a, b, s.start - pad, s.end + pad) and not _hits(a, b, s.start, s.end)), None)
         if near is not None:
             out.append(Violation("buffer", f"within {pad}m of a {near.kind} at {hhmm(near.start)}"))
-    if p.daily_cap is not None and ctx.minutes(day, excluding=block.key) + (b - a) > p.daily_cap:
+    # the daily cap limits planned work; a standing block is not work to be capped
+    if block.kind != "standing" and p.daily_cap is not None and ctx.minutes(day, excluding=block.key) + (b - a) > p.daily_cap:
         out.append(Violation("daily_cap", f"{day} would exceed the daily cap of {p.daily_cap}m"))
     if block.kind == "batch" and any(o.kind == "batch" and o.key != block.key
                                      for o in ctx.overlay.get(day, {}).values()):

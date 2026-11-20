@@ -112,3 +112,12 @@ def test_a_standing_block_never_displaces_a_block_already_on_the_calendar():
     (s,) = [u for u in res.units if u.task.kind == "standing"]
     assert (s.block.day, s.block.start) == (d(1), 600)
     assert [o["verb"] for o in res.ops if o["key"] == a.block.key] in (["keep"], ["update"])      # never a move
+
+
+def test_a_standing_block_is_not_held_back_by_the_daily_cap():
+    """A day whose planned work already reaches the daily cap still gets its standing block."""
+    pol = policy(daily_cap=60)
+    held = owned(task_key(Task(id="a", title="", est=60), "dk_"), d(1), "09:00", "10:00")
+    res = run([task("a", 60, due=d(1))], [held], pol=pol, now=dt(TODAY, "17:30"))
+    (s,) = [u for u in res.units if u.task.kind == "standing"]
+    assert s.block is not None and s.block.day == d(1)
