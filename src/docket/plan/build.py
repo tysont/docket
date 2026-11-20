@@ -325,10 +325,12 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
 
     hosts = None if t.link_hosts is None else {h.lower() for h in t.link_hosts}
 
-    def shown(links: tuple[str, ...]) -> list[str]:
-        """The links a note may show: web links, to a host the workspace names when it names any."""
+    def shown(links: tuple[str, ...], is_open: bool = False) -> list[str]:
+        """The links a note may show. A task judged open shows its links. Any other shows only
+        links to a host the workspace names: one where the address itself says nothing and the
+        record behind it opens only for people who already have access."""
         from urllib.parse import urlsplit
-        return [u for u in links if hosts is None or (urlsplit(u).hostname or "").lower() in hosts]
+        return [u for u in links if is_open or hosts is None or (urlsplit(u).hostname or "").lower() in hosts]
 
     def said(t: Task) -> str:
         """The task as its line says it, without its links (a link's label is not a sentence)."""
@@ -347,10 +349,11 @@ def _titler(rc: "RunContext", by_id: dict[str, Task], labels: dict[str, str] | N
                "id": own,
                "label": labels.get(own, ""), "open": own in opened, "part": task.part or "", "parts": task.parts or "",
                "due": task.due.isoformat() if task.due else "", "window": task.window.label if task.window else "",
-               "links": (own_links := shown((by_id.get(own) or task).links)), "url": own_links[0] if own_links else "",
+               "links": (own_links := shown((by_id.get(own) or task).links, own in opened)),
+               "url": own_links[0] if own_links else "",
                "members": [{"title": m.title, "words": said(m), "est": m.est, "id": m.id, "label": labels.get(m.id, ""),
                             "open": m.id in opened,
-                            "links": (ml := shown(m.links)), "url": ml[0] if ml else ""}
+                            "links": (ml := shown(m.links, m.id in opened)), "url": ml[0] if ml else ""}
                            for m in members]}
         if task.kind == "batch":
             return templates.render(tpl["batch"], ctx), templates.render(tpl["batch_notes"], ctx).rstrip()

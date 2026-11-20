@@ -139,3 +139,20 @@ def test_a_block_says_what_the_work_is_and_links_to_it_when_the_label_task_judge
         "Review the Q4 roadmaps and send comments\n")
     _, notes = title_of(task("g", "", kind="batch", members=("ia", "ib")))
     assert notes == "- Review the Q4 roadmaps and send comments https://wiki.example.org/q4\n- Private work"
+
+
+def test_a_task_that_is_not_open_still_shows_a_link_to_a_host_the_workspace_trusts():
+    """The block of a task that is not open says nothing of the task, but its link can still
+    lead the operator to the record when the address itself reveals nothing. An open task
+    shows its link whatever the host."""
+    from dataclasses import replace
+    r = rc("shared")
+    r.ws.config.planning = Planning.model_validate({
+        "calendar": {"provider": "destination", "destination": "cal"},
+        "titles": {"task": "{label|default:Task}", "notes": "{?open}{words|sentence}\n{/open}{?url}{url}{/url}",
+                   "link_hosts": ["chat.example.org"]}})
+    quiet = replace(task("ia", "Look into the outage"), links=("https://wiki.example.org/Outage+at+Site", "https://chat.example.org/t/1"))
+    plain = replace(task("ib", "Review the plan"), links=("https://wiki.example.org/Plan",))
+    title_of = _titler(r, {"ia": quiet, "ib": plain}, {"ia": "Review an incident", "ib": "Review a plan"}, {"ib"})
+    assert title_of(quiet) == ("Review an incident", "https://chat.example.org/t/1")
+    assert title_of(plain) == ("Review a plan", "Review the plan\nhttps://wiki.example.org/Plan")
