@@ -132,11 +132,19 @@ def test_a_carried_task_moves_its_elapsed_block_and_apply_succeeds(persona, cli,
             opt = q["options"][0]["id"]
             argv = fill_template(step["answer"]["argv"], q["id"], opt)
         elif q is partly:
-            argv = fill_template(step["answer"]["argv"], q["id"], "partly") + ["--est", "45m"]
+            argv = fill_template(step["answer"]["argv"], q["id"], "partly") + ["--est", "45m", "--due", "2026-10-23"]
         else:
             argv = fill_template(step["answer"]["argv"], q["id"], "not_done")
         code, env = cli(*argv[1:])
         assert code == 0, env
+    # the new due date given with the answer is the one this plan schedules against, not the
+    # one still on the line until the plan is applied
+    assert run_agent(ws, stop_at=lambda s: s["kind"] == "ask").final["kind"] == "ask"
+    tid = next(o["task_ids"][0] for o in plan_ops(ws, run2) if o.get("key") == partly["details"]["block_key"])
+    code, env = cli("plan", "explain", tid, "--run", run2, "--workspace", str(ws))
+    assert code == 0, env.get("error")
+    key = env["data"]["explain"]["ordering_key"]
+    assert key["due"] == "2026-10-23" and key["overdue"] is False, key
     done = run_agent(ws)
     assert done.failures == [] and done.final["kind"] == "done", done.final
     assert done.final["summary"]["unwritten"] == []

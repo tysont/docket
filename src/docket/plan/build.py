@@ -246,7 +246,9 @@ def gather_tasks(rc: "RunContext", inp: Inputs, decide: dict[str, Any], instance
         adj = adjust.get(st.id) or {}
         if adj.get("closed"):  # M5: closed by a reconcile or verify answer; its blocks are released
             continue
-        fields = dict(st.fields)
+        # what the answer sets on the line (a new due date, a new estimate) is what this plan
+        # schedules against: the line itself changes only when the plan is applied
+        fields = {**st.fields, **(adj.get("fields") or {})}
         if adj.get("est"):
             fields["est"] = str(adj["est"])
         task = _task_from_fields(st.id, st.title, fields, inp, tier=st.tier, source="store", instances=instances)

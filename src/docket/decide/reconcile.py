@@ -241,7 +241,7 @@ def operations(rc: "RunContext", qid: str, row: dict[str, Any], answer: dict[str
     if oid == "partly":
         sets = {**task_update_fields(rc, ov), carry_name: str(task["carry"] + 1)}
         return preview(rc, "task.update", did, {**base, "set": sets}, qid, target=task["line"]), \
-            {"est": ov.get("est"), "est_text": format_duration(ov.get("est"))}
+            {"est": ov.get("est"), "est_text": format_duration(ov.get("est")), "fields": task_update_fields(rc, ov)}
     if oid == "rescope":
         sets = {**task_update_fields(rc, ov), carry_name: "0"}
         fields = {**base, "set": sets}
@@ -251,6 +251,8 @@ def operations(rc: "RunContext", qid: str, row: dict[str, Any], answer: dict[str
         adj: dict[str, Any] = {}
         if ov.get("est"):
             adj["est"] = ov["est"]
+        if task_update_fields(rc, ov):
+            adj["fields"] = task_update_fields(rc, ov)
         return preview(rc, "task.update", did, fields, qid, target=task["line"]), adj
     if oid == "to_agenda":
         from docket.decide.options import default_destination
