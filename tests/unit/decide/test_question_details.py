@@ -59,6 +59,14 @@ def test_reviewed_names_the_deadline_the_reviewer_set():
     assert reviewed_of(same) is None                       # the reviewer gave the date the item already had
 
 
+def test_reviewed_says_the_reviewer_cleared_a_deadline():
+    cleared = {"id": "a", "verdict": "ask", "review": {"no_deadline": True, "reason": "the lines name no date"},
+               "trace": [{"step": "reviewed", "no_deadline": True, "was_deadline": "2026-10-20"}]}
+    assert reviewed_of(cleared) == {"no_deadline": True, "why": "the lines name no date"}
+    never = {**cleared, "trace": [{"step": "reviewed", "no_deadline": True, "was_deadline": None}]}
+    assert reviewed_of(never) is None                      # the item had no date to clear
+
+
 def test_a_card_carries_link_source_sender_time_score_and_text():
     it = {"id": "a", "source": "mail", "url": "", "from": "Ana Example <ana@example.org>",
           "sender": {"display": "Ana Example"}, "at": "2026-10-15T09:00:00Z", "score": 72,

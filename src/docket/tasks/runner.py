@@ -14,8 +14,9 @@ Review verdicts wire into the item set:
 - ``needs_verification``: the item stays kept and is flagged for the operator.
 
 A row's ``decision``, ``deadline`` and ``est`` replace the assessment's values under any
-verdict; the trace keeps the old ones (``was``, ``was_deadline``, ``was_est``). On a drop or
-a completed merge the item leaves the kept set, so they change nothing asked.
+verdict; the trace keeps the old ones (``was``, ``was_deadline``, ``was_est``). A row's
+``no_deadline`` removes the assessment's deadline, and the trace keeps it as ``was_deadline``.
+On a drop or a completed merge the item leaves the kept set, so they change nothing asked.
 """
 from __future__ import annotations
 
@@ -233,6 +234,8 @@ def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
         v = row.get("verdict")
         review = {k: row[k] for k in ("against", "reason", "merge_with", "decision", "deadline", "est")
                   if row.get(k) not in (None, "")}
+        if row.get("no_deadline") is True and "deadline" not in review:
+            review["no_deadline"] = True
         entry: dict[str, Any] = {"verb": "judge", "step": "reviewed", "node": plan.node, "verdict": v, **review}
         # The reviewer's decision, deadline and estimate replace the assessment's; the trace keeps both.
         before = it.get("assessment") or {}
@@ -241,6 +244,10 @@ def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
             new["assessment"] = {**before, **changed}
         for k in changed:
             entry[REVIEW_REPLACES[k]] = before.get(k)
+        if review.get("no_deadline"):
+            # The reviewer cleared a deadline the candidate's lines do not name; the trace keeps it.
+            new["assessment"] = {k: x for k, x in {**before, **changed}.items() if k != "deadline"}
+            entry[REVIEW_REPLACES["deadline"]] = before.get("deadline")
         entry["task"] = task
         new["verdict"] = v
         new["review"] = review

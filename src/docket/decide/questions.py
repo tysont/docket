@@ -28,7 +28,7 @@ findings by score, then verify). A question::
 
 A finding also carries what a card needs to show its item (``card``): ``source``,
 ``source_label``, ``from``, ``at``, ``text`` (bounded), and ``reviewed`` when a review
-node changed its recommendation, set its deadline or doubted it.
+node changed its recommendation, set or cleared its deadline, or doubted it.
 """
 from __future__ import annotations
 
@@ -153,8 +153,8 @@ def links_of(it: dict[str, Any], by_id: dict[str, dict[str, Any]] | None = None)
 
 def reviewed_of(it: dict[str, Any]) -> dict[str, Any] | None:
     """What a review node said that a card should show: the recommendation it changed
-    (``was``, ``now``, ``why``), the deadline it set (``deadline``), or its doubt (``doubt``:
-    the item needs verification). None when it did none of these."""
+    (``was``, ``now``, ``why``), the deadline it set (``deadline``) or cleared (``no_deadline``),
+    or its doubt (``doubt``: the item needs verification). None when it did none of these."""
     rv = it.get("review") if isinstance(it.get("review"), dict) else {}
     out: dict[str, Any] = {}
 
@@ -169,6 +169,9 @@ def reviewed_of(it: dict[str, Any]) -> dict[str, Any] | None:
             out.update({"was": was, "now": now, "why": rv.get("reason") or ""})
     if rv.get("deadline") and before("was_deadline") != rv["deadline"]:
         out["deadline"] = rv["deadline"]
+        out.setdefault("why", rv.get("reason") or "")
+    if rv.get("no_deadline") and before("was_deadline"):
+        out["no_deadline"] = True
         out.setdefault("why", rv.get("reason") or "")
     if it.get("verdict") == "needs_verification":
         out["doubt"] = rv.get("against") or rv.get("reason") or "needs verification"

@@ -307,6 +307,57 @@ def test_the_reviewers_deadline_and_estimate_replace_the_assessments_and_the_tra
     assert d["trace"][-1]["was_deadline"] is None
 
 
+def test_a_reviewer_can_clear_a_deadline_but_not_also_give_one():
+    """The assessment may name a due date the candidate's lines never give. The reviewer clears
+    it with ``no_deadline``. A row that clears the deadline and gives one says two opposite
+    things, so it is refused with the row, the rule and the fix."""
+    cfg = persona_config("reference-like")
+    kind = persona_kinds("reference-like")["review"]
+    spec = kind.field("no_deadline")
+    assert spec is not None and spec.type == "bool" and not spec.required
+    items = [item(i, keep=True, assessment={"kind": "request", "owner": "me", "ask": "Reply",
+                                            "deadline": "2026-10-20"}) for i in range(2)]
+    pack = packs_for(kind, items, cfg)[0]
+    a, b = (it["id"] for it in pack["items"])
+    got = submit.validate(kind, pack, {"items": [
+        {"id": a, "verdict": "ask", "against": "It may wait.", "no_deadline": True},
+        {"id": b, "verdict": "needs_verification", "reason": "Unclear.", "no_deadline": "true"}]},
+        raw_text=raw_from_lines(pack), rerun=RERUN)
+    rows = {r["id"]: r for r in got.body["items"]}
+    assert rows[a]["no_deadline"] is True and rows[b]["no_deadline"] is True
+    with pytest.raises(DocketError) as ei:
+        submit.validate(kind, pack, {"items": [
+            {"id": a, "verdict": "ask", "against": "It may wait.", "no_deadline": True, "deadline": "2026-10-16"},
+            {"id": b, "verdict": "ask", "against": "It may wait."}]}, raw_text=raw_from_lines(pack), rerun=RERUN)
+    e = ei.value
+    assert e.code == "task.rows_refused"
+    (row,) = e.details["rows"]
+    assert (row["id"], row["path"], row["code"]) == (a, "items[0].no_deadline", "task.cross_field")
+    assert "`deadline`" in row["rule"] and "`no_deadline`" in row["rule"] and row["fix"]
+
+
+def test_a_cleared_deadline_leaves_the_item_and_the_trace_keeps_it():
+    """A cleared deadline is taken off the assessment, so nothing downstream reads it. The trace
+    keeps the old date under ``was_deadline``, as it does for a replaced one. Clearing a date the
+    item never had changes nothing but the trace."""
+    from docket.tasks.runner import combine_review
+    base = {"keep": True, "trace": []}
+    items = [{"id": "a", **base, "assessment": {"decision": "act", "ask": "Reply", "deadline": "2026-10-20",
+                                                "est": 30}},
+             {"id": "b", **base, "assessment": {"ask": "Reply"}}]
+    rows = [{"id": "a", "verdict": "ask", "against": "Could wait.", "no_deadline": True,
+             "reason": "The lines name no date."},
+            {"id": "b", "verdict": "ask", "against": "Could wait.", "no_deadline": True}]
+    out = {it["id"]: it for it in combine_review(items, _review_plan(rows))["items"]}
+    a = out["a"]
+    assert a["assessment"] == {"decision": "act", "ask": "Reply", "est": 30}
+    assert a["review"]["no_deadline"] is True and a["keep"] is True
+    last = a["trace"][-1]
+    assert last["was_deadline"] == "2026-10-20" and last["no_deadline"] is True and "deadline" not in last
+    b = out["b"]
+    assert b["assessment"] == {"ask": "Reply"} and b["trace"][-1]["was_deadline"] is None
+
+
 def test_a_workspace_can_ask_the_assessment_for_extra_words_about_an_item():
     """Some destinations want an item said another way than its ask: as a topic for a meeting,
     say. A workspace names such a field and says what it should be; the assessment may fill

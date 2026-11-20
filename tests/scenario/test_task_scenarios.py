@@ -260,3 +260,46 @@ def test_a_reviewer_who_makes_an_item_work_gives_the_deadline_the_question_and_t
     assert code == 0, env
     line = env["data"]["action_preview"]["operations"][0]["line"]
     assert "[due:: 2026-10-16]" in line and "[est:: 45m]" in line
+
+
+def test_a_reviewer_who_clears_an_invented_deadline_leaves_the_question_without_a_due_date(persona, cli,
+                                                                                             pinned_now):
+    """The assessment gave every item a due date its lines never name. The reviewer clears it on
+    one item. The question for that item proposes no due date and says the reviewer cleared it;
+    the other items keep the assessment's date."""
+    ws = persona("reference-like")
+    plan = ws / "planning.yaml"
+    plan.write_text(plan.read_text().replace("    horizon_days: 10", "    horizon_days: 10\n"
+                                             "    default_lead_days: null", 1))
+    run_id = start(cli, ws, "daily", pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "assess")
+    assert res.failures == [], res.failures
+    for t in res.final["tasks"]:
+        result = synthetic_result("assess", json.loads(Path(t["pack_path"]).read_text()))
+        code, env = submit(cli, t, {"items": [{**r, "deadline": "2026-10-20"} for r in result["items"]]})
+        assert code == 0, env
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "review")
+    assert res.failures == [], res.failures
+    undated = {it["id"] for it in artifact(ws, run_id, "merge")["items"]
+               if not (it.get("signals") or {}).get("deadline")}
+    chosen = None
+    for t in res.final["tasks"]:
+        rows = synthetic_result("review", json.loads(Path(t["pack_path"]).read_text()))["items"]
+        for r in rows:
+            if chosen is None and r["id"] in undated:
+                chosen = r["id"]
+                r.update(no_deadline=True, reason="The lines name no date and no event it is needed for.")
+        code, env = submit(cli, t, {"items": rows})
+        assert code == 0, env
+    assert chosen is not None
+    reviewed = {it["id"]: it for it in artifact(ws, run_id, "review")["items"]}[chosen]
+    assert "deadline" not in reviewed["assessment"] and reviewed["trace"][-1]["was_deadline"] == "2026-10-20"
+
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask", full=True)
+    assert res.failures == [] and res.final["kind"] == "ask", res.final
+    q = next(q for q in res.final["questions"] if q["id"] == f"q_{chosen}")
+    assert q["details"]["defaults"]["due"] is None
+    assert q["details"]["reviewed"] == {"no_deadline": True,
+                                        "why": "The lines name no date and no event it is needed for."}
+    others = [q for q in res.final["questions"] if q["id"] != f"q_{chosen}" and q["id"][2:] in undated]
+    assert others and all(o["details"]["defaults"]["due"] == "2026-10-20" for o in others)

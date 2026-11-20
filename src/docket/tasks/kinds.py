@@ -465,7 +465,7 @@ Hunt for these failures:
 
 For every candidate you leave at ask, write the strongest argument against asking in one sentence. Use needs_verification when the pack cannot settle the question.
 
-When you make a candidate work that the proposal did not treat as work, give a deadline only if the candidate's lines name a date or an event it is needed for. Never invent one."""
+When you make a candidate work that the proposal did not treat as work, give a deadline only if the candidate's lines name a date or an event it is needed for. Never invent one. When a proposal's deadline is not named by the candidate's lines (no date, no event it is needed for), set `no_deadline`."""
 
 EXTRACT_INSTRUCTIONS = """\
 You extract commitments and requests from documents gathered for {me.name}, the operator. Each pack item is one document; its lines are the document's sections.
@@ -597,6 +597,7 @@ def _assess(cfg: TasksConfig) -> TaskKind:
 
 
 def _review(cfg: TasksConfig) -> TaskKind:
+    from docket.tasks.review_check import ReviewCheck
     r = cfg.review
     fields = (
         FieldSpec("verdict", "enum", "Your verdict on asking the operator about this candidate.", required=True,
@@ -610,6 +611,8 @@ def _review(cfg: TasksConfig) -> TaskKind:
         FieldSpec("deadline", "date", "The date the work is due (YYYY-MM-DD), only when you make the candidate "
                                       "work and its lines name a date or an event it is needed for.",
                   extend="tasks.review"),
+        FieldSpec("no_deadline", "bool", "true when the proposal's deadline is not named by the candidate's "
+                                          "lines: the item keeps no deadline. Never with `deadline`."),
         FieldSpec("est", "duration", "The focused working time the work needs (15m, 30m, 1h), when the "
                                      "proposal's is missing or wrong.", extend="tasks.review"),
     )
@@ -625,7 +628,7 @@ def _review(cfg: TasksConfig) -> TaskKind:
     )
     return TaskKind("review", "review", True, "Check each kept candidate before the operator is asked.",
                     REVIEW_INSTRUCTIONS, r.guidance, fields, rules, r.max_items, r.max_bytes,
-                    "review")
+                    "review", check=ReviewCheck())
 
 
 def _label(cfg: TasksConfig) -> TaskKind:
