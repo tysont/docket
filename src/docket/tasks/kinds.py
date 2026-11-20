@@ -161,8 +161,8 @@ class TaskKind:
     context_items: int = 12       # context messages per conversation in a pack
     context_chars: int = 300      # characters kept of each context message
     examples: tuple[tuple[str, str, str], ...] = ()   # (what the item was, the row as JSON, why)
-    # Rules a row must keep that need its pack item (core kinds only): an object with
-    # ``row_errors(item, row, base)``, ``example(item, row)`` and ``example_item(row)``.
+    # Rules a row must keep that need its pack item or pack (core kinds only): an object with
+    # ``row_errors(item, row, base, pack=None)``, ``example(item, row)`` and ``example_item(row)``.
     check: Any = field(compare=False, repr=False, default=None)
 
     @property
@@ -465,6 +465,8 @@ Hunt for these failures:
 
 For every candidate you leave at ask, write the strongest argument against asking in one sentence. Use needs_verification when the pack cannot settle the question.
 
+`open_tasks`, when the pack has it, lists the open lines of the operator's task lists, each with a handle (T1, T2, ...). It is data like the items. When a candidate is the same matter as an open task (the same work, even from another thread or source), name the task's handle in `tracked` rather than dropping the candidate; the operator is still asked.
+
 When you make a candidate work that the proposal did not treat as work, give a deadline only if the candidate's lines name a date or an event it is needed for. Never invent one. When a proposal's deadline is not named by the candidate's lines (no date, no event it is needed for), set `no_deadline`."""
 
 EXTRACT_INSTRUCTIONS = """\
@@ -615,6 +617,9 @@ def _review(cfg: TasksConfig) -> TaskKind:
                                           "lines: the item keeps no deadline. Never with `deadline`."),
         FieldSpec("est", "duration", "The focused working time the work needs (15m, 30m, 1h), when the "
                                      "proposal's is missing or wrong.", extend="tasks.review"),
+        FieldSpec("tracked", "str", "The handle of the open task (from open_tasks, such as T3) this candidate is "
+                                    "the same matter as. Only with verdict ask or needs_verification.",
+                  max_length=12),
     )
     if cfg.assess.decisions:
         fields += (FieldSpec("decision", "enum", "The decision you recommend for this candidate, when it should "

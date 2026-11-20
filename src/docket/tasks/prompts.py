@@ -45,7 +45,8 @@ def nonce_for(pack: dict[str, Any], data: str) -> str:
 
 def fence(pack: dict[str, Any]) -> tuple[str, str, str]:
     """(open delimiter, close delimiter, fenced data) for a pack."""
-    data = pretty_json({k: pack[k] for k in ("items", "context", "units", "profile", "vocabulary") if k in pack})
+    data = pretty_json({k: pack[k] for k in ("items", "context", "units", "profile", "vocabulary", "open_tasks")
+                       if k in pack})
     n = nonce_for(pack, data)
     return f"<<<DATA-{n}", f"DATA-{n}>>>", data
 

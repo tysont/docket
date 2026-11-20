@@ -214,9 +214,10 @@ def row_errors(kind: "TaskKind", pack: dict[str, Any], rows: list[dict[str, Any]
                 errors.append({"id": rid, "path": f"{base}.{name}", "received": row.get(name),
                                "code": "task.cross_field", "rule": r.describe(),
                                "fix": f"add `{name}`: {f.description}" if f else f"add `{name}`"})
-        # rules that need the pack item (a core kind's own, such as the audit's entries and links)
+        # rules that need the pack item or the pack (a core kind's own, such as the audit's entries
+        # and links, or the open task a review row names)
         if kind.check is not None:
-            errors += kind.check.row_errors(item, row, base)
+            errors += kind.check.row_errors(item, row, base, pack=pack)
     return errors
 
 

@@ -342,10 +342,11 @@ class JudgeNode(BaseNode):
 
     def sections(self, run: "RunContext") -> tuple[str, ...]:
         # An item kind reads the rules that select its items (recap also the agendas it reads
-        # beside them), review only the tasks, and label the task lines planning may place.
+        # beside them), review the tasks and the open task lines it shows, and label the task
+        # lines planning may place.
         kind = self.kind(run)
         if kind.family == "review":
-            return ("profile", "tasks")
+            return ("profile", "tasks", "planning", "destinations") if kind.core else ("profile", "tasks")
         if kind.family == "label":
             return ("profile", "tasks", "planning", "destinations")
         if kind.name == "recap":

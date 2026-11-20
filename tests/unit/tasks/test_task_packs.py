@@ -307,3 +307,46 @@ def test_an_example_that_the_task_itself_would_refuse_is_a_configuration_error(t
         "profile:\n  timezone: UTC\n  me: { name: Dana Reyes }\n"
         "tasks:\n  assess:\n    examples: " + _json.dumps(EXAMPLES) + "\n", encoding="utf-8")
     assert check(root)[1] == []
+
+
+def test_a_review_pack_lists_the_open_tasks_with_handles_cut_and_capped():
+    """The reviewer sees the open lines of the task stores as data, each with a handle (T1, T2,
+    ...) in destination order, then file order. A long line is cut. Past the cap the block says
+    how many lines it left out, and a cap of 0 turns the block off. A line's id field, when it
+    has one, stays with the task beside the handle."""
+    from docket.tasks import open_tasks
+    cfg = persona_config("reference-like")
+    long = "- [ ] Draft the invented " + "plan " * 80 + "[id:: k-1]"
+    stores = [{"destination": "backlog", "path": "Backlog.md",
+               "open": [long, "- [ ] Send the invented notes", "- [ ] Book the invented room [id:: k-3]"]}]
+    tasks = open_tasks.entries(stores, cfg)
+    assert [t["handle"] for t in tasks] == ["T1", "T2", "T3"]
+    assert tasks[0] == {"handle": "T1", "destination": "backlog", "line": long, "task_id": "k-1"}
+    assert "task_id" not in tasks[1] and tasks[2]["task_id"] == "k-3"
+    block = open_tasks.block(tasks, 2)
+    assert block["omitted"] == 1 and [ln["handle"] for ln in block["lines"]] == ["T1", "T2"]
+    assert block["lines"][0]["text"] == long[:300] + "\u2026"
+    assert block["lines"][1] == {"handle": "T2", "destination": "backlog", "text": "- [ ] Send the invented notes"}
+    assert open_tasks.block(tasks, 200)["omitted"] == 0
+    assert open_tasks.block(tasks, 0) is None and open_tasks.block([], 200) is None
+
+    kind = _kind("review")
+    items = [item(1, keep=True, assessment={"kind": "request", "owner": "me", "ask": "Reply"})]
+    ctx = PackContext.build(cfg)
+    ctx.open_tasks = block
+    pack = build_packs(kind, items, ctx)[0]
+    assert pack["open_tasks"] == block
+    open_, close, data = fence(pack)
+    assert '"open_tasks"' in data and "Send the invented notes" in data
+    prompt = render_prompt(kind, pack, config=cfg, result_path="/tmp/r.json", submit_shell="docket task submit")
+    assert prompt.index(open_ + "\n") < prompt.index("Send the invented notes") < prompt.rindex(close)
+    assert "open_tasks" not in packs_for(kind, items, cfg)[0]
+
+
+def test_the_open_task_cap_is_a_review_setting():
+    from pydantic import ValidationError
+    from docket.config.task_models import TasksConfig
+    assert TasksConfig().review.max_open_tasks == 200
+    assert TasksConfig.model_validate({"review": {"max_open_tasks": 0}}).review.max_open_tasks == 0
+    with pytest.raises(ValidationError):
+        TasksConfig.model_validate({"review": {"max_open_tasks": -1}})

@@ -303,3 +303,38 @@ def test_a_reviewer_who_clears_an_invented_deadline_leaves_the_question_without_
                                         "why": "The lines name no date and no event it is needed for."}
     others = [q for q in res.final["questions"] if q["id"] != f"q_{chosen}" and q["id"][2:] in undated]
     assert others and all(o["details"]["defaults"]["due"] == "2026-10-20" for o in others)
+
+
+def test_a_candidate_the_reviewer_marks_tracked_is_still_asked_and_names_the_open_task(persona, cli, pinned_now):
+    """Two threads can be about one piece of work, and the operator may already hold an open task
+    for it whose line links neither. The reviewer sees the open task lines with handles and names
+    the one the candidate is. The candidate is still asked, because a missed item costs more than
+    a repeated one, and its question names the open line and the task's id."""
+    ws = persona("reference-like")
+    line = "- [ ] Prepare the invented quarterly summary [id:: task-7]"
+    backlog = ws / "Backlog.md"
+    backlog.write_text(backlog.read_text().replace("## Inbox\n", "## Inbox\n" + line + "\n", 1))
+    run_id = start(cli, ws, "daily", pinned_now)
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "dispatch" and s["node"] == "review")
+    assert res.failures == [], res.failures
+    chosen = handle = None
+    for t in res.final["tasks"]:
+        pack = json.loads(Path(t["pack_path"]).read_text())
+        shown = {ln["text"]: ln["handle"] for ln in pack["open_tasks"]["lines"]}
+        assert line in shown and {ln["destination"] for ln in pack["open_tasks"]["lines"]} == {"backlog"}
+        assert line in Path(t["prompt_path"]).read_text()
+        rows = synthetic_result("review", pack)["items"]
+        if chosen is None:
+            chosen, handle = rows[0]["id"], shown[line]
+            rows[0].update(tracked=handle, reason="Same work as the open summary task, from another thread.")
+        code, env = submit(cli, t, {"items": rows})
+        assert code == 0, env
+    assert chosen is not None
+    reviewed = {it["id"]: it for it in artifact(ws, run_id, "review")["items"]}[chosen]
+    assert reviewed["keep"] is True and reviewed["review"]["tracked"]["task_id"] == "task-7"
+
+    res = run_agent(ws, stop_at=lambda s: s["kind"] == "ask", full=True)
+    assert res.failures == [] and res.final["kind"] == "ask", res.final
+    q = next(q for q in res.final["questions"] if q["id"] == f"q_{chosen}")
+    assert q["details"]["tracked"] == {"destination": "backlog", "line": line, "handle": handle, "task_id": "task-7"}
+    assert q["details"]["reviewed"]["tracked"] == line

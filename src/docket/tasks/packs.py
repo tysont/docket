@@ -3,7 +3,9 @@
 A pack holds everything its task needs and nothing else: each item's fields
 and evidence lines with line ids, the context of the units the items came
 from, the profile excerpts the items touch (people named, topics matched) and
-the vocabulary. Conversations (items sharing a thread) stay together, oldest item first.
+the vocabulary. A review pack also lists the open lines of the task stores, each with a
+handle (``open_tasks``, ``docket.tasks.open_tasks``). Conversations (items sharing a thread)
+stay together, oldest item first.
 They sort must-surface first, then by score descending, then
 by id, and batch to the kind's ``max_items`` and ``max_bytes``. A must-surface
 item is never dropped or trimmed: when it alone exceeds the byte budget, its
@@ -97,6 +99,17 @@ class PackProfile(_Open):
     topics: list[PackTopic] = []
 
 
+class PackOpenTask(_Open):
+    handle: str = Field(description="The handle a review row names in tracked, such as T1.")
+    destination: str
+    text: str = Field(description="The open task line as written, cut to 300 characters.")
+
+
+class PackOpenTasks(_Open):
+    lines: list[PackOpenTask]
+    omitted: int = Field(0, description="Open task lines left out past tasks.review.max_open_tasks.")
+
+
 class PackBudget(_Open):
     max_items: int
     max_bytes: int
@@ -115,6 +128,8 @@ class Pack(_Open):
     units: list[PackUnit] = []
     profile: PackProfile
     vocabulary: dict[str, list[str]] = {}
+    open_tasks: Optional[PackOpenTasks] = Field(None, description="review: the open lines of the task stores, "
+                                                                  "each with a handle.")
     budget: PackBudget
 
 
@@ -146,6 +161,7 @@ class PackContext:
     people: list[tuple[dict[str, Any], re.Pattern[str] | None]] = field(default_factory=list)
     topics: list[tuple[dict[str, Any], re.Pattern[str] | None]] = field(default_factory=list)
     units: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    open_tasks: dict[str, Any] | None = None    # review: the open task block (``docket.tasks.open_tasks``)
 
     @classmethod
     def build(cls, config: "DocketConfig", units: dict[tuple[str, str], dict[str, Any]] | None = None) -> "PackContext":
@@ -330,6 +346,7 @@ def build_packs(kind: "TaskKind", items: list[dict[str, Any]], ctx: PackContext)
             "kind": kind.name, "family": kind.family, "spec": kind.spec_digest, "items": views, "units": units,
             **({"context": context} if context else {}),
             "profile": _excerpts(ctx, views), "vocabulary": voc,
+            **({"open_tasks": ctx.open_tasks} if ctx.open_tasks else {}),
             "budget": {"max_items": kind.max_items, "max_bytes": kind.max_bytes, "bytes": total,
                        "over_budget": total > kind.max_bytes},
         }

@@ -79,6 +79,9 @@ class AssessTasks(TaskBudget):
 
 class ReviewTasks(TaskBudget):
     guidance: str | None = None
+    # The open task lines shown to the review, each with a handle (T1, T2, ...) a row may name
+    # in ``tracked``. At most this many, in destination then file order; 0 shows none.
+    max_open_tasks: int = Field(200, ge=0, le=5000)
 
 
 class LabelTasks(TaskBudget):

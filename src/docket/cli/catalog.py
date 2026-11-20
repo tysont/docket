@@ -145,8 +145,8 @@ ERRORS: dict[str, tuple[str, bool, str]] = {
                           "check; details.rows names each row's path, received value, rule and fix."),
     "task.identity_mismatch": ("integrity", False, "A result row's copied identity field (such as source) differs "
                                "from its pack item (a row code in details.rows)."),
-    "task.unknown_ref": ("integrity", False, "A result row's item reference names no other item of the pack "
-                         "(a row code in details.rows)."),
+    "task.unknown_ref": ("integrity", False, "A result row's item reference names no other item of the pack, "
+                         "or its open task handle is not one the pack shows (a row code in details.rows)."),
     "task.evidence_not_verbatim": ("integrity", False, "An evidence quote does not appear verbatim in the item's "
                                    "raw record (a row code in details.rows)."),
     "task.evidence_unknown_line": ("integrity", False, "An evidence quote names a line id the item does not have "

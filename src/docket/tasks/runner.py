@@ -13,6 +13,11 @@ Review verdicts wire into the item set:
   target is not retained keeps the item, so no finding is lost;
 - ``needs_verification``: the item stays kept and is flagged for the operator.
 
+An ``ask`` or ``needs_verification`` row may name the open task the candidate is already
+tracked as (``tracked``, a handle of the pack's ``open_tasks``). The item stays kept and its
+review carries the task: ``{destination, line, handle, task_id}``, ``task_id`` only when the
+line has an id field.
+
 A row's ``decision``, ``deadline`` and ``est`` replace the assessment's values under any
 verdict; the trace keeps the old ones (``was``, ``was_deadline``, ``was_est``). A row's
 ``no_deadline`` removes the assessment's deadline, and the trace keeps it as ``was_deadline``.
@@ -30,6 +35,7 @@ from docket.tasks import index
 from docket.tasks.evidence import RecordTexts, record_ids
 from docket.tasks.kinds import TaskKind
 from docket.tasks.packs import PackContext, build_packs, load_units
+from docket.tasks.review_check import TRACKED_VERDICTS
 
 if TYPE_CHECKING:
     from docket.engine.context import RunContext
@@ -43,6 +49,7 @@ class NodePlan:
     results: dict[str, dict[str, Any]]
     issued: set[str]
     records: dict[str, list[str]] = field(default_factory=dict)        # item id -> raw record ids
+    open_tasks: list[dict[str, Any]] = field(default_factory=list)     # review: the open task lines shown
 
     @property
     def complete(self) -> bool:
@@ -58,11 +65,18 @@ class NodePlan:
 def plan_node(rc: "RunContext", node: str, kind: TaskKind, candidates: list[dict[str, Any]]) -> NodePlan:
     """Every pack the node needs for ``candidates``, with the results already accepted."""
     ctx = PackContext.build(rc.ws.config, load_units(rc.run.store.db, {str(it.get("source")) for it in candidates}))
+    shown: list[dict[str, Any]] = []
+    if kind.core and kind.family == "review":
+        from docket.tasks import open_tasks
+        cap = rc.ws.config.tasks.review.max_open_tasks
+        tasks = open_tasks.read(rc.ws, rc.run) if cap > 0 and candidates else []
+        ctx.open_tasks = open_tasks.block(tasks, cap)
+        shown = tasks[:cap]
     packs = build_packs(kind, candidates, ctx)
     results = index.accepted(rc, packs)
     issued = {p["task_id"] for p in packs if (rc.run.paths.task(p["task_id"]) / "pack.json").is_file()}
     records = {it["id"]: record_ids(it) for it in candidates if "id" in it}
-    return NodePlan(node, kind, packs, results, issued, records)
+    return NodePlan(node, kind, packs, results, issued, records, shown)
 
 
 # --- issue and dispatch ------------------------------------------------------------
@@ -190,6 +204,14 @@ def combine_rows(items: list[dict[str, Any]], plan: NodePlan, kind: str) -> dict
 REVIEW_REPLACES = {"decision": "was", "deadline": "was_deadline", "est": "was_est"}
 
 
+def _tracked(plan: NodePlan, handle: Any) -> dict[str, Any] | None:
+    t = next((t for t in plan.open_tasks if t.get("handle") == handle), None) if handle else None
+    if t is None:
+        return None
+    return {"destination": t["destination"], "line": t["line"], "handle": t["handle"],
+            **({"task_id": t["task_id"]} if t.get("task_id") else {})}
+
+
 def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any]:
     verdicts: dict[str, tuple[str | None, dict[str, Any]]] = dict(rows(plan))
     by_id = {it["id"]: it for it in items}
@@ -236,6 +258,9 @@ def combine_review(items: list[dict[str, Any]], plan: NodePlan) -> dict[str, Any
                   if row.get(k) not in (None, "")}
         if row.get("no_deadline") is True and "deadline" not in review:
             review["no_deadline"] = True
+        tracked = _tracked(plan, row.get("tracked")) if v in TRACKED_VERDICTS else None
+        if tracked is not None:
+            review["tracked"] = tracked
         entry: dict[str, Any] = {"verb": "judge", "step": "reviewed", "node": plan.node, "verdict": v, **review}
         # The reviewer's decision, deadline and estimate replace the assessment's; the trace keeps both.
         before = it.get("assessment") or {}

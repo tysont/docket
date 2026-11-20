@@ -111,3 +111,17 @@ def test_null_budgets_ask_every_kept_item():
     assert len(asked) == 60 and over == []
     asked, over = select_asked(items, 0, 5, batch={"ack"}, batch_budget=None)
     assert len(asked) == 35 and len(over) == 25
+
+
+def test_a_card_names_the_open_task_a_reviewer_said_tracks_the_item():
+    from docket.engine.steps import CARD_DETAILS
+    tr = {"destination": "backlog", "line": "- [ ] Prepare the invented summary [id:: k-1]", "handle": "T1",
+          "task_id": "k-1"}
+    it = {"id": "a", "source": "chat", "verdict": "ask",
+          "review": {"against": "It may be new work.", "reason": "Same work as the open task.", "tracked": tr},
+          "trace": [{"step": "reviewed", "tracked": tr}]}
+    c = card(it, "chat")
+    assert c["tracked"] == tr
+    assert c["reviewed"] == {"tracked": tr["line"], "why": "Same work as the open task."}
+    assert "tracked" not in card({"id": "b", "source": "chat"}, "chat")
+    assert "tracked" in CARD_DETAILS

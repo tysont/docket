@@ -83,7 +83,7 @@ QUESTION, OPTION = "{question}", "{option}"
 COMPACT_DETAILS = ("digest", "diff_path", "counts", "requires", "previous", "recommended", "batch", "overflow",
                    "passed")
 # What a card shows of a question's subject (``docket next --full``, ``ask show``, ``ask list``).
-CARD_DETAILS = ("url", "links", "source", "source_label", "from", "at", "score", "text", "reviewed")
+CARD_DETAILS = ("url", "links", "source", "source_label", "from", "at", "score", "text", "reviewed", "tracked")
 
 
 class AskStep(BaseModel):

@@ -50,7 +50,8 @@ class AuditCheck:
     def __init__(self, max_add: int) -> None:
         self.max_add = max_add
 
-    def row_errors(self, item: dict[str, Any], row: dict[str, Any], base: str) -> list[dict[str, Any]]:
+    def row_errors(self, item: dict[str, Any], row: dict[str, Any], base: str,
+                   pack: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         rid = row["id"]
         fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
         lines = [str(e.get("line")) for e in fields.get("entries") or [] if isinstance(e, dict)]

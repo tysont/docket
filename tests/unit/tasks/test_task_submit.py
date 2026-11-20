@@ -384,3 +384,75 @@ def test_a_workspace_can_ask_the_assessment_for_extra_words_about_an_item():
     assert view["extra"] == {"agenda": "Capacity plan: who signs off?"} and bare["extra"] == {"agenda": ""}
     with pytest.raises(Exception):
         TasksConfig.model_validate({"assess": {"extra": {"ask": "collides with a core field"}}})
+
+
+OPEN = {"lines": [{"handle": "T1", "destination": "backlog", "text": "- [ ] Prepare the invented summary"},
+                  {"handle": "T2", "destination": "backlog", "text": "- [ ] Book the invented room"}], "omitted": 0}
+
+
+def _tracked_pack(block=OPEN, n=3):
+    from docket.tasks.packs import PackContext, build_packs
+    cfg = persona_config("reference-like")
+    kind = persona_kinds("reference-like")["review"]
+    ctx = PackContext.build(cfg)
+    ctx.open_tasks = block
+    items = [item(i, keep=True, assessment={"kind": "request", "owner": "me", "ask": "Reply"}) for i in range(n)]
+    return kind, build_packs(kind, items, ctx)[0]
+
+
+def test_a_review_row_may_name_the_open_task_a_candidate_is_tracked_as():
+    """A candidate may be the same matter as an open task, even from another thread. The reviewer
+    names the task's handle in ``tracked``. The handle must be one the pack shows, and only an
+    asked or doubted candidate may carry it: a tracked candidate is still put to the operator."""
+    kind, pack = _tracked_pack()
+    assert kind.field("tracked").type == "str" and not kind.field("tracked").required
+    a, b, c = (it["id"] for it in pack["items"])
+    got = run(kind, pack, [{"id": a, "verdict": "ask", "against": "It may be the same work.", "tracked": "T2"},
+                           {"id": b, "verdict": "needs_verification", "reason": "Unclear.", "tracked": "T1"},
+                           {"id": c, "verdict": "ask", "against": "It may wait."}])
+    rows = {r["id"]: r for r in got.body["items"]}
+    assert (rows[a]["tracked"], rows[b]["tracked"]) == ("T2", "T1") and "tracked" not in rows[c]
+
+    plain = [{"id": b, "verdict": "ask", "against": "It may wait."}, {"id": c, "verdict": "ask", "against": "x"}]
+    e = refusal(kind, pack, [{"id": a, "verdict": "ask", "against": "Same work.", "tracked": "T9"}, *plain])
+    (row,) = e.details["rows"]
+    assert (row["id"], row["path"], row["code"], row["received"]) == (a, "items[0].tracked", "task.unknown_ref", "T9")
+    assert "T1, T2" in row["fix"] and "`tracked`" in row["rule"]
+
+    e = refusal(kind, pack, [{"id": a, "verdict": "drop", "reason": "Tracked.", "tracked": "T1"},
+                             {"id": b, "verdict": "merge", "merge_with": a, "tracked": "T2"},
+                             {"id": c, "verdict": "ask", "against": "x"}])
+    got_rows = {r["path"]: r for r in e.details["rows"]}
+    assert set(got_rows) == {"items[0].tracked", "items[1].tracked"}
+    assert all(r["code"] == "task.cross_field" and "ask" in r["fix"] for r in got_rows.values())
+
+    kind, bare = _tracked_pack(block=None)
+    a, b, c = (it["id"] for it in bare["items"])
+    e = refusal(kind, bare, [{"id": a, "verdict": "ask", "against": "Same work.", "tracked": "T1"},
+                             {"id": b, "verdict": "ask", "against": "x"}, {"id": c, "verdict": "ask", "against": "x"}])
+    (row,) = e.details["rows"]
+    assert row["code"] == "task.unknown_ref" and "leave `tracked` out" in row["fix"]
+
+
+def test_a_tracked_candidate_is_still_asked_and_carries_the_open_task():
+    """The reviewer's ``tracked`` does not suppress the candidate. The item keeps the open task
+    it named in its review: the destination, the whole line, the handle and the task's id when
+    the line has one."""
+    from docket.tasks.runner import NodePlan, combine_review
+    items = [{"id": "a", "keep": True, "assessment": {"ask": "Reply"}, "trace": []},
+             {"id": "b", "keep": True, "assessment": {"ask": "Reply"}, "trace": []}]
+    rows = [{"id": "a", "verdict": "ask", "against": "Same work.", "tracked": "T1"},
+            {"id": "b", "verdict": "needs_verification", "reason": "Maybe the room task.", "tracked": "T2"}]
+    shown = [{"handle": "T1", "destination": "backlog", "line": "- [ ] Prepare the invented summary [id:: k-1]",
+              "task_id": "k-1"},
+             {"handle": "T2", "destination": "backlog", "line": "- [ ] Book the invented room"}]
+    plan = NodePlan(node="review", kind=persona_kinds("reference-like")["review"], packs=[{"task_id": "t1"}],
+                    results={"t1": {"items": rows}}, issued={"t1"}, open_tasks=shown)
+    out = {it["id"]: it for it in combine_review(items, plan)["items"]}
+    a, b = out["a"], out["b"]
+    assert a["keep"] is True and a["verdict"] == "ask"
+    assert a["review"]["tracked"] == {"destination": "backlog", "line": shown[0]["line"], "handle": "T1",
+                                      "task_id": "k-1"}
+    assert a["trace"][-1]["tracked"] == a["review"]["tracked"]
+    assert b["keep"] is True and b["needs_verification"] is True
+    assert b["review"]["tracked"] == {"destination": "backlog", "line": shown[1]["line"], "handle": "T2"}
